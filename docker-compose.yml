@@ -1,0 +1,35 @@
+version: '3.9'
+
+# ─────────────────────────────────────────────────────────────────────────────
+# PathoDB — Phase 1: Database only
+# Run: docker compose up -d
+#
+# Later phases will add services: api, frontend, ollama
+# ─────────────────────────────────────────────────────────────────────────────
+
+services:
+
+  postgres:
+    image: pgvector/pgvector:pg16        # Official pgvector image with PostgreSQL 16
+    container_name: pathodb_postgres
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      POSTGRES_DB:       ${POSTGRES_DB}
+      POSTGRES_USER:     ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data          # Persistent data volume
+      - ./db/schema.sql:/docker-entrypoint-initdb.d/01_schema.sql  # Auto-run on first start
+    ports:
+      - "127.0.0.1:5432:5432"           # Bind to localhost only — not exposed externally
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+volumes:
+  postgres_data:
+    driver: local

@@ -1,0 +1,93 @@
+[
+  {
+    "id": "metassist_v2",
+    "name": "MetAssist v2",
+    "description": "Segments lymph nodes and tumor tissue within them.",
+    "category": "Detection",
+    "stain_compatibility": ["HE"],
+    "estimated_minutes": 2.5,
+    "result_type": "multiclass_detection",
+    "params": [
+      {
+        "key": "met_tile_size",
+        "label": "Patch size (px)",
+        "type": "int",
+        "default": 336,
+        "options": [224, 336, 448, 560]
+      },
+      {
+        "key": "met_tile_overlap",
+        "label": "Tile overlap (%)",
+        "type": "int",
+        "default": 66,
+        "options": [25, 33, 50, 66, 75]
+      }
+    ]
+  },
+  {
+    "id": "crc_tissue_segmentation",
+    "name": "CRC Tissue Segmentation",
+    "description": "Segments tissue into tumor, stroma, necrosis, lymphoid tissue, mucous, normal mucosa, muscle (including vessels). \nOutputs a colour-coded overlay and per-zone area fractions.",
+    "category": "Segmentation",
+    "stain_compatibility": ["HE"],
+    "estimated_minutes": 8,
+    "result_type": "segmentation",
+    "params": [
+      {
+        "key": "tile_size",
+        "label": "Patch size (px)",
+        "type": "int",
+        "default": 336,
+        "options": [224, 336, 448, 560]
+      },
+      {
+        "key": "tile_overlap",
+        "label": "Tile overlap (%)",
+        "type": "int",
+        "default": 66,
+        "options": [25, 33, 50, 66, 75]
+      },
+      {
+        "key": "use_tissue_mask",
+        "label": "Use automated tissue mask",
+        "type": "bool",
+        "default": 1,
+        "options": [0, 1]
+      }
+    ]
+  },
+  {
+    "id": "hover_next",
+    "name": "HoVer-NeXt",
+    "description": "Fast and efficient nuclei segmentation and classification pipeline. Identifies and phenotypically classifies individual cells.",
+    "category": "Detection",
+    "stain_compatibility": ["HE"],
+    "estimated_minutes": 15,
+    "result_type": "multiclass_detection",
+    "params": [
+      {
+        "key": "cp",
+        "label": "Model Weights",
+        "type": "string",
+        "default": "lizard_convnextv2_large",
+        "options": ["lizard_convnextv2_large", "pannuke_convnextv2_large"]
+      },
+      {
+        "key": "tta",
+        "label": "Test-Time Augmentation",
+        "type": "int",
+        "default": 4,
+        "options": [1, 2, 4, 8]
+      },
+      {
+        "key": "pp_tiling",
+        "label": "Post-Processing Tiling",
+        "type": "int",
+        "default": 10,
+        "min": 2,
+        "max": 32,
+        "step": 2
+      }
+    ]
+  }
+]
