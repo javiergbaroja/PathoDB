@@ -4,6 +4,7 @@ import { api } from '../api'
 import JobOutcomeDispatcher from '../components/AnalysisOutcomes/JobOutcomeDispatcher'
 import { useAuth } from '../context/AuthContext'
 import { STAIN_COLORS } from '../constants/stains'
+import { fetchAndRenderOverlay, clearOverlay } from '../lib/overlayRenderer'
 
 // ── Style injection ───────────────────────────────────────────────────────────
 if (!document.getElementById('sv-styles')) {
@@ -70,8 +71,6 @@ export default function SlideViewer() {
   const [catalog,        setCatalog]        = useState([])
   const [analysisJobs,   setAnalysisJobs]   = useState([])
   const [activeOverlays, setActiveOverlays] = useState({})  // jobId → true/false
-  const [overlayData,    setOverlayData]    = useState({})  // jobId → {file → geojson}
-  const overlayRefs      = useRef({})                        // jobId → [svg elements]
 
   // ── Refs ───────────────────────────────────────────────────────────────────
   const leftViewerRef      = useRef(null)
@@ -409,165 +408,6 @@ export default function SlideViewer() {
     else             { setCompareMode(true) }
   }
 
-  async function fetchAndRenderOverlay(jobId, overlayDef, viewer) {
-    const { file_key: fileKey, legend, type } = overlayDef
-    const cacheKey = `${jobId}:${fileKey}`
-
-    // ==========================================
-    // RASTER TILE SERVER HANDLING (OME-TIFF)
-    // ==========================================
-    if (type === 'tiled_image') {
-      // 1. Get the TRUE dimensions of the mask from the JSON
-      // (Fallback to slide info just in case older jobs don't have it)
-      const maskWidth = overlayDef.mask_width || parseFloat(leftInfo?.width || 100000);
-      const maskHeight = overlayDef.mask_height || parseFloat(leftInfo?.height || 100000);
-      
-      // Calculate max level based ONLY on the mask's true dimensions
-      const maxLevel = Math.ceil(Math.log2(Math.max(maskWidth, maskHeight)));
-
-      viewer.addTiledImage({
-        tileSource: {
-          width: maskWidth,
-          height: maskHeight,
-          tileSize: 256,
-          minLevel: 0,
-          maxLevel: maxLevel,
-          getTileUrl: function(level, x, y) {
-            return `/api/analysis/jobs/${jobId}/tiles/${fileKey}?level=${level}&x=${x}&y=${y}&token=${token}`;
-          }
-        },
-        opacity: 0.7,
-        
-        // 2. THE FIX: Tell OSD to anchor and stretch this perfectly over the WSI
-        x: 0,
-        y: 0,
-        width: 1.0,
-        
-        success: function (event) {
-          if (!overlayRefs.current[jobId]) overlayRefs.current[jobId] = []
-          overlayRefs.current[jobId].push({ tiledImage: event.item })
-        }
-      });
-      return; 
-    }
-    if (type === 'image') {
-      // Endpoint where your backend serves the image/tiles
-      const imageUrl = `/api/analysis/jobs/${jobId}/overlay?file=${fileKey}`;
-
-      viewer.addTiledImage({
-        tileSource: {
-          type: 'image',
-          url: imageUrl
-        },
-        opacity: 0.65, // Keep it slightly transparent
-        x: 0,
-        y: 0,
-        width: 1, // OSD standardizes the WSI width to exactly 1.0
-        success: function (event) {
-          // Store the reference so we can delete it later
-          if (!overlayRefs.current[jobId]) overlayRefs.current[jobId] = []
-          overlayRefs.current[jobId].push({ tiledImage: event.item })
-        }
-      });
-      return; // Exit early, no need to parse JSON!
-    }
-
-    // ==========================================
-    // 2. VECTOR HANDLING (GeoJSON Polygons & Points)
-    // ==========================================
-    try {
-      const geojson = await api.getAnalysisOverlay(jobId, fileKey)
-      const info    = leftInfo
-      const slW     = info?.width
-      const slH     = info?.height
-      
-      if (!slW || !slH || !viewer || !geojson?.features?.length) return
-
-      const offsetX = parseFloat(info?.bounds_x || info?.offset_x || 0)
-      const offsetY = parseFloat(info?.bounds_y || info?.offset_y || 0)
-      const aspect  = slH / slW
-      const NS      = 'http://www.w3.org/2000/svg'
-      
-      const svg = document.createElementNS(NS, 'svg')
-      svg.setAttribute('viewBox', `0 0 1 ${aspect}`)
-      svg.style.cssText = 'position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;'
-
-      geojson.features.forEach(feature => {
-        const geom = feature.geometry
-        const name = feature.properties?.classification?.name || feature.properties?.name || 'other'
-        const color = legend[name] || '#94a3b8' 
-        
-        // Handle Polygons
-        const polygons = geom.type === 'Polygon'      ? [geom.coordinates]
-                       : geom.type === 'MultiPolygon' ? geom.coordinates
-                       : []
-
-        polygons.forEach(poly => {
-          let pathData = ''
-          poly.forEach(ring => {
-            ring.forEach(([x, y], i) => {
-              const localX = (x) / slW
-              const localY = (y) / slW
-              pathData += i === 0 ? `M ${localX},${localY} ` : `L ${localX},${localY} `
-            })
-            pathData += 'Z '
-          })
-          const path = document.createElementNS(NS, 'path')
-          path.setAttribute('d', pathData.trim())
-          path.setAttribute('fill', color)
-          path.setAttribute('fill-opacity', '0.4')
-          path.setAttribute('stroke', color)
-          path.setAttribute('stroke-width', '0.0005')
-          path.setAttribute('vector-effect', 'non-scaling-stroke')
-          path.setAttribute('fill-rule', 'evenodd') 
-          svg.appendChild(path)
-        })
-
-        // Handle Points
-        const points = geom.type === 'Point'      ? [geom.coordinates]
-                     : geom.type === 'MultiPoint' ? geom.coordinates
-                     : []
-
-        points.forEach(([x, y]) => {
-          const localX = (x) / slW
-          const localY = (y) / slW
-          const circle = document.createElementNS(NS, 'circle')
-          circle.setAttribute('cx', localX)
-          circle.setAttribute('cy', localY)
-          circle.setAttribute('r', '0.0008') 
-          circle.setAttribute('fill', color)
-          circle.setAttribute('fill-opacity', '0.9')
-          circle.setAttribute('stroke', 'rgba(0,0,0,0.5)')
-          circle.setAttribute('stroke-width', '0.0002')
-          svg.appendChild(circle)
-        })
-      })
-
-      viewer.addOverlay(svg, new window.OpenSeadragon.Rect(0, 0, 1, aspect))
-
-      if (!overlayRefs.current[jobId]) overlayRefs.current[jobId] = []
-      overlayRefs.current[jobId].push({ svg, viewer })
-      setOverlayData(prev => ({ ...prev, [cacheKey]: geojson }))
-
-    } catch (e) {
-      console.error(`Overlay fetch failed for ${fileKey}:`, e)
-    }
-  }
-
-  function clearOverlay(jobId, viewer) {
-    if (overlayRefs.current[jobId]) {
-      overlayRefs.current[jobId].forEach(item => {
-        if (item.svg) {
-          // Remove GeoJSON vector overlay
-          viewer.removeOverlay(item.svg)
-        } else if (item.tiledImage) {
-          // Remove Raster Image layer
-          viewer.world.removeItem(item.tiledImage)
-        }
-      })
-      delete overlayRefs.current[jobId]
-    }
-  }
 
   async function handleToggleOverlay(jobId) {
     const viewer = osdLeftRef.current
@@ -575,11 +415,10 @@ export default function SlideViewer() {
     const isOn = activeOverlays[jobId]
 
     if (isOn) {
-      clearOverlay(jobId, viewer)
+      clearOverlay(viewer, jobId) // Calling our new library function
       setActiveOverlays(o => ({ ...o, [jobId]: false }))
     } else {
       try {
-        // 1. Fetch the manifest to know WHAT to render
         const result = await api.getAnalysisResult(jobId)
         const overlays = result.overlays || []
 
@@ -588,10 +427,9 @@ export default function SlideViewer() {
           return
         }
 
-        // 2. Loop through the manifest and render dynamically
         for (const overlay of overlays) {
-          // Pass the entire overlay object, not just the fileKey and legend
-          await fetchAndRenderOverlay(jobId, overlay, viewer) 
+          // Calling our new library function and passing in token & leftInfo
+          await fetchAndRenderOverlay(viewer, jobId, overlay, token, leftInfo) 
         }
         
         setActiveOverlays(o => ({ ...o, [jobId]: true }))
