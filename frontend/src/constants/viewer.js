@@ -10,3 +10,10 @@ export const TOOLS = {
   ANNOTATE: 'annotate',
   MEASURE: 'measure',
 };
+
+export const CATEGORY_COLORS = {
+  Segmentation: '#6ee7b7',
+  Detection:    '#a78bfa',
+  Scoring:      '#fbbf24',
+  other:        '#94a3b8',
+}
