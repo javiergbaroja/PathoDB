@@ -3,6 +3,7 @@ import { useState, useEffect } from 'react'
 import { api } from '../../api'
 import JobOutcomeDispatcher from '../../components/AnalysisOutcomes/JobOutcomeDispatcher'
 import { CATEGORY_COLORS } from '../../constants/viewer'
+import { ErrorBoundary } from '../../components/ErrorBoundary'
 
 export default function ModelsPanel({ catalog, scanId, scanInfo, jobs, activeOverlays, setActiveOverlays, onJobsChange, onToggleOverlay }) {
   const [expandedId,  setExpandedId]  = useState(null)
@@ -190,7 +191,17 @@ function PastJobsList({ jobs, catalog, activeOverlays, onToggleOverlay, onDelete
                 <button onClick={() => onDeleteJob(job)} title="Delete run and files" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: 22, height: 22, borderRadius: 3, background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)', color: 'rgba(255,255,255,0.4)', cursor: 'pointer' }}>✕</button>
               </div>
             </div>
-            {job.status === 'done' && <JobOutcomeDispatcher jobId={job.id} model={model} />}
+            {job.status === 'done' && (
+                <ErrorBoundary 
+                    fallback={
+                    <div style={{ padding: '8px', border: '1px dashed rgba(230,0,46,0.3)', borderRadius: '4px', color: '#ff8099', fontSize: '10px', background: 'rgba(230,0,46,0.05)', marginTop: '6px' }}>
+                        ⚠ Failed to load analysis visualization. The AI output may be malformed.
+                    </div>
+                    }
+                >
+                    <JobOutcomeDispatcher jobId={job.id} model={model} />
+                </ErrorBoundary>
+                )}
           </div>
         )
       })}
