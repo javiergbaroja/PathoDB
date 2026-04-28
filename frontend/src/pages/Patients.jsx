@@ -1,9 +1,9 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { useQuery } from '@tanstack/react-query'
 import Layout from '../components/Layout'
 import { Btn, SpinnerPage, ErrorMsg, IdCell } from '../components/ui'
 import { api } from '../api'
-
 
 function StatCard({ label, value, sub, accent }) {
   return (
@@ -18,7 +18,6 @@ function StatCard({ label, value, sub, accent }) {
     </div>
   )
 }
-
 
 function BNumberList({ submissionIds }) {
   const [expanded, setExpanded] = useState(false)
@@ -52,39 +51,35 @@ function BNumberList({ submissionIds }) {
     </div>
   )
 }
+
 export default function Patients() {
   const navigate = useNavigate()
-  const [patients, setPatients]         = useState([])
-  const [loading, setLoading]           = useState(true)
-  const [error, setError]               = useState('')
-  const [page, setPage]                 = useState(1)
-  const [stats, setStats]               = useState(null)
-  const [statsLoading, setStatsLoading] = useState(true)
+  const [page, setPage] = useState(1)
   const [exporting, setExporting] = useState(false)
+  const [exportError, setExportError] = useState('')
   const PAGE_SIZE = 50
 
-  const loadPatients = useCallback(async () => {
-    setLoading(true)
-    setError('')
-    try {
-      setPatients(await api.getPatients({ page, page_size: PAGE_SIZE }))
-    } catch (e) {
-      setError(e.message)
-    } finally {
-      setLoading(false)
-    }
-  }, [page])
+  // ── 1. REACT QUERY: Fetch Patients (Cached per page) ──
+  const { 
+    data: patients = [], 
+    isLoading: loading, 
+    error: patientsError 
+  } = useQuery({
+    queryKey: ['patients', page], // The cache key automatically tracks the page number!
+    queryFn: () => api.getPatients({ page, page_size: PAGE_SIZE })
+  })
 
-  const loadStats = useCallback(async () => {
-    setStatsLoading(true)
-    try {
-      setStats(await api.getStats())
-    } catch { /* non-critical */ }
-    finally { setStatsLoading(false) }
-  }, [])
+  // ── 2. REACT QUERY: Fetch Stats (Cached globally) ──
+  const { 
+    data: stats, 
+    isLoading: statsLoading,
+    error: statsError
+  } = useQuery({
+    queryKey: ['stats'],
+    queryFn: () => api.getStats()
+  })
 
-  useEffect(() => { loadPatients() }, [loadPatients])
-  useEffect(() => { loadStats() },   [loadStats])
+  const error = (patientsError?.message || statsError?.message || exportError)
 
   const yearLabel = stats
     ? stats.year_min === stats.year_max
@@ -100,13 +95,10 @@ export default function Patients() {
 
   async function handleExport() {
     setExporting(true)
-    setError('')
+    setExportError('')
     try {
       const all = await api.getPatients({ page: 1, page_size: 9999 })
-
-      const headers = ['patient_code', 'date_of_birth', 'sex',
-                      'last_report_date', 'has_malignancy', 'submission_ids']
-
+      const headers = ['patient_code', 'date_of_birth', 'sex', 'last_report_date', 'has_malignancy', 'submission_ids']
       const rows = all.map(p => [
         p.patient_code,
         p.date_of_birth    || '',
@@ -116,12 +108,7 @@ export default function Patients() {
         (p.submission_ids  || []).join('; '),
       ])
 
-      const csv = [headers, ...rows]
-        .map(row =>
-          row.map(cell => `"${String(cell).replace(/"/g, '""')}"`).join(',')
-        )
-        .join('\n')
-
+      const csv = [headers, ...rows].map(row => row.map(cell => `"${String(cell).replace(/"/g, '""')}"`).join(',')).join('\n')
       const blob = new Blob([csv], { type: 'text/csv' })
       const url  = URL.createObjectURL(blob)
       const a    = document.createElement('a')
@@ -129,9 +116,8 @@ export default function Patients() {
       a.download = `patients_${new Date().toISOString().slice(0, 10)}.csv`
       a.click()
       URL.revokeObjectURL(url)
-
     } catch (e) {
-      setError(e.message)
+      setExportError(e.message)
     } finally {
       setExporting(false)
     }
@@ -143,27 +129,10 @@ export default function Patients() {
 
         {/* Stats */}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 12, marginBottom: 16 }}>
-          <StatCard
-            label="Patients"
-            value={statsLoading ? '…' : (stats?.patient_count?.toLocaleString() ?? '—')}
-            sub="total in database"
-          />
-          <StatCard
-            label="Submission years"
-            value={statsLoading ? '…' : yearLabel}
-            sub="from submission IDs"
-          />
-          <StatCard
-            label="Blocks"
-            value={statsLoading ? '…' : (stats?.block_count?.toLocaleString() ?? '—')}
-            sub={statsLoading ? '' : `${stats?.scanned_pct ?? 0}% scanned`}
-          />
-          <StatCard
-            label="Malignancy rate"
-            value={statsLoading ? '…' : `${stats?.malignancy_rate ?? 0}%`}
-            sub="of submissions"
-            accent="var(--crimson)"
-          />
+          <StatCard label="Patients" value={statsLoading ? '…' : (stats?.patient_count?.toLocaleString() ?? '—')} sub="total in database" />
+          <StatCard label="Submission years" value={statsLoading ? '…' : yearLabel} sub="from submission IDs" />
+          <StatCard label="Blocks" value={statsLoading ? '…' : (stats?.block_count?.toLocaleString() ?? '—')} sub={statsLoading ? '' : `${stats?.scanned_pct ?? 0}% scanned`} />
+          <StatCard label="Malignancy rate" value={statsLoading ? '…' : `${stats?.malignancy_rate ?? 0}%`} sub="of submissions" accent="var(--crimson)" />
         </div>
 
         <ErrorMsg message={error} />

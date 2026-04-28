@@ -1,15 +1,18 @@
-import { useState, useEffect, useRef, useMemo, useCallback } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { api } from '../../api'
-import JobOutcomeDispatcher from '../../components/AnalysisOutcomes/JobOutcomeDispatcher'
-import { useAuth } from '../../context/AuthContext'
-import { STAIN_COLORS } from '../../constants/stains'
 import { fetchAndRenderOverlay, clearOverlay } from '../../lib/overlayRenderer'
 import ClinicalPanel from './ClinicalPanel'
 import Filmstrip from './Filmstrip'
 import ModelsPanel from './ModelsPanel'
 import { useViewerStore } from '../../store/viewerStore'
 import Toolbar from './Toolbar'
+import { 
+  useModelsCatalog, 
+  useSlideInfo, 
+  useRelatedScans, 
+  useAnalysisJobs 
+} from '../../hooks/useSlideData'
 
 // ── Style injection ───────────────────────────────────────────────────────────
 if (!document.getElementById('sv-styles')) {
@@ -27,7 +30,6 @@ if (!document.getElementById('sv-styles')) {
   `
   document.head.appendChild(s)
 }
-
 
 // ─────────────────────────────────────────────────────────────────────────────
 // MAIN COMPONENT
@@ -49,16 +51,27 @@ export default function SlideViewer() {
   const [leftScanId,  setLeftScanId]  = useState(parseInt(scanId))
   const [rightScanId, setRightScanId] = useState(null)
 
-  // ── Data ───────────────────────────────────────────────────────────────────
-  const [leftInfo,     setLeftInfo]     = useState(null)
-  const [rightInfo,    setRightInfo]    = useState(null)
-  const [relatedScans, setRelatedScans] = useState([])
-  const [loading,      setLoading]      = useState(true)
-  const [error,        setError]        = useState('')
-
   // ── Zoom (rendered in topbar) ──────────────────────────────────────────────
   const [leftZoom,  setLeftZoom]  = useState(null)
   const [rightZoom, setRightZoom] = useState(null)
+
+  // ── REACT QUERY DATA FETCHING ──────────────────────────────────────────────
+  
+  const { data: catalogResponse } = useModelsCatalog()
+  const catalog = catalogResponse?.models || []
+
+  const { data: leftInfo, isLoading: leftLoading, error: leftError } = useSlideInfo(leftScanId, token)
+  const loading = leftLoading
+  const error = leftError?.message || ''
+
+  const { data: rightInfo } = useSlideInfo(rightScanId, token)
+  const { data: relatedScans = [] } = useRelatedScans(leftScanId, token)
+  
+  const { data: analysisJobs, refetch: refetchJobs } = useAnalysisJobs(leftScanId)
+
+  function handleJobsChange() {
+    refetchJobs()
+  }
 
   // ── Layout / UI ────────────────────────────────────────────────────────────
   const [compareMode,      setCompareMode]      = useState(false)
@@ -71,8 +84,6 @@ export default function SlideViewer() {
   const [levelPopover,     setLevelPopover]     = useState(null)
 
   // ── Analysis jobs ──────────────────────────────────────────────────────────
-  const [catalog,        setCatalog]        = useState([])
-  const [analysisJobs,   setAnalysisJobs]   = useState([])
   const [activeOverlays, setActiveOverlays] = useState({})  // jobId → true/false
 
   // ── Refs ───────────────────────────────────────────────────────────────────
@@ -92,15 +103,7 @@ export default function SlideViewer() {
     if (id !== leftScanId) setLeftScanId(id)
   }, [scanId])
 
-  // ── Fetch slide info + conditionally related scans ─────────────────────────
-  // getRelatedScans returns ALL scans for the whole submission. Navigating
-  // between chips in the same case must not re-fetch — the data is identical
-  // and re-fetching causes probe labels to disappear while the request is
-  // in-flight. A ref (not state) tracks the last fetched submission ID so the
-  // comparison happens inside the .then() callback against the actual fresh
-  // API value — no render cycle, no stale closure, no derived state.
-  const lastFetchedSubmissionRef = useRef(null)
-
+  // ── Gamma filter ───────────────────────────────────────────────────────────
   useEffect(() => {
     let svg = document.getElementById('sv-gamma-svg')
     if (!svg) {
@@ -120,32 +123,6 @@ export default function SlideViewer() {
     svg.querySelectorAll('feFuncR, feFuncG, feFuncB')
       .forEach(el => el.setAttribute('exponent', exponent))
   }, [gamma])
-
-  useEffect(() => {
-    if (!token) { navigate('/login'); return }
-    setLoading(true)
-    setError('')
-    api.getSlideInfo(leftScanId, token)
-      .then(info => {
-        setLeftInfo(info)
-        if (info.lis_submission_id !== lastFetchedSubmissionRef.current) {
-          lastFetchedSubmissionRef.current = info.lis_submission_id
-          api.getRelatedScans(leftScanId, token)
-            .then(scans => setRelatedScans(scans))
-            .catch(() => {})
-        }
-      })
-      .catch(e => setError(e.message))
-      .finally(() => setLoading(false))
-  }, [leftScanId, token, navigate])
-
-  // ── Fetch right info ───────────────────────────────────────────────────────
-  useEffect(() => {
-    if (!rightScanId) { setRightInfo(null); return }
-    api.getSlideInfo(rightScanId, token)
-      .then(setRightInfo)
-      .catch(e => setError(`Right slide: ${e.message}`))
-  }, [rightScanId, token])
 
   // ── OSD creation helper ────────────────────────────────────────────────────
   const createOSDInstance = useCallback((containerRef, id, info, setZoom, osdRef, isMounted) => {
@@ -221,7 +198,7 @@ export default function SlideViewer() {
           updateSB()
         })
       })
-      .catch(e => setError(`Failed to load slide: ${e.message}`))
+      .catch(e => console.error(`Failed to load slide: ${e.message}`))
   }, [token])
 
   // ── Init left viewer ───────────────────────────────────────────────────────
@@ -362,36 +339,6 @@ export default function SlideViewer() {
     return () => { document.removeEventListener('mousemove', onMove); document.removeEventListener('mouseup', onUp) }
   }, [])
 
-  // ── Fetch model catalog once on mount ──────────────────────────────────────
-  useEffect(() => {
-    api.getModels()
-      .then(data => setCatalog(data.models || []))
-      .catch(() => {})
-  }, [])
-
-  // ── Fetch jobs for current scan; poll every 5s when any are non-terminal ───
-  useEffect(() => {
-    if (!leftScanId) return
-    let cancelled = false
-
-    function fetchJobs() {
-      api.getAnalysisJobs(leftScanId)
-        .then(jobs => { if (!cancelled) setAnalysisJobs(jobs) })
-        .catch(() => {})
-    }
-
-    fetchJobs()
-
-    const hasActive = analysisJobs.some(j => j.status === 'queued' || j.status === 'running')
-    const interval  = hasActive ? setInterval(fetchJobs, 5000) : null
-
-    return () => {
-      cancelled = true
-      if (interval) clearInterval(interval)
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [leftScanId, analysisJobs.map(j => j.status).join(',')])
-
   // ── Handlers ───────────────────────────────────────────────────────────────
   function handleBack() {
     if (window.history.length > 1) navigate(-1)
@@ -411,14 +358,13 @@ export default function SlideViewer() {
     else             { setCompareMode(true) }
   }
 
-
   async function handleToggleOverlay(jobId) {
     const viewer = osdLeftRef.current
     if (!viewer) return
     const isOn = activeOverlays[jobId]
 
     if (isOn) {
-      clearOverlay(viewer, jobId) // Calling our new library function
+      clearOverlay(viewer, jobId)
       setActiveOverlays(o => ({ ...o, [jobId]: false }))
     } else {
       try {
@@ -431,7 +377,6 @@ export default function SlideViewer() {
         }
 
         for (const overlay of overlays) {
-          // Calling our new library function and passing in token & leftInfo
           await fetchAndRenderOverlay(viewer, jobId, overlay, token, leftInfo) 
         }
         
@@ -462,7 +407,6 @@ export default function SlideViewer() {
         rightZoom={rightZoom}
         handleCompareToggle={handleCompareToggle}
       />
-      
 
       {/* ── Main area ────────────────────────────────────────────────────── */}
       <div style={{ flex: 1, display: 'flex', overflow: 'hidden', minHeight: 0 }}>
@@ -531,9 +475,6 @@ export default function SlideViewer() {
             <button onClick={() => setFilmstripVisible(o => !o)} style={{ position: 'absolute', bottom: 0, left: '50%', transform: 'translateX(-50%)', background: 'rgba(3,8,25,0.92)', border: '1px solid rgba(255,255,255,0.07)', borderBottom: 'none', borderRadius: '6px 6px 0 0', color: 'rgba(255,255,255,0.4)', padding: '3px 16px', fontSize: 10, cursor: 'pointer', textTransform: 'uppercase', letterSpacing: '0.08em', fontWeight: 600, zIndex: 10 }}>
               {filmstripVisible ? '▾ Scans' : '▴ Scans'}
             </button>
-
-            {/* Shortcuts overlay */}
-            {showShortcuts && <ShortcutsOverlay onClose={() => setShowShortcuts(false)} />}
           </div>
 
           {/* Resize handle */}
@@ -574,7 +515,7 @@ export default function SlideViewer() {
             activeOverlays={activeOverlays}
             setActiveOverlays={setActiveOverlays}
             onToggleOverlay={handleToggleOverlay}
-            onJobsChange={setAnalysisJobs}
+            onJobsChange={handleJobsChange}
           />
         )}
 
@@ -594,7 +535,6 @@ export default function SlideViewer() {
     </div>
   )
 }
-
 
 // ─────────────────────────────────────────────────────────────────────────────
 // UTILITIES
