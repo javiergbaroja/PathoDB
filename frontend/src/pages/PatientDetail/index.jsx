@@ -4,6 +4,7 @@ import { useParams, useNavigate, useLocation } from 'react-router-dom'
 import Layout from '../../components/Layout'
 import { Badge, Btn, Panel, SpinnerPage, ErrorMsg } from '../../components/ui'
 import { api } from '../../api'
+import { useQuery } from '@tanstack/react-query'
 
 import RegisterScanModal from './RegisterScanModal'
 import ScansDrawer from './ScansDrawer'
@@ -54,82 +55,85 @@ export default function PatientDetail() {
   const { id } = useParams()
   const navigate = useNavigate()
   const location = useLocation()
-  const [data, setData]           = useState(null)
-  const [loading, setLoading]     = useState(true)
-  const [error, setError]         = useState('')
+  
+  // ── 1. REACT QUERY: Fetch Patient Hierarchy ──
+  const { 
+    data, 
+    isLoading: loading, 
+    error: queryError 
+  } = useQuery({
+    queryKey: ['patient', id],
+    queryFn: () => api.getHierarchy(id)
+  })
+  const error = queryError ? queryError.message : ''
+
+  // ── UI State ──
   const [selected, setSelected]   = useState(null)
-  const [scans, setScans]         = useState([])
-  const [scansLoading, setScansLoading] = useState(false)
   const [expandedSubs, setExpandedSubs]       = useState({})
   const [expandedProbes, setExpandedProbes]   = useState({})
   const [expandedReports, setExpandedReports] = useState({})
   const [drawerOpen, setDrawerOpen]           = useState(false)
   const [registerOpen, setRegisterOpen]       = useState(false)
 
+  // ── 2. REACT QUERY: Fetch Scans for Selected Block ──
+  // This automatically runs ONLY when `selected.block.id` exists and changes!
+  const { 
+    data: scans = [], 
+    isFetching: scansLoading, 
+    refetch: refreshScans 
+  } = useQuery({
+    queryKey: ['scans', selected?.block?.id],
+    queryFn: () => api.getScansForBlock(selected.block.id),
+    enabled: !!selected?.block?.id // Wait until a block is actually selected
+  })
+
+  // ── 3. Handle URL Search Highlighting (Only runs when data is ready) ──
   useEffect(() => {
+    if (!data) return // Wait for React Query to finish
+
     const searchParams = new URLSearchParams(location.search)
     const highlightQuery = searchParams.get('q')?.toLowerCase()
+    
+    let newExpandedSubs = {}
+    let newExpandedProbes = {}
 
-    api.getHierarchy(id)
-      .then(d => {
-        setData(d)
-        let newExpandedSubs = {}
-        let newExpandedProbes = {}
+    if (highlightQuery && data.submissions?.length > 0) {
+      let foundSub = null
+      let foundProbe = null
 
-        if (highlightQuery && d.submissions?.length > 0) {
-          let foundSub = null
-          let foundProbe = null
-
-          for (const sub of d.submissions) {
-            if (sub.lis_submission_id?.toLowerCase().includes(highlightQuery)) {
-              foundSub = sub
-              foundProbe = sub.probes?.find(p => p.lis_probe_id?.toLowerCase().includes(highlightQuery))
-              break
-            }
-            const matchedProbe = sub.probes?.find(p => p.lis_probe_id?.toLowerCase().includes(highlightQuery))
-            if (matchedProbe) {
-              foundSub = sub
-              foundProbe = matchedProbe
-              break
-            }
-          }
-
-          if (foundSub) {
-            newExpandedSubs[foundSub.id] = true
-            if (foundProbe) {
-              newExpandedProbes[foundProbe.id] = true
-            } else if (foundSub.probes?.length > 0) {
-              newExpandedProbes[foundSub.probes[0].id] = true
-            }
-          }
+      for (const sub of data.submissions) {
+        if (sub.lis_submission_id?.toLowerCase().includes(highlightQuery)) {
+          foundSub = sub
+          foundProbe = sub.probes?.find(p => p.lis_probe_id?.toLowerCase().includes(highlightQuery))
+          break
         }
+        const matchedProbe = sub.probes?.find(p => p.lis_probe_id?.toLowerCase().includes(highlightQuery))
+        if (matchedProbe) {
+          foundSub = sub
+          foundProbe = matchedProbe
+          break
+        }
+      }
 
-        setExpandedSubs(newExpandedSubs)
-        setExpandedProbes(newExpandedProbes)
-      })
-      .catch(e => setError(e.message))
-      .finally(() => setLoading(false))
-  }, [id, location.search])
+      if (foundSub) {
+        newExpandedSubs[foundSub.id] = true
+        if (foundProbe) {
+          newExpandedProbes[foundProbe.id] = true
+        } else if (foundSub.probes?.length > 0) {
+          newExpandedProbes[foundSub.probes[0].id] = true
+        }
+      }
+    }
+    setExpandedSubs(newExpandedSubs)
+    setExpandedProbes(newExpandedProbes)
+  }, [data, location.search])
 
-  async function selectBlock(block, probe, sub) {
+  // ── 4. Simplifed Block Selection ──
+  function selectBlock(block, probe, sub) {
     setSelected({ block, probe, sub })
     setDrawerOpen(false)
     setRegisterOpen(false)
-    setScansLoading(true)
-    try {
-      setScans(await api.getScansForBlock(block.id))
-    } catch {
-      setScans([])
-    } finally {
-      setScansLoading(false)
-    }
-  }
-
-  async function refreshScans() {
-    if (!selected) return
-    try {
-      setScans(await api.getScansForBlock(selected.block.id))
-    } catch {}
+    // No manual fetching needed here! React Query detects the 'selected' change and fetches automatically.
   }
 
   const actions = (
