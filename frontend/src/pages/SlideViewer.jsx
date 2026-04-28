@@ -3,14 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom'
 import { api } from '../api'
 import JobOutcomeDispatcher from '../components/AnalysisOutcomes/JobOutcomeDispatcher'
 import { useAuth } from '../context/AuthContext'
-// ── Stain category colour map ─────────────────────────────────────────────────
-const STAIN_COLORS = {
-  HE:            '#6ee7b7',
-  IHC:           '#a78bfa',
-  special_stain: '#fbbf24',
-  FISH:          '#60a5fa',
-  other:         '#94a3b8',
-}
+import { STAIN_COLORS } from '../constants/stains'
 
 // ── Style injection ───────────────────────────────────────────────────────────
 if (!document.getElementById('sv-styles')) {

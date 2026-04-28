@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import { NavLink, useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { api } from '../api'
+import { TYPE_COLORS, TYPE_LABELS } from '../constants/stains'
 
 const NAV = [
   {
@@ -19,17 +20,6 @@ const NAV = [
     ]
   },
 ]
-
-const TYPE_COLOURS = {
-  patient:    { bg: 'var(--navy-10)',    text: 'var(--navy)' },
-  submission: { bg: 'var(--crimson-10)', text: 'var(--crimson)' },
-  probe:      { bg: '#e6f4ec',           text: '#0a6e3a' },
-  block:      { bg: '#fef6e4',           text: '#7a4f00' },
-}
-
-const TYPE_LABELS = {
-  patient: 'Patient', submission: 'Submission', probe: 'Probe', block: 'Block'
-}
 
 export default function Layout({ children, title, actions }) {
   const { user, logout } = useAuth()
@@ -257,7 +247,7 @@ export default function Layout({ children, title, actions }) {
                 ) : (
                   <>
                     {results.map((r, i) => {
-                      const colours = TYPE_COLOURS[r.type] || TYPE_COLOURS.patient
+                      const colours = TYPE_COLORS[r.type] || TYPE_COLORS.patient
                       const label   = TYPE_LABELS[r.type]  || r.type
                       return (
                         <div
