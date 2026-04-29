@@ -37,7 +37,7 @@ import traceback
 from PIL import Image
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, FileResponse
 from sqlalchemy.orm import Session
 
 from .slides import _auth_token
@@ -665,3 +665,49 @@ def get_job_overlay(
         raise HTTPException(status_code=500, detail=f"Failed to read GeoJSON: {e}")
 
     return JSONResponse(content=data)
+
+
+
+
+@router.get("/jobs/{job_id}/download")
+def download_job_file(
+    job_id: int,
+    file_key: str = Query("download_file", description="Key in the result.json files dict"),
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_active_user),
+):
+    """
+    Serve a downloadable file produced by the model inference.
+    """
+    job = _get_job_or_404(job_id, db, user)
+
+    if job.status != "done":
+        raise HTTPException(
+            status_code=409,
+            detail=f"Job is not done yet (status: {job.status})",
+        )
+
+    result_file = _job_result_dir(job_id) / "result.json"
+    if not result_file.exists():
+        raise HTTPException(status_code=404, detail="result.json not found")
+
+    try:
+        result_data = json.loads(result_file.read_text(encoding="utf-8"))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to read result.json: {e}")
+
+    files = result_data.get("files", {})
+    file_path = files.get(file_key)
+
+    if not file_path or not os.path.exists(file_path):
+        raise HTTPException(
+            status_code=404,
+            detail=f"Downloadable file '{file_key}' not found on disk.",
+        )
+
+    filename = os.path.basename(file_path)
+    return FileResponse(
+        path=file_path, 
+        filename=filename, 
+        media_type="application/octet-stream"
+    )

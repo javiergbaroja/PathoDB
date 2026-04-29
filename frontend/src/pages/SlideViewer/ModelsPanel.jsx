@@ -463,6 +463,15 @@ function PastJobsList({ jobs, catalog, activeOverlays, onToggleOverlay, onDelete
   const past = jobs.filter(j => j.status === 'done' || j.status === 'failed' || j.status === 'cancelled')
   if (!past.length) return null
 
+  // NEW: Download handler
+  const handleDownload = async (jobId) => {
+    try {
+      await api.downloadAnalysisFile(jobId, 'download_file'); 
+    } catch (e) {
+      alert(`Download failed: ${e.message}`);
+    }
+  };
+
   return (
     <div style={{ marginTop: 10, borderTop: '1px solid rgba(255,255,255,0.05)', paddingTop: 8 }}>
       <div style={{ fontSize: 9, color: 'rgba(255,255,255,0.35)', textTransform: 'uppercase', letterSpacing: '0.08em', fontWeight: 600, marginBottom: 5 }}>
@@ -480,9 +489,20 @@ function PastJobsList({ jobs, catalog, activeOverlays, onToggleOverlay, onDelete
               </span>
               <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
                 {job.status === 'done' && (
-                  <button onClick={() => onToggleOverlay(job.id)} style={{ fontSize: 10, padding: '2px 8px', borderRadius: 3, cursor: 'pointer', border: `1px solid ${activeOverlays[job.id] ? 'rgba(230,0,46,0.25)' : 'rgba(27,153,139,0.25)'}`, background: activeOverlays[job.id] ? 'rgba(230,0,46,0.1)' : 'rgba(27,153,139,0.1)', color: activeOverlays[job.id] ? '#ff8099' : '#6ee7b7' }}>
-                    {activeOverlays[job.id] ? 'Hide' : 'View'}
-                  </button>
+                  <>
+                    <button onClick={() => onToggleOverlay(job.id)} style={{ fontSize: 10, padding: '2px 8px', borderRadius: 3, cursor: 'pointer', border: `1px solid ${activeOverlays[job.id] ? 'rgba(230,0,46,0.25)' : 'rgba(27,153,139,0.25)'}`, background: activeOverlays[job.id] ? 'rgba(230,0,46,0.1)' : 'rgba(27,153,139,0.1)', color: activeOverlays[job.id] ? '#ff8099' : '#6ee7b7' }}>
+                      {activeOverlays[job.id] ? 'Hide' : 'View'}
+                    </button>
+
+                    {/* NEW: Download button */}
+                    <button onClick={() => handleDownload(job.id)} title="Download model output" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: 22, height: 22, borderRadius: 3, background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)', color: '#6ee7b7', cursor: 'pointer', transition: 'all 0.15s' }}>
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                        <polyline points="7 10 12 15 17 10"></polyline>
+                        <line x1="12" y1="15" x2="12" y2="3"></line>
+                      </svg>
+                    </button>
+                  </>
                 )}
                 {job.status === 'failed' && job.error_message && (
                   <span title={job.error_message} style={{ fontSize: 10, color: '#ff8099', cursor: 'help', padding: '0 4px' }}>ⓘ</span>
