@@ -50,7 +50,7 @@ function viewportToGeoJSON(viewer) {
       type: 'FeatureCollection',
       features: [{
         type: 'Feature',
-        properties: { name: 'Visible Region' },
+        properties: { name: 'Visible Region' , classification: { name: "user_roi"} },
         geometry: { type: 'Polygon', coordinates: [coords] },
       }],
     }

@@ -18,7 +18,12 @@ export const useViewerStore = create((set) => ({
   // ── Tools ──
   isRulerActive: false,
   setIsRulerActive: (updater) => set((state) => ({ isRulerActive: typeof updater === 'function' ? updater(state.isRulerActive) : updater })),
-
+  isPolygonActive: false,
+  setIsPolygonActive: (updater) => set((state) => ({ isPolygonActive: typeof updater === 'function' ? updater(state.isPolygonActive) : updater })),
+  
+  polygons: [],
+  setPolygons: (updater) => set((state) => ({ polygons: typeof updater === 'function' ? updater(state.polygons) : updater })),
+  clearPolygons: () => set({ polygons: [] }),
   // ── Image Adjustments ──
   brightness: 100,
   setBrightness: (val) => set({ brightness: val }),

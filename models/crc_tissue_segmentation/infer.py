@@ -28,7 +28,9 @@ SCAN_PATH  = os.environ["PATHODB_SCAN_PATH"]
 RESULT_DIR = os.environ["PATHODB_RESULT_DIR"]
 SCOPE      = os.environ.get("PATHODB_SCOPE", "whole_slide")
 PARAMS     = json.loads(os.environ.get("PATHODB_PARAMS", "{}"))
-ROI        = json.loads(os.environ.get("PATHODB_ROI",    "null"))
+ROI        = os.environ.get("PATHODB_ROI",    "null")
+if isinstance(ROI, str):
+    ROI = ROI.strip().strip('"')
 MODEL_ID   = "crc_tissue_seg"
 
 os.makedirs(RESULT_DIR, exist_ok=True)
@@ -43,7 +45,7 @@ sys.path.insert(0, PACKAGE_DIR)
 from models.model_io import create_mask2former_from_checkpoint
 from engine.inference import infer_wsi
 from utils.wsi import prepare_read_from_slide, detect_tissue_mask
-from utils.geometry import save_geojson_annotation
+from utils.geometry import save_geojson_annotation, create_mask_from_contours
 from utils.visualization import COLORMAP
 
 # ── System constants ─────────────────────────────────────────────────────────────
@@ -153,8 +155,17 @@ def main() -> None:
     )
 
     # Generate the global tissue mask (since ln_seg_path isn't provided dynamically yet)
-    if USE_TISSUE_MASK:
+    if USE_TISSUE_MASK and ROI is None:
         tissue_mask, _ = detect_tissue_mask(SCAN_PATH)
+    elif ROI is not None:
+        with open(ROI, "r") as f:
+            roi_data = json.load(f)
+        tissue_mask = create_mask_from_contours(
+            geojson=roi_data,
+            mask_shape=original_dim,
+            level_downsampling=level_downsampling,
+            category_dict={"user_roi": 1}
+        )
     else:
         tissue_mask = np.ones((5, 5), dtype=np.uint8)
 

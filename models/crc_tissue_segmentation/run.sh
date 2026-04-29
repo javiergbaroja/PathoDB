@@ -45,6 +45,7 @@ echo "Job ID      : $SLURM_JOB_ID"
 echo "PathoDB job : ${PATHODB_JOB_ID}"
 echo "Scan        : ${PATHODB_SCAN_PATH}"
 echo "Params      : ${PATHODB_PARAMS}"
+echo "ROI         : ${PATHODB_ROI}"
 echo ""
 
 # 2. Clean environment and activate Conda safely
@@ -55,19 +56,10 @@ module load GCCcore/10.3.0
 
 source activate metassist
 
-echo "=== PathoDB CRC Tissue Segmentation ==="
-echo "Started     : $(date)"
-echo "Node        : $(hostname)"
-echo "Job ID      : $SLURM_JOB_ID"
-echo "PathoDB job : ${PATHODB_JOB_ID}"
-echo "Scan        : ${PATHODB_SCAN_PATH}"
-echo "Params      : ${PATHODB_PARAMS}"
-echo ""
-
 # ── Run inference ─────────────────────────────────────────────────────────────
 # get absolute folder for this bash script.
 PROJECT_DIR="/storage/research/igmp_dp_workspace/garciabaroja_javier/PW_reports/database/pathodb"
-INFERENCE_SCRIPT="${PROJECT_DIR}/models/crc_tissue_segmentation/infer.py"
+INFERENCE_SCRIPT="/storage/research/igmp_dp_workspace/garciabaroja_javier/PW_reports/database/pathodb/models/crc_tissue_segmentation/infer2.py"
 python3 "${INFERENCE_SCRIPT}"
 
 echo ""

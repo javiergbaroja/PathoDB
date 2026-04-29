@@ -434,10 +434,14 @@ def submit_job(
             detail=f"Model script missing: {model_script}",
         )
 
-    log_file = result_dir / "slurm_%j.out"
-    
-    # 1. Copy the current environment so sbatch has standard paths
-    # 1. Write everything into a clean JSON file
+    # 1. NEW: Extract the ROI dict and save it as a separate file
+    roi_file_path = None
+    if req.roi_json:
+        roi_file = result_dir / "roi.json"
+        roi_file.write_text(json.dumps(req.roi_json), encoding="utf-8")
+        roi_file_path = str(roi_file)
+
+    # 2. Write the context file (now referencing the path, not the dict)
     context_file = result_dir / "job_context.json"
     context_data = {
         "job_id": job.id,
@@ -446,11 +450,11 @@ def submit_job(
         "result_dir": str(result_dir),
         "scope": req.scope,
         "params": req.params,
-        "roi": req.roi_json
+        "roi": roi_file_path 
     }
     context_file.write_text(json.dumps(context_data), encoding="utf-8")
 
-    # 2. Submit the job (Isolated Conda + Pass the file path)
+    # 3. Submit the job (Isolated Conda + Pass the file path)
     log_file = result_dir / "slurm_%j.out"
     sbatch_cmd = [
         "sbatch",
