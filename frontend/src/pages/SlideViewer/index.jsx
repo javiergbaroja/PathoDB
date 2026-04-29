@@ -2,16 +2,17 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { api } from '../../api'
 import { fetchAndRenderOverlay, clearOverlay } from '../../lib/overlayRenderer'
-import ClinicalPanel from './ClinicalPanel'
-import Filmstrip from './Filmstrip'
-import ModelsPanel from './ModelsPanel'
+import ClinicalPanel  from './ClinicalPanel'
+import Filmstrip      from './Filmstrip'
+import ModelsPanel    from './ModelsPanel'
+import PolygonTool    from './PolygonTool'
 import { useViewerStore } from '../../store/viewerStore'
 import Toolbar from './Toolbar'
-import { 
-  useModelsCatalog, 
-  useSlideInfo, 
-  useRelatedScans, 
-  useAnalysisJobs 
+import {
+  useModelsCatalog,
+  useSlideInfo,
+  useRelatedScans,
+  useAnalysisJobs,
 } from '../../hooks/useSlideData'
 
 // ── Style injection ───────────────────────────────────────────────────────────
@@ -32,46 +33,41 @@ if (!document.getElementById('sv-styles')) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// MAIN COMPONENT
-// ─────────────────────────────────────────────────────────────────────────────
 export default function SlideViewer() {
   const { scanId } = useParams()
   const navigate   = useNavigate()
   const {
-    isRulerActive, setIsRulerActive,
-    brightness, contrast, gamma,
-    showBrightness, setShowBrightness,
-    showModels, setShowModels,
-    panelOpen, setPanelOpen,
-    showShortcuts, setShowShortcuts
+    isRulerActive,   setIsRulerActive,
+    isPolygonActive, setIsPolygonActive,
+    polygons,        setPolygons,
+    showBrightness,  setShowBrightness,
+    showModels,      setShowModels,
+    panelOpen,       setPanelOpen,
+    showShortcuts,   setShowShortcuts,
+    brightness,      contrast,  gamma,
   } = useViewerStore()
-  const token      = localStorage.getItem('pathodb_token')
+
+  const token = localStorage.getItem('pathodb_token')
 
   // ── Scan IDs ───────────────────────────────────────────────────────────────
   const [leftScanId,  setLeftScanId]  = useState(parseInt(scanId))
   const [rightScanId, setRightScanId] = useState(null)
+  const [leftZoom,    setLeftZoom]    = useState(null)
+  const [rightZoom,   setRightZoom]   = useState(null)
 
-  // ── Zoom (rendered in topbar) ──────────────────────────────────────────────
-  const [leftZoom,  setLeftZoom]  = useState(null)
-  const [rightZoom, setRightZoom] = useState(null)
-
-  // ── REACT QUERY DATA FETCHING ──────────────────────────────────────────────
-  
+  // ── React Query data ───────────────────────────────────────────────────────
   const { data: catalogResponse } = useModelsCatalog()
   const catalog = catalogResponse?.models || []
 
-  const { data: leftInfo, isLoading: leftLoading, error: leftError } = useSlideInfo(leftScanId, token)
+  const { data: leftInfo,     isLoading: leftLoading, error: leftError } = useSlideInfo(leftScanId, token)
+  const { data: rightInfo }   = useSlideInfo(rightScanId, token)
+  const { data: relatedScans = [] }                                       = useRelatedScans(leftScanId, token)
+  const { data: analysisJobs, refetch: refetchJobs }                      = useAnalysisJobs(leftScanId)
+
   const loading = leftLoading
-  const error = leftError?.message || ''
+  const error   = leftError?.message || ''
 
-  const { data: rightInfo } = useSlideInfo(rightScanId, token)
-  const { data: relatedScans = [] } = useRelatedScans(leftScanId, token)
-  
-  const { data: analysisJobs, refetch: refetchJobs } = useAnalysisJobs(leftScanId)
-
-  function handleJobsChange() {
-    refetchJobs()
-  }
+  function handleJobsChange() { refetchJobs() }
 
   // ── Layout / UI ────────────────────────────────────────────────────────────
   const [compareMode,      setCompareMode]      = useState(false)
@@ -82,9 +78,7 @@ export default function SlideViewer() {
   const [filmstripVisible, setFilmstripVisible] = useState(true)
   const [filmstripHeight,  setFilmstripHeight]  = useState(190)
   const [levelPopover,     setLevelPopover]     = useState(null)
-
-  // ── Analysis jobs ──────────────────────────────────────────────────────────
-  const [activeOverlays, setActiveOverlays] = useState({})  // jobId → true/false
+  const [activeOverlays,   setActiveOverlays]   = useState({})
 
   // ── Refs ───────────────────────────────────────────────────────────────────
   const leftViewerRef      = useRef(null)
@@ -103,7 +97,17 @@ export default function SlideViewer() {
     if (id !== leftScanId) setLeftScanId(id)
   }, [scanId])
 
-  // ── Gamma filter ───────────────────────────────────────────────────────────
+  // ── Disable OSD mouse nav when polygon tool is active ──────────────────────
+  // This prevents pan/zoom clicks from firing while placing vertices.
+  useEffect(() => {
+    const viewer = osdLeftRef.current
+    if (!viewer?.setMouseNavEnabled) return
+    viewer.setMouseNavEnabled(!isPolygonActive)
+    // Restore on unmount or when tool deactivates
+    return () => { viewer.setMouseNavEnabled(true) }
+  }, [isPolygonActive])
+
+  // ── Gamma SVG filter ───────────────────────────────────────────────────────
   useEffect(() => {
     let svg = document.getElementById('sv-gamma-svg')
     if (!svg) {
@@ -182,10 +186,10 @@ export default function SlideViewer() {
             const el = containerRef.current?.querySelector('.openseadragon-scalebar')
             if (!el || !viewer.viewport) return
             const zoom = viewer.viewport.getZoom(true)
-            const ti = viewer.world.getItemAt(0)
+            const ti   = viewer.world.getItemAt(0)
             if (!ti) return
-            const umPerPx = rawMpp / ti.viewportToImageZoom(zoom)
-            const niceUm = NICE.find(l => l >= umPerPx * window.innerWidth * 0.03) || NICE[NICE.length - 1]
+            const umPerPx  = rawMpp / ti.viewportToImageZoom(zoom)
+            const niceUm   = NICE.find(l => l >= umPerPx * window.innerWidth * 0.03) || NICE[NICE.length - 1]
             el.style.width = `${Math.min(niceUm / umPerPx, 300)}px`
             const lbl = el.querySelector('div')
             if (lbl) lbl.textContent = niceUm >= 1000 ? `${niceUm / 1000} mm` : `${niceUm} µm`
@@ -221,7 +225,10 @@ export default function SlideViewer() {
       }
       document.head.appendChild(s1)
     }
-    return () => { isMounted.current = false; if (osdLeftRef.current) { osdLeftRef.current.destroy(); osdLeftRef.current = null } }
+    return () => {
+      isMounted.current = false
+      if (osdLeftRef.current) { osdLeftRef.current.destroy(); osdLeftRef.current = null }
+    }
   }, [leftScanId, leftInfo, createOSDInstance])
 
   // ── Init right viewer ──────────────────────────────────────────────────────
@@ -231,7 +238,10 @@ export default function SlideViewer() {
     if (window.OpenSeadragon?.Viewer.prototype.scalebar) {
       createOSDInstance(rightViewerRef, rightScanId, rightInfo, setRightZoom, osdRightRef, isMounted)
     }
-    return () => { isMounted.current = false; if (osdRightRef.current) { osdRightRef.current.destroy(); osdRightRef.current = null } }
+    return () => {
+      isMounted.current = false
+      if (osdRightRef.current) { osdRightRef.current.destroy(); osdRightRef.current = null }
+    }
   }, [rightScanId, rightInfo, createOSDInstance])
 
   // ── Sync engine ────────────────────────────────────────────────────────────
@@ -277,9 +287,9 @@ export default function SlideViewer() {
           if (!sp || !line) return
           const ep = e.position
           line.setAttribute('x1', sp.x); line.setAttribute('y1', sp.y); line.setAttribute('x2', ep.x); line.setAttribute('y2', ep.y)
-          const iz = viewer.world.getItemAt(0)?.viewportToImageZoom(viewer.viewport.getZoom(true)) || 1
+          const iz  = viewer.world.getItemAt(0)?.viewportToImageZoom(viewer.viewport.getZoom(true)) || 1
           const mpp = parseFloat(viewer === osdLeftRef.current ? leftInfo?.mpp_x : rightInfo?.mpp_x) || 0.25
-          const um = (Math.hypot(ep.x - sp.x, ep.y - sp.y) / iz) * mpp
+          const um  = (Math.hypot(ep.x - sp.x, ep.y - sp.y) / iz) * mpp
           label.textContent = um >= 1000 ? `${(um / 1000).toFixed(2)} mm` : `${um.toFixed(1)} µm`
           label.setAttribute('x', ep.x + 10); label.setAttribute('y', ep.y - 10)
         },
@@ -297,25 +307,42 @@ export default function SlideViewer() {
   useEffect(() => {
     function handler(e) {
       if (['INPUT', 'TEXTAREA'].includes(document.activeElement?.tagName)) return
-      if (e.key === 'i' || e.key === 'I') { setPanelOpen(o => !o); return }
-      if (e.key === 'r' || e.key === 'R') { setIsRulerActive(o => !o); return }
-      if (e.key === 'b' || e.key === 'B') { setShowBrightness(o => !o); return }
-      if (e.key === '?')                  { setShowShortcuts(o => !o); return }
-      if (e.key === ' ')                  { e.preventDefault(); osdLeftRef.current?.viewport?.goHome(true); osdRightRef.current?.viewport?.goHome(true); return }
-      if (e.key === 'm' || e.key === 'M') { setShowModels(o => !o); return }
+
+      if (e.key === 'p' || e.key === 'P') {
+        // Polygon tool — mutually exclusive with ruler
+        if (isRulerActive) setIsRulerActive(false)
+        setIsPolygonActive(o => !o)
+        return
+      }
+      if (e.key === 'i' || e.key === 'I') { setPanelOpen(o => !o);       return }
+      if (e.key === 'r' || e.key === 'R') {
+        if (isPolygonActive) setIsPolygonActive(false)
+        setIsRulerActive(o => !o)
+        return
+      }
+      if (e.key === 'b' || e.key === 'B') { setShowBrightness(o => !o);  return }
+      if (e.key === '?')                  { setShowShortcuts(o => !o);    return }
+      if (e.key === 'm' || e.key === 'M') { setShowModels(o => !o);       return }
+      if (e.key === ' ') {
+        e.preventDefault()
+        osdLeftRef.current?.viewport?.goHome(true)
+        osdRightRef.current?.viewport?.goHome(true)
+        return
+      }
       if (e.key === 'Escape') {
-        if (isRulerActive)  { setIsRulerActive(false); return }
-        if (showBrightness) { setShowBrightness(false); return }
-        if (showShortcuts)  { setShowShortcuts(false); return }
-        if (showModels)     { setShowModels(false); return }
-        if (rightScanId)    { setRightScanId(null); setCompareMode(false); setIsSynced(false) }
+        if (isPolygonActive)  { setIsPolygonActive(false);  return }
+        if (isRulerActive)    { setIsRulerActive(false);     return }
+        if (showBrightness)   { setShowBrightness(false);    return }
+        if (showShortcuts)    { setShowShortcuts(false);      return }
+        if (showModels)       { setShowModels(false);         return }
+        if (rightScanId)      { setRightScanId(null); setCompareMode(false); setIsSynced(false) }
       }
     }
     document.addEventListener('keydown', handler)
     return () => document.removeEventListener('keydown', handler)
-  }, [isRulerActive, rightScanId, showBrightness, showShortcuts, showModels])
+  }, [isPolygonActive, isRulerActive, rightScanId, showBrightness, showShortcuts, showModels])
 
-  // ── Auto-scroll filmstrip to active scan ───────────────────────────────────
+  // ── Auto-scroll filmstrip ──────────────────────────────────────────────────
   useEffect(() => {
     if (activeChipRef.current && filmstripScrollRef.current) {
       const chip      = activeChipRef.current
@@ -335,7 +362,7 @@ export default function SlideViewer() {
     }
     const onUp = () => { resizingRef.current = false }
     document.addEventListener('mousemove', onMove)
-    document.addEventListener('mouseup', onUp)
+    document.addEventListener('mouseup',  onUp)
     return () => { document.removeEventListener('mousemove', onMove); document.removeEventListener('mouseup', onUp) }
   }, [])
 
@@ -349,8 +376,8 @@ export default function SlideViewer() {
     e.preventDefault(); setIsDragging(false)
     const id = parseInt(e.dataTransfer.getData('scanId'))
     if (!id) return
-    if (side === 'left')  { navigate(`/viewer/${id}`) }
-    else                  { setRightScanId(id); setCompareMode(true); setIsSynced(false) }
+    if (side === 'left') navigate(`/viewer/${id}`)
+    else { setRightScanId(id); setCompareMode(true); setIsSynced(false) }
   }
 
   function handleCompareToggle() {
@@ -361,35 +388,25 @@ export default function SlideViewer() {
   async function handleToggleOverlay(jobId) {
     const viewer = osdLeftRef.current
     if (!viewer) return
-    const isOn = activeOverlays[jobId]
-
-    if (isOn) {
+    if (activeOverlays[jobId]) {
       clearOverlay(viewer, jobId)
       setActiveOverlays(o => ({ ...o, [jobId]: false }))
     } else {
       try {
-        const result = await api.getAnalysisResult(jobId)
+        const result   = await api.getAnalysisResult(jobId)
         const overlays = result.overlays || []
-
-        if (overlays.length === 0) {
-          console.warn("No overlays manifest found for this job.")
-          return
-        }
-
+        if (!overlays.length) return
         for (const overlay of overlays) {
-          await fetchAndRenderOverlay(viewer, jobId, overlay, token, leftInfo) 
+          await fetchAndRenderOverlay(viewer, jobId, overlay, token, leftInfo)
         }
-        
         setActiveOverlays(o => ({ ...o, [jobId]: true }))
-      } catch (e) {
-        console.error("Failed to toggle overlay:", e)
-      }
+      } catch (e) { console.error('Failed to toggle overlay:', e) }
     }
   }
 
   // ── Derived ────────────────────────────────────────────────────────────────
   const displayInfo = (panelSide === 'right' && rightInfo) ? rightInfo : leftInfo
-  const filterStr = `brightness(${brightness}%) contrast(${contrast}%) url(#sv-gamma)`
+  const filterStr   = `brightness(${brightness}%) contrast(${contrast}%) url(#sv-gamma)`
 
   // ─────────────────────────────────────────────────────────────────────────
   // RENDER
@@ -397,8 +414,8 @@ export default function SlideViewer() {
   return (
     <div style={{ width: '100vw', height: '100vh', background: '#111827', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
 
-      {/* ── Topbar ──────────────────────────────────────────────────────── */}
-      <Toolbar 
+      {/* Topbar */}
+      <Toolbar
         handleBack={handleBack}
         leftInfo={leftInfo}
         rightInfo={rightInfo}
@@ -408,19 +425,20 @@ export default function SlideViewer() {
         handleCompareToggle={handleCompareToggle}
       />
 
-      {/* ── Main area ────────────────────────────────────────────────────── */}
+      {/* Main area */}
       <div style={{ flex: 1, display: 'flex', overflow: 'hidden', minHeight: 0 }}>
 
-        {/* Viewers + filmstrip */}
+        {/* Viewers + filmstrip column */}
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', minWidth: 0 }}>
 
           {/* Canvas row */}
           <div style={{ flex: 1, display: 'flex', position: 'relative', minHeight: 0 }}>
 
-            {/* LEFT VIEWER */}
+            {/* ── LEFT VIEWER ── */}
             <div
               style={{ flex: 1, position: 'relative', overflow: 'hidden', borderRight: compareMode ? '1px solid rgba(255,255,255,0.12)' : 'none' }}
-              onDragOver={e => e.preventDefault()} onDrop={e => handleDrop(e, 'left')}
+              onDragOver={e => e.preventDefault()}
+              onDrop={e => handleDrop(e, 'left')}
             >
               {loading && (
                 <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10, color: 'rgba(255,255,255,0.45)', fontSize: 13, zIndex: 2 }}>
@@ -428,11 +446,24 @@ export default function SlideViewer() {
                 </div>
               )}
               {error && (
-                <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 2, color: '#ff8099', padding: 20, fontSize: 13, textAlign: 'center' }}>{error}</div>
+                <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 2, color: '#ff8099', padding: 20, fontSize: 13, textAlign: 'center' }}>
+                  {error}
+                </div>
               )}
+
+              {/* OSD canvas — filtered */}
               <div style={{ width: '100%', height: '100%', filter: filterStr }}>
                 <div ref={leftViewerRef} style={{ width: '100%', height: '100%' }} />
               </div>
+
+              {/* ── Polygon tool SVG overlay (above OSD, below UI chrome) ── */}
+              <PolygonTool
+                viewer={osdLeftRef.current}
+                isActive={isPolygonActive}
+                polygons={polygons}
+                setPolygons={setPolygons}
+              />
+
               {isDragging && (
                 <div style={{ position: 'absolute', inset: 8, border: '2px dashed #1b998b', background: 'rgba(27,153,139,0.07)', borderRadius: 8, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#1b998b', fontWeight: 600, fontSize: 13, pointerEvents: 'none', zIndex: 50 }}>
                   Replace left scan
@@ -440,19 +471,16 @@ export default function SlideViewer() {
               )}
             </div>
 
-            {/* SYNC BUTTON */}
+            {/* Sync button */}
             {compareMode && rightScanId && (
               <button onClick={() => setIsSynced(o => !o)} style={{ position: 'absolute', left: '50%', top: 14, transform: 'translateX(-50%)', zIndex: 60, background: isSynced ? '#1b998b' : 'rgba(3,8,25,0.9)', border: `1px solid ${isSynced ? '#1b998b' : 'rgba(255,255,255,0.22)'}`, color: 'white', padding: '5px 14px', borderRadius: 20, cursor: 'pointer', fontSize: 11, fontWeight: 600 }}>
                 {isSynced ? 'Viewers linked' : 'Link viewers'}
               </button>
             )}
 
-            {/* RIGHT VIEWER */}
+            {/* ── RIGHT VIEWER ── */}
             {compareMode && (
-              <div
-                style={{ flex: 1, position: 'relative', overflow: 'hidden' }}
-                onDragOver={e => e.preventDefault()} onDrop={e => handleDrop(e, 'right')}
-              >
+              <div style={{ flex: 1, position: 'relative', overflow: 'hidden' }} onDragOver={e => e.preventDefault()} onDrop={e => handleDrop(e, 'right')}>
                 {!rightScanId ? (
                   <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 10, color: 'rgba(255,255,255,0.50)', fontSize: 13 }}>
                     <svg width="28" height="28" viewBox="0 0 16 16" fill="currentColor" style={{ opacity: 0.3 }}><path d="M4.5 3a2.5 2.5 0 015 0v9a1.5 1.5 0 01-3 0V5a.5.5 0 011 0v7a.5.5 0 001 0V3a1.5 1.5 0 00-3 0v9a2.5 2.5 0 005 0V5a.5.5 0 011 0v7a3.5 3.5 0 11-7 0V3z"/></svg>
@@ -471,7 +499,7 @@ export default function SlideViewer() {
               </div>
             )}
 
-            {/* Filmstrip toggle pill at canvas bottom */}
+            {/* Filmstrip toggle pill */}
             <button onClick={() => setFilmstripVisible(o => !o)} style={{ position: 'absolute', bottom: 0, left: '50%', transform: 'translateX(-50%)', background: 'rgba(3,8,25,0.92)', border: '1px solid rgba(255,255,255,0.07)', borderBottom: 'none', borderRadius: '6px 6px 0 0', color: 'rgba(255,255,255,0.4)', padding: '3px 16px', fontSize: 10, cursor: 'pointer', textTransform: 'uppercase', letterSpacing: '0.08em', fontWeight: 600, zIndex: 10 }}>
               {filmstripVisible ? '▾ Scans' : '▴ Scans'}
             </button>
@@ -505,7 +533,7 @@ export default function SlideViewer() {
           </div>
         </div>
 
-        {/* Models panel */}
+        {/* Models panel — receives the OSD viewer so it can read viewport bounds */}
         {showModels && (
           <ModelsPanel
             catalog={catalog}
@@ -516,6 +544,7 @@ export default function SlideViewer() {
             setActiveOverlays={setActiveOverlays}
             onToggleOverlay={handleToggleOverlay}
             onJobsChange={handleJobsChange}
+            viewer={osdLeftRef.current}
           />
         )}
 
@@ -536,9 +565,8 @@ export default function SlideViewer() {
   )
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// UTILITIES
-// ─────────────────────────────────────────────────────────────────────────────
 function Spinner() {
-  return <div style={{ width: 26, height: 26, borderRadius: '50%', border: '2px solid rgba(255,255,255,0.08)', borderTopColor: '#1b998b', animation: 'sv-spin 0.7s linear infinite' }} />
+  return (
+    <div style={{ width: 26, height: 26, borderRadius: '50%', border: '2px solid rgba(255,255,255,0.08)', borderTopColor: '#1b998b', animation: 'sv-spin 0.7s linear infinite' }} />
+  )
 }
