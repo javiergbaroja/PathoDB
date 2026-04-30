@@ -5,6 +5,7 @@ import Layout from '../../components/Layout'
 import { Badge, Btn, Panel, SpinnerPage, ErrorMsg } from '../../components/ui'
 import { api } from '../../api'
 import { useQuery } from '@tanstack/react-query'
+import { useAuth } from '../../context/AuthContext'
 
 import RegisterScanModal from './RegisterScanModal'
 import ScansDrawer from './ScansDrawer'
@@ -350,6 +351,7 @@ export default function PatientDetail() {
   const { id }   = useParams()
   const navigate = useNavigate()
   const location = useLocation()
+  const { token } = useAuth();
 
   // ── React Query: patient hierarchy ────────────────────────────────────────
   const { data, isLoading: loading, error: queryError } = useQuery({
@@ -774,32 +776,66 @@ export default function PatientDetail() {
               ) : (
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 8, marginBottom: 12 }}>
                   {scans.map(sc => (
-                    <div key={sc.id} style={{ border: '1px solid #1b998b33', borderRadius: 6, padding: '10px', display: 'flex', flexDirection: 'column', gap: 4 }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                        <div style={{ width: 6, height: 6, borderRadius: '50%', background: '#1b998b', flexShrink: 0 }} />
-                        <span style={{ fontFamily: 'var(--font-mono)', fontSize: 12, fontWeight: 500, color: 'var(--navy)' }}>
-                          {sc.stain_name || '—'}
-                        </span>
+                    <div key={sc.id} style={{ 
+                      border: '1px solid #1b998b33', 
+                      borderRadius: 6, 
+                      overflow: 'hidden', // Crucial: clips the image to the border radius
+                      display: 'flex', 
+                      flexDirection: 'column',
+                      background: 'white'
+                      }}>
+                      
+                      {/* ── NEW THUMBNAIL CONTAINER ── */}
+                      <div style={{ 
+                        height: 110, // Fixed height keeps the grid uniform
+                        background: '#0d1623', // Using the dark background from Filmstrip.jsx
+                        position: 'relative',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        borderBottom: '1px solid #1b998b33'
+                        }}>
+                        <img 
+                          src={`/api/slides/${sc.id}/thumbnail?width=256&token=${token}`} 
+                          alt={`${sc.stain_name} preview`} 
+                          loading="lazy" 
+                          style={{ width: '100%', height: '100%', objectFit: 'contain' }}
+                          // Fallback if the thumbnail generation failed or hasn't finished in the ETL
+                          onError={(e) => {
+                            e.target.style.display = 'none';
+                            e.target.parentElement.innerHTML = '<span style="color:rgba(255,255,255,0.4); font-size: 10px; font-family: var(--font-mono);">No Thumbnail</span>';
+                          }}
+                        />
                       </div>
-                      <div style={{ fontSize: 11, color: 'var(--text-3)' }}>
-                        {sc.file_format}{sc.magnification ? ` · ${sc.magnification}×` : ''}
+
+                      {/* ── EXISTING METADATA ── */}
+                      <div style={{ padding: '10px', display: 'flex', flexDirection: 'column', gap: 4 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                          <div style={{ width: 6, height: 6, borderRadius: '50%', background: '#1b998b', flexShrink: 0 }} />
+                          <span style={{ fontFamily: 'var(--font-mono)', fontSize: 12, fontWeight: 500, color: 'var(--navy)' }}>
+                            {sc.stain_name || '—'}
+                          </span>
+                        </div>
+                        <div style={{ fontSize: 11, color: 'var(--text-3)' }}>
+                          {sc.file_format}{sc.magnification ? ` · ${sc.magnification}×` : ''}
+                        </div>
+                        <div style={{ fontSize: 10, color: 'var(--text-3)', fontFamily: 'var(--font-mono)' }}>
+                          {sc.stain_category}
+                        </div>
+                        <button
+                          onClick={e => { e.stopPropagation(); window.open(`/viewer/${sc.id}`, '_blank') }}
+                          style={{
+                            marginTop: 4, padding: '3px 0', fontSize: 11,
+                            background: 'var(--navy-05)', border: '1px solid var(--navy-20)',
+                            borderRadius: 4, cursor: 'pointer', color: 'var(--navy)',
+                            fontFamily: 'var(--font-sans)', fontWeight: 500, width: '100%',
+                          }}
+                          onMouseEnter={e => { e.currentTarget.style.background = 'var(--navy-10)' }}
+                          onMouseLeave={e => { e.currentTarget.style.background = 'var(--navy-05)' }}
+                        >
+                          Open viewer ↗
+                        </button>
                       </div>
-                      <div style={{ fontSize: 10, color: 'var(--text-3)', fontFamily: 'var(--font-mono)' }}>
-                        {sc.stain_category}
-                      </div>
-                      <button
-                        onClick={e => { e.stopPropagation(); window.open(`/viewer/${sc.id}`, '_blank') }}
-                        style={{
-                          marginTop: 4, padding: '3px 0', fontSize: 11,
-                          background: 'var(--navy-05)', border: '1px solid var(--navy-20)',
-                          borderRadius: 4, cursor: 'pointer', color: 'var(--navy)',
-                          fontFamily: 'var(--font-sans)', fontWeight: 500, width: '100%',
-                        }}
-                        onMouseEnter={e => { e.currentTarget.style.background = 'var(--navy-10)' }}
-                        onMouseLeave={e => { e.currentTarget.style.background = 'var(--navy-05)' }}
-                      >
-                        Open viewer ↗
-                      </button>
                     </div>
                   ))}
                 </div>
