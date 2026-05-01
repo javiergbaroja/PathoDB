@@ -1,17 +1,34 @@
 """
-PathoDB API — Patient Summarize Router (Anchor-Based Version)
-==============================================================
+PathoDB API — Patient Summarize Router
+=======================================
+Streams a longitudinal summary of a patient's microscopy reports using
+a locally-hosted Ollama instance (CPU, quantized model).
 
-Improved version with:
-- Disease anchor extraction step
-- Specimen-aware longitudinal reasoning
-- Strong anti-hallucination constraints
-- CPU-friendly Ollama execution
+Design principles
+-----------------
+* Report-first — all available microscopy report texts are the primary
+  input. The model reads them chronologically and summarizes what they
+  describe. Structural metadata (blocks, scan coverage) is a brief
+  orientation header only.
+* Chronological ordering — reports fed oldest-first so the model can
+  describe disease trajectory naturally.
+* Length-aware truncation — each report is included in full up to a
+  per-report character budget. If total content exceeds the context
+  budget, oldest reports are trimmed first, never dropped entirely.
+* Data-narrative only — explicitly instructed not to make clinical
+  recommendations or inferences beyond what the reports state.
+* Pure async streaming — tokens forwarded to browser as they arrive.
+* Graceful degradation — /health returns 503 if Ollama is down.
+* Model stays warm — keep_alive=-1 prevents unloading between requests.
+
+Ollama endpoint: POST /api/generate  (NDJSON streaming)
+Each chunk: {"response": "<token>", "done": false}
+Final chunk: {"response": "", "done": true, "eval_count": N, ...}
 """
 
 import json
 import logging
-from typing import AsyncIterator, Optional
+from typing import AsyncIterator
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException
@@ -28,112 +45,38 @@ settings = get_settings()
 
 router = APIRouter(prefix="/summarize", tags=["summarize"])
 
-
-# ─────────────────────────────────────────────────────────────
-# Ollama config
-# ─────────────────────────────────────────────────────────────
+# ─── Ollama config ─────────────────────────────────────────────────────────────
 
 def _ollama_url() -> str:
     return getattr(settings, "ollama_base_url", "http://localhost:11434")
 
-
 def _ollama_model() -> str:
-    return getattr(settings, "ollama_model", "llama3.1:8b-instruct-q2_K")
-
+    return getattr(settings, "ollama_model", "medgemma1.5:4b-it-q4_K_M")
 
 def _ollama_num_threads() -> int:
     return getattr(settings, "ollama_num_threads", 12)
 
 
-# ─────────────────────────────────────────────────────────────
-# Limits
-# ─────────────────────────────────────────────────────────────
+# ─── Tuneable limits ───────────────────────────────────────────────────────────
 
 REPORT_CHAR_BUDGET = 5000
 TOTAL_REPORT_CHAR_BUDGET = 20000
-NUM_PREDICT = 500
+NUM_PREDICT = 1000
 
 
-# ─────────────────────────────────────────────────────────────
-# Disease anchor extraction (NEW CORE COMPONENT)
-# ─────────────────────────────────────────────────────────────
-
-async def _extract_disease_anchor(ctx: dict) -> dict:
-    """
-    Extract a single unified disease entity before summarization.
-    Prevents cross-report tumor drift and hallucinated primaries.
-    """
-
-    reports_text = "\n\n".join(
-        f"{r['date']} | {r['submission_id']}\n{r['text']}"
-        for r in ctx["reports"]
-    )
-
-    prompt = f"""
-You are a pathology extraction system.
-
-TASK:
-Identify the SINGLE primary disease entity for this patient.
-
-RULES:
-- Use ONLY explicitly stated information
-- Do NOT infer if uncertain
-- Do NOT confuse metastases with primary tumor
-- If no neoplastic disease is present, state it explicitly
-
-OUTPUT JSON ONLY:
-
-{{
-  "primary_disease": {{
-    "entity": "",
-    "site": "",
-    "histology": "",
-    "grade": ""
-  }},
-  "metastatic_disease_present": true,
-  "metastatic_sites": [],
-  "certainty": "high | medium | low"
-}}
-
-REPORTS:
-{reports_text}
-
-ANSWER:
-"""
-
-    async with httpx.AsyncClient(timeout=120.0) as client:
-        resp = await client.post(
-            f"{_ollama_url()}/api/generate",
-            json={
-                "model": _ollama_model(),
-                "prompt": prompt,
-                "stream": False,
-                "options": {
-                    "temperature": 0.1,
-                    "num_predict": 400,
-                },
-            },
-        )
-
-        # 🔥 HARD SAFETY CHECK
-        content_type = resp.headers.get("content-type", "")
-
-        if "application/json" not in content_type:
-            raise RuntimeError(
-                f"Ollama returned non-JSON response: {resp.text[:300]}"
-            )
-
-        try:
-            data = resp.json()
-            return json.loads(data["response"])
-        except Exception as e:
-            raise RuntimeError(f"Invalid Ollama JSON output: {resp.text}") from e
-
-# ─────────────────────────────────────────────────────────────
-# Context builder
-# ─────────────────────────────────────────────────────────────
+# ─── Data assembly ─────────────────────────────────────────────────────────────
 
 def _build_patient_context(patient_id: int, db: Session) -> dict:
+    """
+    Assemble the patient context dict.
+
+    Primary output: a chronologically ordered list of microscopy report
+    dicts, each containing date, topography, submission_type, and the
+    full report text (subject to character budgets).
+
+    Secondary output: lightweight structural metadata used as a brief
+    orientation header in the prompt.
+    """
     patient: Patient = db.get(Patient, patient_id)
     if not patient:
         raise HTTPException(status_code=404, detail="Patient not found")
@@ -145,6 +88,19 @@ def _build_patient_context(patient_id: int, db: Session) -> dict:
         .all()
     )
 
+    if not submissions:
+        return {
+            "patient": patient,
+            "reports": [],
+            "total_submissions": 0,
+            "malignant_count": 0,
+            "year_min": None,
+            "year_max": None,
+            "total_blocks": 0,
+            "scanned_pct": 0,
+        }
+
+    # ── Collect microscopy reports in chronological order ─────────────────────
     reports_out = []
     malignant_count = 0
     report_dates = []
@@ -157,15 +113,28 @@ def _build_patient_context(patient_id: int, db: Session) -> dict:
         if sub.report_date:
             report_dates.append(sub.report_date)
 
+        # Representative topography and type from the first probe
         probes = db.query(Probe).filter(Probe.submission_id == sub.id).all()
+        topo = next(
+            (p.topo_description for p in probes if p.topo_description),
+            None,
+        )
+        submission_type = next(
+            (p.submission_type for p in probes if p.submission_type),
+            None,
+        )
 
         for probe in probes:
             blocks = db.query(Block).filter(Block.probe_id == probe.id).all()
             for block in blocks:
                 total_blocks += 1
-                if db.query(Scan).filter(Scan.block_id == block.id).first():
+                has_scan = db.query(Scan).filter(
+                    Scan.block_id == block.id
+                ).first()
+                if has_scan:
                     scanned_blocks += 1
 
+        # Microscopy report for this submission
         micro = (
             db.query(Report)
             .filter(
@@ -175,20 +144,39 @@ def _build_patient_context(patient_id: int, db: Session) -> dict:
             .first()
         )
 
-        if micro and micro.report_text:
+        if micro and micro.report_text and micro.report_text.strip():
             text = micro.report_text.strip()
-
+            # Truncate long individual reports; mark the cut so the model
+            # knows the text was trimmed and does not hallucinate an ending.
             if len(text) > REPORT_CHAR_BUDGET:
                 text = text[:REPORT_CHAR_BUDGET] + " [… truncated]"
 
             reports_out.append({
-                "date": str(sub.report_date) if sub.report_date else "unknown",
+                "date": str(sub.report_date) if sub.report_date else "date unknown",
                 "submission_id": sub.lis_submission_id,
+                "topo": topo or "site not recorded",
+                "submission_type": submission_type or "type not recorded",
+                "malignant": sub.malignancy_flag,
                 "text": text,
             })
 
+    # ── Enforce total character budget, trimming oldest first ─────────────────
+    total_chars = sum(len(r["text"]) for r in reports_out)
+    if total_chars > TOTAL_REPORT_CHAR_BUDGET and len(reports_out) > 1:
+        excess = total_chars - TOTAL_REPORT_CHAR_BUDGET
+        for r in reports_out:  # oldest first
+            if excess <= 0:
+                break
+            # Always keep at least 200 chars so no report disappears entirely
+            trimable = len(r["text"]) - 200
+            if trimable > 0:
+                cut = min(trimable, excess)
+                r["text"] = r["text"][: len(r["text"]) - cut] + " [… truncated]"
+                excess -= cut
+
     year_min = min(report_dates).year if report_dates else None
     year_max = max(report_dates).year if report_dates else None
+    scanned_pct = round(scanned_blocks / total_blocks * 100) if total_blocks else 0
 
     return {
         "patient": patient,
@@ -198,79 +186,189 @@ def _build_patient_context(patient_id: int, db: Session) -> dict:
         "year_min": year_min,
         "year_max": year_max,
         "total_blocks": total_blocks,
-        "scanned_pct": round(scanned_blocks / total_blocks * 100) if total_blocks else 0,
+        "scanned_pct": scanned_pct,
     }
 
 
-# ─────────────────────────────────────────────────────────────
-# Prompt builder (ANCHOR-CONSTRAINED)
-# ─────────────────────────────────────────────────────────────
-
 def _build_prompt(ctx: dict) -> str:
-    p = ctx["patient"]
+    """
+    Build the LLM prompt.
 
-    reports_section = "\n\n---\n\n".join(
-        f"{r['date']} | {r['submission_id']}\n{r['text']}"
-        for r in ctx["reports"]
+    Structure:
+      1. System instruction (role + hard constraints)
+      2. Brief patient orientation header (metadata)
+      3. All microscopy reports, numbered chronologically, each with
+         date, site, type, and full text
+      4. Task instruction
+    """
+    p = ctx["patient"]
+    sex = {"M": "male", "F": "female"}.get(p.sex or "", "sex unknown")
+    dob = str(p.date_of_birth) if p.date_of_birth else "unknown"
+
+    year_range = (
+        f"{ctx['year_min']}–{ctx['year_max']}"
+        if ctx["year_min"] and ctx["year_min"] != ctx["year_max"]
+        else str(ctx["year_min"] or "unknown")
     )
 
+    reports = ctx["reports"]
+
+    # Edge case: patient exists but has no microscopy text at all
+    if not reports:
+        return (
+            f"Write one sentence stating that patient {p.patient_code} "
+            f"has {ctx['total_submissions']} pathology submission(s) between "
+            f"{year_range} but no microscopy report text is currently "
+            f"available in the database."
+        )
+
+    # ── Format each report as a clearly delimited numbered block ─────────────
+    report_blocks = []
+    for i, r in enumerate(reports, 1):
+        header = (
+            f"REPORT {i} — {r['date']}| ID: {r['submission_id']}\n"
+            f"Type: {r['submission_type']} | "
+        )
+        report_blocks.append(header + r["text"])
+
+    reports_section = "\n\n---\n\n".join(report_blocks)
+
     prompt = f"""
-You are a pathology assistant generating a longitudinal summary.
+You are a senior clinical pathologist and oncologic data summarization expert.
 
-You MUST strictly adhere to the disease anchor.
+Your task is to analyze a set of pathology reports from a single patient (provided in reverse chronological order: newest → oldest) and produce a concise, clinically accurate longitudinal summary of the findings.
 
-DISEASE ANCHOR (DO NOT MODIFY):
-{json.dumps(ctx.get("disease_anchor", {}), indent=2)}
 
-CRITICAL RULES:
-- Do NOT change or reinterpret the primary disease
-- Do NOT split into multiple independent tumors
-- Do NOT assume metastasis unless explicitly stated
-- Do NOT infer progression unless explicitly supported
-- Treat each specimen independently unless linkage is explicit
+------------------------------------------------------------
+OUTPUT FORMAT (STRICT)
+------------------------------------------------------------
 
-DISTINCTIONS:
-1. Primary tumor (from anchor only)
-2. Metastasis (only if explicitly stated)
-3. Local invasion
-4. Non-neoplastic findings
+Return exactly TWO sections:
 
-STYLE:
-- 4–6 sentences
-- No report numbering
-- No meta-commentary
-- No speculation
+1) Concise Longitudinal Summary (max 7 sentences)
+2) Bottom line (max 2 sentences)
 
-PATIENT:
-Code: {p.patient_code}
+Do NOT include bullet points. Do NOT list specimens.
 
-MICROSCOPY REPORTS:
+------------------------------------------------------------
+CORE OBJECTIVE
+------------------------------------------------------------
+
+Describe the patient’s disease course over time:
+- Was malignancy present or absent?
+- If present, what type and where did it spread?
+- Was it already metastatic at diagnosis or did it appear later?
+- How did findings evolve over time (progression vs stable vs unclear)?
+
+------------------------------------------------------------
+CRITICAL RULES (VERY IMPORTANT)
+------------------------------------------------------------
+
+- Use ONLY information explicitly stated or directly inferable.
+
+- DO NOT guess or fill missing information.
+
+- DO NOT infer:
+  - cure
+  - remission
+  - resolution
+  - “no disease”
+  - “no residual tumor”
+
+- If tumor is not seen in a sample:
+  → say “no tumor identified in sampled tissue”
+  → DO NOT interpret as disease absence
+
+- DO NOT confuse:
+  - Direct invasion (tumor growing into nearby organs)
+  - Metastasis (spread to distant sites)
+
+- Only say “metastasis” if explicitly stated.
+
+- If metastatic disease exists at any point:
+  → DO NOT suggest it disappeared unless explicitly stated
+
+- If uncertain:
+  → say “uncertain based on available data”
+
+- Match information to the submission ID.
+
+------------------------------------------------------------
+WHAT TO EXTRACT INTERNALLY
+------------------------------------------------------------
+
+- Presence of malignancy (yes / no / uncertain)
+- If tumor is present, then look for this information:
+    - Primary tumor site (if stated). First appearance need not be the primary tumor. 
+        → Explicitly search the tumor type and site for clues: e.g. [organ] adenocarcinoma, or squamous cell carcinoma of the [organ]
+    - Degree of differentiation (if stated) and histological type.
+    - Local invasion (T-stage)
+    - Lymph node involvement (N-stage)
+    - Distant metastases (M-stage) and sites (if stated)
+    - Key molecular findings (if explicitly stated)
+- Structured temporal sequence (first appearance → later findings). 
+
+------------------------------------------------------------
+WRITING STYLE RULES
+------------------------------------------------------------
+
+- Be concise and clinical.
+- Use simple medical language.
+- Prefer exact phrasing:
+
+Correct:
+- “direct invasion into [organ]”
+- “metastatic disease involving [organ]”
+- “lymph node metastases present”
+- “no tumor identified in sampled tissue”
+
+Incorrect:
+- “cure”
+- “resolved”
+- “clearance”
+- “no residual disease”
+
+------------------------------------------------------------
+INPUT
+------------------------------------------------------------
+
+PATIENT ORIENTATION:
+- Code: {p.patient_code} | Sex: {sex} | DOB: {dob}
+
+MICROSCOPY REPORTS (chronological):
+
 {reports_section}
 
-LONGITUDINAL SUMMARY:
-"""
+---
+
+LONGITUDINAL SUMMARY:"""
+
     return prompt
 
 
-# ─────────────────────────────────────────────────────────────
-# Ollama streaming
-# ─────────────────────────────────────────────────────────────
+# ─── Streaming helpers ─────────────────────────────────────────────────────────
 
 async def _stream_ollama(prompt: str) -> AsyncIterator[str]:
+    """
+    Call Ollama /api/generate with stream=true and yield each token.
+    Raises httpx.ConnectError if Ollama is not reachable.
+    """
     payload = {
         "model": _ollama_model(),
         "prompt": prompt,
         "stream": True,
-        "keep_alive": -1,
+        "keep_alive": -1,           # keep model loaded indefinitely
         "options": {
             "num_thread": _ollama_num_threads(),
-            "temperature": 0.3,
+            "temperature": 0.3,     # low temp for factual consistency
             "top_p": 0.9,
             "repeat_penalty": 1.1,
             "num_predict": NUM_PREDICT,
         },
     }
 
+    # Longer timeout than the original: 10 reports × ~1500 chars each can
+    # produce a larger prompt that takes more time to process on first token.
     async with httpx.AsyncClient(timeout=180.0) as client:
         async with client.stream(
             "POST",
@@ -279,9 +377,12 @@ async def _stream_ollama(prompt: str) -> AsyncIterator[str]:
         ) as resp:
             resp.raise_for_status()
             async for line in resp.aiter_lines():
-                if not line:
+                if not line.strip():
                     continue
-                chunk = json.loads(line)
+                try:
+                    chunk = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
                 token = chunk.get("response", "")
                 if token:
                     yield token
@@ -289,19 +390,60 @@ async def _stream_ollama(prompt: str) -> AsyncIterator[str]:
                     break
 
 
-async def _sse_generator(prompt: str):
+async def _sse_generator(prompt: str) -> AsyncIterator[bytes]:
+    """
+    Wrap _stream_ollama tokens into SSE-formatted byte chunks.
+    SSE format: 'data: <json>\\n\\n'
+    Final sentinel: 'data: [DONE]\\n\\n'
+    """
     try:
         async for token in _stream_ollama(prompt):
-            yield f"data: {json.dumps({'token': token})}\n\n".encode()
-    except Exception as e:
-        yield f"data: {json.dumps({'error': str(e)})}\n\n".encode()
+            payload = json.dumps({"token": token})
+            yield f"data: {payload}\n\n".encode()
+    except (httpx.ConnectError, httpx.ConnectTimeout):
+        error_payload = json.dumps({"error": "ollama_offline"})
+        yield f"data: {error_payload}\n\n".encode()
+    except Exception as exc:
+        log.error(f"Streaming error: {exc}", exc_info=True)
+        error_payload = json.dumps({"error": str(exc)})
+        yield f"data: {error_payload}\n\n".encode()
     finally:
         yield b"data: [DONE]\n\n"
 
 
-# ─────────────────────────────────────────────────────────────
-# Endpoint
-# ─────────────────────────────────────────────────────────────
+# ─── Endpoints ─────────────────────────────────────────────────────────────────
+
+@router.get("/health")
+async def ollama_health(
+    _: User = Depends(get_current_active_user),
+):
+    """
+    Check whether Ollama is reachable and the configured model is pulled.
+    Returns 200 + model info, or 503 if the service is offline.
+    """
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            resp = await client.get(f"{_ollama_url()}/api/tags")
+            resp.raise_for_status()
+            tags = resp.json()
+            model_name = _ollama_model()
+            models = [m["name"] for m in tags.get("models", [])]
+            available = any(
+                m.startswith(model_name.split(":")[0]) for m in models
+            )
+            return {
+                "status": "ok",
+                "model": model_name,
+                "model_available": available,
+                "available_models": models,
+                "ollama_url": _ollama_url(),
+            }
+    except (httpx.ConnectError, httpx.ConnectTimeout, httpx.HTTPError) as exc:
+        raise HTTPException(
+            status_code=503,
+            detail=f"Ollama not reachable at {_ollama_url()}: {exc}",
+        )
+
 
 @router.get("/patient/{patient_id}")
 async def summarize_patient(
@@ -309,23 +451,29 @@ async def summarize_patient(
     db: Session = Depends(get_db),
     _: User = Depends(get_current_active_user),
 ):
+    """
+    Stream a longitudinal summary of all microscopy reports for a patient.
+
+    Returns text/event-stream (SSE).
+    Each event  : data: {"token": "<text>"}
+    Final event : data: [DONE]
+    Error event : data: {"error": "<reason>"}
+    """
     ctx = _build_patient_context(patient_id, db)
-
-    # NEW: disease anchor step
-    ctx["disease_anchor"] = await _extract_disease_anchor(ctx)
-
     prompt = _build_prompt(ctx)
 
+    report_count = len(ctx.get("reports", []))
     log.info(
-        f"Summarizing patient {patient_id} with "
-        f"{len(ctx['reports'])} microscopy reports"
+        f"Streaming microscopy summary for patient {patient_id} — "
+        f"{report_count}/{ctx.get('total_submissions', 0)} reports have text, "
+        f"model={_ollama_model()}"
     )
 
     return StreamingResponse(
         _sse_generator(prompt),
         media_type="text/event-stream",
         headers={
+            "X-Accel-Buffering": "no",   # prevent nginx buffering the stream
             "Cache-Control": "no-cache",
-            "X-Accel-Buffering": "no",
         },
     )

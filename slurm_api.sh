@@ -7,7 +7,7 @@
 #SBATCH --mem-per-cpu=50G
 #SBATCH --account=gratis
 #SBATCH --partition=cpu-invest
-#SBATCH --cpus-per-task=16
+#SBATCH --cpus-per-task=24
 #SBATCH --qos=job_cpu_preemptable
 
 
@@ -112,7 +112,7 @@ for i in $(seq 1 30); do
         echo "Ollama ready after ${i}s." && break
     sleep 1
 done
-~/opt/ollama/bin/ollama pull llama3.1:8b-instruct-q2_K
+
 echo "Ollama running on $(hostname):11434 (PID $OLLAMA_PID)"
 
 # ── Start API server ──────────────────────────────────────────────────────────

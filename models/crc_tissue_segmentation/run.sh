@@ -59,7 +59,7 @@ source activate metassist
 # ── Run inference ─────────────────────────────────────────────────────────────
 # get absolute folder for this bash script.
 PROJECT_DIR="/storage/research/igmp_dp_workspace/garciabaroja_javier/PW_reports/database/pathodb"
-INFERENCE_SCRIPT="/storage/research/igmp_dp_workspace/garciabaroja_javier/PW_reports/database/pathodb/models/crc_tissue_segmentation/infer2.py"
+INFERENCE_SCRIPT="/storage/research/igmp_dp_workspace/garciabaroja_javier/PW_reports/database/pathodb/models/crc_tissue_segmentation/infer.py"
 python3 "${INFERENCE_SCRIPT}"
 
 echo ""
