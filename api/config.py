@@ -31,6 +31,20 @@ class Settings(BaseSettings):
     analysis_results_dir: str = "/storage/research/igmp_dp_workspace/garciabaroja_javier/PW_reports/database/pathodb/analysis_results"
     models_dir: str = "/storage/research/igmp_dp_workspace/garciabaroja_javier/PW_reports/database/pathodb/models"
 
+    # ── Ollama / Patient Summary ───────────────────────────────────────────────
+    # ollama_base_url: HTTP address of the running Ollama daemon.
+    #   - Local dev / single-node HPC:  http://localhost:11434
+    #   - If Ollama runs on a separate node:  http://<hostname>:11434
+    # ollama_model: model tag to use. Must be pulled on the Ollama host.
+    #   Recommended for CPU inference: llama3.2:3b (fast, sufficient quality)
+    #   Higher quality option:         mistral:7b-instruct-q4_K_M
+    # ollama_num_threads: CPU threads passed per-request to llama.cpp.
+    #   Rule of thumb: physical_cores - 4  (leave headroom for OS + FastAPI).
+    #   On a 16-core HPC allocation, 12 is a safe default.
+    ollama_base_url: str = "http://localhost:11434"
+    ollama_model: str = "llama3.2:3b"
+    ollama_num_threads: int = 12
+
     class Config:
         env_file = ".env"
         env_file_encoding = "utf-8"

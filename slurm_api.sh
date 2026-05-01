@@ -4,10 +4,10 @@
 #SBATCH --job-name="pathodb_api"
 #SBATCH --output="/storage/research/igmp_dp_workspace/garciabaroja_javier/PW_reports/database/pathodb/logs/pathodb_api_%j.out"
 #SBATCH --time=2:00:00
-#SBATCH --mem-per-cpu=24G
+#SBATCH --mem-per-cpu=50G
 #SBATCH --account=gratis
 #SBATCH --partition=cpu-invest
-#SBATCH --cpus-per-task=2
+#SBATCH --cpus-per-task=16
 #SBATCH --qos=job_cpu_preemptable
 
 
@@ -25,6 +25,7 @@
 # =============================================================================
 
 set -euo pipefail
+trap 'echo "Shutting down..."; kill $OLLAMA_PID 2>/dev/null; pg_ctl -D "$PGDATA" stop' EXIT
 
 PROJECT_DIR="/storage/research/igmp_dp_workspace/garciabaroja_javier/PW_reports/database/pathodb"
 ENV_FILE="$PROJECT_DIR/.env"
@@ -94,6 +95,25 @@ fi
 echo ""
 echo "Installing API dependencies..."
 pip install -q -r api/requirements.txt
+
+# ── Start Ollama ──────────────────────────────────────────────────────────────
+echo ""
+echo "Starting Ollama..."
+export OLLAMA_MODELS="/storage/research/igmp_dp_workspace/garciabaroja_javier/ollama_models"
+export OLLAMA_NUM_PARALLEL=1
+export OLLAMA_HOST="127.0.0.1:11434"
+
+~/opt/ollama/bin/ollama serve &
+OLLAMA_PID=$!
+
+# Wait for Ollama to be ready
+for i in $(seq 1 30); do
+    curl -s http://localhost:11434/api/tags > /dev/null 2>&1 && \
+        echo "Ollama ready after ${i}s." && break
+    sleep 1
+done
+~/opt/ollama/bin/ollama pull llama3.1:8b-instruct-q2_K
+echo "Ollama running on $(hostname):11434 (PID $OLLAMA_PID)"
 
 # ── Start API server ──────────────────────────────────────────────────────────
 echo ""

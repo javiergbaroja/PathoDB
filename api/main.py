@@ -11,7 +11,10 @@ from fastapi.responses import FileResponse
 
 from .config import get_settings
 from .database import check_db_connection
-from .routers import auth, patients, scans, stains, cohorts, stats, slides, search, assistant, analysis
+from .routers import (
+    auth, patients, scans, stains, cohorts,
+    stats, slides, search, assistant, analysis, summarize,
+)
 
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger("pathodb_api")
@@ -66,6 +69,7 @@ api_router.include_router(slides.router)
 api_router.include_router(search.router)
 api_router.include_router(assistant.router)
 api_router.include_router(analysis.router)
+api_router.include_router(summarize.router)
 app.include_router(api_router)
 
 @api_router.get("/health")

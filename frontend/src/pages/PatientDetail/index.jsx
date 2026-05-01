@@ -9,6 +9,7 @@ import { useAuth } from '../../context/AuthContext'
 
 import RegisterScanModal from './RegisterScanModal'
 import ScansDrawer from './ScansDrawer'
+import SummaryPanel from './SummaryPanel'
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -725,8 +726,9 @@ export default function PatientDetail() {
           </div>
         </div>
 
-        {/* ── Right: scan detail (unchanged) ────────────────────────────────── */}
+        {/* ── Right: scan detail ────────────────────────────────────────────── */}
         <div style={{ overflowY: 'auto', padding: '16px 24px 16px 12px' }}>
+          <SummaryPanel patientId={parseInt(id)} />
           {!selected ? (
             <div style={{
               height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center',
