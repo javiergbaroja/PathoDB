@@ -51,7 +51,7 @@ def _ollama_url() -> str:
     return getattr(settings, "ollama_base_url", "http://localhost:11434")
 
 def _ollama_model() -> str:
-    return getattr(settings, "ollama_model", "medgemma1.5:4b-it-q4_K_M")
+    return getattr(settings, "ollama_model", "llama3.2:3b")
 
 def _ollama_num_threads() -> int:
     return getattr(settings, "ollama_num_threads", 12)
