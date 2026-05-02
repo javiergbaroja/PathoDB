@@ -26,15 +26,17 @@ Design decisions:
 import json
 import logging
 from typing import AsyncIterator
+from datetime import datetime
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
+from sqlalchemy import text
 
 from ..auth import get_current_active_user
 from ..config import get_settings
-from ..database import get_db
+from ..database import get_db, SessionLocal
 from ..models import Patient, Report, Submission, User
 
 log      = logging.getLogger("pathodb_summarize")
@@ -293,7 +295,7 @@ async def _extract_one(report: dict) -> str:
 
 # ─── SSE generator ─────────────────────────────────────────────────────────────
 
-async def _sse_generator(ctx: dict) -> AsyncIterator[bytes]:
+async def _sse_generator(ctx: dict, patient_id: int) -> AsyncIterator[bytes]:
     """
     Full two-stage pipeline as a server-sent events stream.
 
@@ -347,18 +349,58 @@ async def _sse_generator(ctx: dict) -> AsyncIterator[bytes]:
         year_range        = ctx["year_range"],
         findings          = findings,
     )
-
+    full_summary = []
     # Signal to the frontend that Stage 1 is complete and text is about to stream
     yield f"data: {json.dumps({'stage': 2})}\n\n".encode()
 
     try:
         async for token in _stream_generate(stage2_prompt, STAGE2_NUM_PREDICT):
+            full_summary.append(token)
             yield f"data: {json.dumps({'token': token})}\n\n".encode()
     except (httpx.ConnectError, httpx.ConnectTimeout):
         yield f"data: {json.dumps({'error': 'ollama_offline'})}\n\n".encode()
     except Exception as exc:
         log.error(f"Stage 2 synthesis failed: {exc}", exc_info=True)
         yield f"data: {json.dumps({'error': str(exc)})}\n\n".encode()
+
+    try:
+        final_text = "".join(full_summary).strip()
+
+        if final_text:
+            db = SessionLocal() 
+
+            try:
+                result = db.execute(
+                    text("""
+                        UPDATE patients
+                        SET summary_text = :summary,
+                            summary_updated_at = :updated_at
+                        WHERE id = :patient_id
+                        RETURNING id
+                    """),
+                    {
+                        "summary": final_text,
+                        "updated_at": datetime.utcnow(),
+                        "patient_id": patient_id,
+                    }
+                )
+
+                updated = result.scalar()
+
+                if not updated:
+                    log.error(f"❌ No patient row updated for patient_id={patient_id}")
+                else:
+                    log.info(f"✅ Summary saved for patient_id={updated}")
+
+                db.commit()
+            finally:
+                db.close() 
+
+    except Exception as exc:
+        log.error(
+            f"Failed to persist summary for patient {patient_id}: {exc}",
+            exc_info=True
+        )
 
     yield b"data: [DONE]\n\n"
 
@@ -425,10 +467,22 @@ async def summarize_patient(
     )
 
     return StreamingResponse(
-        _sse_generator(ctx),
+        _sse_generator(ctx, patient_id),
         media_type="text/event-stream",
         headers={
             "X-Accel-Buffering": "no",
             "Cache-Control":     "no-cache",
         },
     )
+
+
+@router.get("/patient/{patient_id}/summary")
+def get_patient_summary(patient_id: int, db: Session = Depends(get_db)):
+    patient = db.get(Patient, patient_id)
+    if not patient:
+        raise HTTPException(404, "Patient not found")
+
+    return {
+        "summary_text": patient.summary_text,
+        "summary_updated_at": patient.summary_updated_at,
+    }

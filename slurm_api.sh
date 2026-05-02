@@ -90,7 +90,7 @@ else
         sleep 1
     done
 fi
-
+# psql -h localhost -p 15432 -U jg23p152 -d pathodb -f db/schema.sql
 # ── Install API dependencies ──────────────────────────────────────────────────
 echo ""
 echo "Installing API dependencies..."

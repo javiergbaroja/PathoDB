@@ -27,6 +27,10 @@ CREATE TABLE IF NOT EXISTS patients (
     created_at    TIMESTAMPTZ     NOT NULL DEFAULT now()
 );
 
+ALTER TABLE patients
+ADD COLUMN summary_text TEXT,
+ADD COLUMN summary_updated_at TIMESTAMPTZ;
+
 CREATE INDEX IF NOT EXISTS idx_patients_code ON patients (patient_code);
 
 -- =============================================================================

@@ -36,6 +36,8 @@ class Patient(Base):
     date_of_birth = Column(Date)
     sex           = Column(Text)
     created_at    = Column(TIMESTAMP(timezone=True), server_default=func.now())
+    summary_text = Column(Text, nullable=True)
+    summary_updated_at = Column(TIMESTAMP(timezone=True), nullable=True)
 
     submissions = relationship("Submission", back_populates="patient")
 

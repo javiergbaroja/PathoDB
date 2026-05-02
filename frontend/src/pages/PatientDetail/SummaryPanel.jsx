@@ -1,12 +1,8 @@
 // frontend/src/pages/PatientDetail/SummaryPanel.jsx
-//
-// Displays a streaming LLM-generated narrative of the patient's history.
-// States:  idle → loading (health check) → streaming → done | error | offline
-//
-// The panel is collapsible and remembers whether the user generated a
-// summary (so it persists within the session but never auto-generates).
 
 import { useState, useRef, useEffect } from 'react'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { api } from '../../api'
 import { getSummarizeHealth, streamPatientSummary } from '../../api/summarize'
 
 // ── Visual constants ───────────────────────────────────────────────────────────
@@ -60,28 +56,43 @@ export default function SummaryPanel({ patientId }) {
 
   // Keep a ref to the abort controller so we can cancel on unmount
   const abortRef = useRef(null)
+  const queryClient = useQueryClient()
 
-  // Cancel any in-flight stream when the component unmounts or patientId changes
+  const fetchSummary = async (patientId) => {
+    const res = await api.get(`/summarize/patient/${patientId}/summary`)
+    return res.data
+  }
+
+  // ─────────────────────────────────────────────────────────────
+  // React Query: persisted DB summary
+  // ─────────────────────────────────────────────────────────────
+  const { data, isLoading } = useQuery({
+    queryKey: ['patient-summary', patientId],
+    queryFn: () => fetchSummary(patientId),
+    enabled: !!patientId,
+  })
+
+  // ─────────────────────────────────────────────────────────────
+  // Hydrate local state (keeps original streaming UX)
+  // ─────────────────────────────────────────────────────────────
   useEffect(() => {
-    return () => {
-      abortRef.current?.abort()
+    if (data?.summary_text) {
+      setText(data.summary_text)
+      setStatus('done')
     }
-  }, [patientId])
+    // IMPORTANT: do NOT reset to idle here
+    // print data in the console for debugging, precede it by a clear message
+    console.log('SummaryPanel: fetched summary from DB', data)
+  }, [data])
 
-  // Reset when patient changes
-  useEffect(() => {
-    abortRef.current?.abort()
-    setStatus('idle')
-    setText('')
-    setErrorMsg('')
-  }, [patientId])
-
+  // ─────────────────────────────────────────────────────────────
+  // Streaming generation
+  // ─────────────────────────────────────────────────────────────
   async function handleGenerate() {
     setStatus('checking')
     setText('')
     setErrorMsg('')
 
-    // Health check first — gives a clear message if Ollama is down
     try {
       const health = await getSummarizeHealth()
       if (!health.model_available) {
@@ -104,9 +115,14 @@ export default function SummaryPanel({ patientId }) {
       patientId,
       // onToken
       (token) => setText(prev => prev + token),
-      // onDone
-      () => setStatus('done'),
-      // onError
+
+      async () => {
+        setStatus('done')
+        await queryClient.invalidateQueries({
+          queryKey: ['patient-summary', patientId]
+        })
+      },
+
       (msg) => {
         setStatus('error')
         setErrorMsg(msg)
@@ -116,7 +132,7 @@ export default function SummaryPanel({ patientId }) {
 
   function handleCancel() {
     abortRef.current?.abort()
-    setStatus('done')  // treat cancelled as done with whatever arrived
+    setStatus('done')
   }
 
   function handleReset() {
@@ -213,6 +229,14 @@ export default function SummaryPanel({ patientId }) {
           {status === 'checking' && (
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: TEXT_MUTED, fontSize: 13 }}>
               <MiniSpinner /> Checking LLM service…
+            </div>
+          )}
+
+
+          {/* Loading DB */}
+          {isLoading && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: TEXT_MUTED, fontSize: 13 }}>
+              <MiniSpinner /> Loading saved summary…
             </div>
           )}
 
