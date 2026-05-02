@@ -40,10 +40,10 @@ class Settings(BaseSettings):
     #   Higher quality option:         mistral:7b-instruct-q4_K_M
     # ollama_num_threads: CPU threads passed per-request to llama.cpp.
     #   Rule of thumb: physical_cores - 4  (leave headroom for OS + FastAPI).
-    #   On a 16-core HPC allocation, 12 is a safe default.
+    #   On a 24-core HPC allocation, 20 is a safe default.
     ollama_base_url: str = "http://localhost:11434"
     ollama_model: str = "llama3.2:3b"
-    ollama_num_threads: int = 12
+    ollama_num_threads: int = 20
 
     class Config:
         env_file = ".env"

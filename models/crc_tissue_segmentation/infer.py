@@ -155,9 +155,9 @@ def main() -> None:
     )
 
     # Generate the global tissue mask (since ln_seg_path isn't provided dynamically yet)
-    if USE_TISSUE_MASK and ROI is None:
+    if USE_TISSUE_MASK and ROI == "null":
         tissue_mask, _ = detect_tissue_mask(SCAN_PATH)
-    elif ROI is not None:
+    elif ROI is not None and ROI != "null":
         with open(ROI, "r") as f:
             roi_data = json.load(f)
         tissue_mask = create_mask_from_contours(
@@ -300,6 +300,7 @@ def main() -> None:
         },
         "files": {
             "raster_overlay": tiff_path,
+            "download_file": geojson_mask
         },
         "overlays": [
             {
