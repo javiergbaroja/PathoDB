@@ -2,7 +2,7 @@
 
 import { useState, useRef, useEffect } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { api } from '../../api'
+import { request } from '../../api/client' 
 import { getSummarizeHealth, streamPatientSummary } from '../../api/summarize'
 
 // ── Visual constants ───────────────────────────────────────────────────────────
@@ -59,15 +59,20 @@ export default function SummaryPanel({ patientId }) {
   const queryClient = useQueryClient()
 
   const fetchSummary = async (patientId) => {
-    const res = await api.get(`/summarize/patient/${patientId}/summary`)
-    return res.data
+    // 1. Use the standard request utility to bypass any broken 'api' wrappers
+    // 2. Add ?_t=Date.now() to bust the browser cache and force a true network call
+    const res = await request('GET', `/summarize/patient/${patientId}/summary?_t=${Date.now()}`)
+    
+    // Safely return the payload regardless of how `request` unwraps it
+    return res?.data !== undefined ? res.data : res
   }
 
   // ─────────────────────────────────────────────────────────────
   // React Query: persisted DB summary
   // ─────────────────────────────────────────────────────────────
-  const { data, isLoading } = useQuery({
-    queryKey: ['patient-summary', patientId],
+ const { data, isLoading } = useQuery({
+    // Cast to String to prevent integer/string mismatches from URL params
+    queryKey: ['patient-summary', String(patientId)], 
     queryFn: () => fetchSummary(patientId),
     enabled: !!patientId,
   })
@@ -80,15 +85,16 @@ export default function SummaryPanel({ patientId }) {
       setText(data.summary_text)
       setStatus('done')
     }
-    // IMPORTANT: do NOT reset to idle here
-    // print data in the console for debugging, precede it by a clear message
-    console.log('SummaryPanel: fetched summary from DB', data)
-  }, [data])
+    console.log('SummaryPanel DB Fetch —', { isLoading, data })
+  }, [data, isLoading])
 
   // ─────────────────────────────────────────────────────────────
   // Streaming generation
   // ─────────────────────────────────────────────────────────────
   async function handleGenerate() {
+    // ADD THIS: Safely cancel any existing stream before starting a new one
+    abortRef.current?.abort() 
+    
     setStatus('checking')
     setText('')
     setErrorMsg('')
@@ -119,7 +125,7 @@ export default function SummaryPanel({ patientId }) {
       async () => {
         setStatus('done')
         await queryClient.invalidateQueries({
-          queryKey: ['patient-summary', patientId]
+          queryKey: ['patient-summary', String(patientId)]
         })
       },
 
@@ -258,7 +264,7 @@ export default function SummaryPanel({ patientId }) {
                   </button>
                 )}
                 {isDone && (
-                  <button onClick={handleReset} style={btnStyle('ghost')}>
+                  <button onClick={handleGenerate} style={btnStyle('ghost')}>
                     Regenerate
                   </button>
                 )}

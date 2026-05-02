@@ -1,3 +1,4 @@
+# api/routers/summarize.py
 """
 PathoDB API — Patient Summarize Router
 =======================================
@@ -368,33 +369,26 @@ async def _sse_generator(ctx: dict, patient_id: int) -> AsyncIterator[bytes]:
 
         if final_text:
             db = SessionLocal() 
-
             try:
-                result = db.execute(
-                    text("""
-                        UPDATE patients
-                        SET summary_text = :summary,
-                            summary_updated_at = :updated_at
-                        WHERE id = :patient_id
-                        RETURNING id
-                    """),
-                    {
-                        "summary": final_text,
-                        "updated_at": datetime.utcnow(),
-                        "patient_id": patient_id,
-                    }
-                )
-
-                updated = result.scalar()
-
-                if not updated:
-                    log.error(f"❌ No patient row updated for patient_id={patient_id}")
+                patient_to_update = db.get(Patient, patient_id)
+                if patient_to_update:
+                    patient_to_update.summary_text = final_text
+                    patient_to_update.summary_updated_at = datetime.utcnow()
+                    db.commit()
+                    log.info(f"✅ Summary saved for patient_id={patient_id}")
                 else:
-                    log.info(f"✅ Summary saved for patient_id={updated}")
-
-                db.commit()
+                    log.error(f"❌ Patient row not found for patient_id={patient_id}")
+            except Exception as e:
+                db.rollback()
+                raise e
             finally:
                 db.close() 
+
+    except Exception as exc:
+        log.error(
+            f"Failed to persist summary for patient {patient_id}: {exc}",
+            exc_info=True
+        )
 
     except Exception as exc:
         log.error(
