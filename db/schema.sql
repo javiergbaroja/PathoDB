@@ -199,3 +199,69 @@ CREATE INDEX IF NOT EXISTS idx_analysis_jobs_status
 CREATE INDEX IF NOT EXISTS idx_analysis_jobs_slurm_job_id
     ON analysis_jobs (slurm_job_id)
     WHERE slurm_job_id IS NOT NULL;
+
+CREATE TABLE IF NOT EXISTS projects (
+    id           SERIAL      PRIMARY KEY,
+    owner_id     INTEGER     NOT NULL REFERENCES users (id),
+    name         TEXT        NOT NULL,
+    description  TEXT,
+    project_type TEXT        NOT NULL CHECK (project_type IN ('cell_detection','region_annotation')),
+    classes      JSONB       NOT NULL DEFAULT '[]',
+    source_type  TEXT        NOT NULL CHECK (source_type IN ('cohort','file_import')),
+    cohort_id    INTEGER     REFERENCES cohorts (id),
+    created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at   TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_projects_owner ON projects (owner_id);
+ 
+CREATE TABLE IF NOT EXISTS project_scans (
+    id         SERIAL      PRIMARY KEY,
+    project_id INTEGER     NOT NULL REFERENCES projects (id) ON DELETE CASCADE,
+    scan_id    INTEGER     NOT NULL REFERENCES scans (id),
+    sort_order INTEGER     NOT NULL DEFAULT 0,
+    added_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE (project_id, scan_id)
+);
+CREATE INDEX IF NOT EXISTS idx_project_scans_project ON project_scans (project_id, sort_order);
+ 
+CREATE TABLE IF NOT EXISTS project_shares (
+    id                  SERIAL      PRIMARY KEY,
+    project_id          INTEGER     NOT NULL REFERENCES projects (id) ON DELETE CASCADE,
+    shared_with_user_id INTEGER     NOT NULL REFERENCES users (id),
+    access_level        TEXT        NOT NULL DEFAULT 'read'
+                                    CHECK (access_level IN ('read','edit')),
+    shared_by           INTEGER     REFERENCES users (id),
+    shared_at           TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE (project_id, shared_with_user_id)
+);
+CREATE INDEX IF NOT EXISTS idx_project_shares_project ON project_shares (project_id);
+CREATE INDEX IF NOT EXISTS idx_project_shares_user    ON project_shares (shared_with_user_id);
+ 
+-- One row per annotation. geometry JSONB stores type-specific data:
+--   point:           {x, y}
+--   rectangle:       {x, y, width, height, rotation}
+--   ellipse:         {cx, cy, rx, ry, rotation}
+--   polygon / brush: {points: [{x,y}, ...]}
+-- bbox_* pre-computed for fast spatial range queries without PostGIS.
+CREATE TABLE IF NOT EXISTS annotations (
+    id              SERIAL      PRIMARY KEY,
+    project_id      INTEGER     NOT NULL REFERENCES projects (id) ON DELETE CASCADE,
+    scan_id         INTEGER     NOT NULL REFERENCES scans (id),
+    created_by      INTEGER     REFERENCES users (id),
+    class_id        TEXT,
+    class_name      TEXT,
+    annotation_type TEXT        NOT NULL
+                                CHECK (annotation_type IN ('polygon','rectangle','ellipse','point','brush')),
+    bbox_x          FLOAT       NOT NULL DEFAULT 0,
+    bbox_y          FLOAT       NOT NULL DEFAULT 0,
+    bbox_w          FLOAT       NOT NULL DEFAULT 0,
+    bbox_h          FLOAT       NOT NULL DEFAULT 0,
+    geometry        JSONB       NOT NULL DEFAULT '{}',
+    area_px         FLOAT,
+    notes           TEXT,
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_annotations_project_scan ON annotations (project_id, scan_id);
+CREATE INDEX IF NOT EXISTS idx_annotations_scan         ON annotations (scan_id);
+CREATE INDEX IF NOT EXISTS idx_annotations_project      ON annotations (project_id);

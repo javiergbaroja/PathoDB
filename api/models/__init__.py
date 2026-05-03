@@ -4,10 +4,10 @@ SQLAlchemy models mirroring the database schema.
 """
 from datetime import date, datetime
 from sqlalchemy import (
-    Boolean, Column, Date, ForeignKey, Integer, Numeric,
-    String, Text, TIMESTAMP, UniqueConstraint, ARRAY,
-    func, Index
-)
+      Boolean, Column, Date, ForeignKey, Integer, Numeric,
+      String, Text, TIMESTAMP, UniqueConstraint, ARRAY,
+      func, Index
+  )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import relationship
 from ..database import Base
@@ -180,3 +180,75 @@ class AnalysisJob(Base):
 
     scan              = relationship("Scan")
     submitted_by_user = relationship("User", foreign_keys=[submitted_by])
+
+class Project(Base):
+    __tablename__ = "projects"
+
+    id           = Column(Integer, primary_key=True)
+    owner_id     = Column(Integer, ForeignKey("users.id"), nullable=False)
+    name         = Column(Text, nullable=False)
+    description  = Column(Text)
+    project_type = Column(Text, nullable=False)   # 'cell_detection' | 'region_annotation'
+    classes      = Column(JSONB, nullable=False, default=list)  # [{id,name,color}]
+    source_type  = Column(Text, nullable=False)   # 'cohort' | 'file_import'
+    cohort_id    = Column(Integer, ForeignKey("cohorts.id"), nullable=True)
+    created_at   = Column(TIMESTAMP(timezone=True), server_default=func.now())
+    updated_at   = Column(TIMESTAMP(timezone=True), server_default=func.now())
+
+    owner  = relationship("User", foreign_keys=[owner_id])
+    cohort = relationship("Cohort", foreign_keys=[cohort_id])
+    scans  = relationship("ProjectScan", back_populates="project", cascade="all, delete-orphan",
+                          order_by="ProjectScan.sort_order")
+    shares = relationship("ProjectShare", back_populates="project", cascade="all, delete-orphan")
+
+
+class ProjectScan(Base):
+    __tablename__ = "project_scans"
+
+    id         = Column(Integer, primary_key=True)
+    project_id = Column(Integer, ForeignKey("projects.id", ondelete="CASCADE"), nullable=False)
+    scan_id    = Column(Integer, ForeignKey("scans.id"), nullable=False)
+    sort_order = Column(Integer, nullable=False, default=0)
+    added_at   = Column(TIMESTAMP(timezone=True), server_default=func.now())
+
+    project = relationship("Project", back_populates="scans")
+    scan    = relationship("Scan")
+
+
+class ProjectShare(Base):
+    __tablename__ = "project_shares"
+
+    id                  = Column(Integer, primary_key=True)
+    project_id          = Column(Integer, ForeignKey("projects.id", ondelete="CASCADE"), nullable=False)
+    shared_with_user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    access_level        = Column(Text, nullable=False, default="read")  # 'read' | 'edit'
+    shared_by           = Column(Integer, ForeignKey("users.id"), nullable=True)
+    shared_at           = Column(TIMESTAMP(timezone=True), server_default=func.now())
+
+    project          = relationship("Project", back_populates="shares")
+    shared_with_user = relationship("User", foreign_keys=[shared_with_user_id])
+
+
+class Annotation(Base):
+    __tablename__ = "annotations"
+
+    id              = Column(Integer, primary_key=True)
+    project_id      = Column(Integer, ForeignKey("projects.id", ondelete="CASCADE"), nullable=False)
+    scan_id         = Column(Integer, ForeignKey("scans.id"), nullable=False)
+    created_by      = Column(Integer, ForeignKey("users.id"), nullable=True)
+    class_id        = Column(Text)
+    class_name      = Column(Text)
+    annotation_type = Column(Text, nullable=False)
+    bbox_x          = Column(Numeric, nullable=False, default=0)
+    bbox_y          = Column(Numeric, nullable=False, default=0)
+    bbox_w          = Column(Numeric, nullable=False, default=0)
+    bbox_h          = Column(Numeric, nullable=False, default=0)
+    geometry        = Column(JSONB, nullable=False, default=dict)
+    area_px         = Column(Numeric)
+    notes           = Column(Text)
+    created_at      = Column(TIMESTAMP(timezone=True), server_default=func.now())
+    updated_at      = Column(TIMESTAMP(timezone=True), server_default=func.now())
+
+    project    = relationship("Project")
+    scan       = relationship("Scan")
+    creator    = relationship("User", foreign_keys=[created_by])

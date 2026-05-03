@@ -444,7 +444,7 @@ export default function Cohorts() {
                     onChange={e => setIdText(e.target.value)}
                     placeholder={idType === 'b_number'
                       ? 'B2019.14823\nB2015.00392\nB2008.11045'
-                      : 'P-2019-00841\nP-2019-00392'}
+                      : '581561\n795492\n340346'}
                     rows={8}
                     style={{
                       width: '100%', padding: '8px 10px',

@@ -14,12 +14,19 @@ const NAV = [
     ]
   },
   {
+    section: 'Annotation',
+    items: [
+      { to: '/projects',  label: 'Projects',         icon: <ProjectIcon /> },
+    ]
+  },
+  {
     section: 'AI',
     items: [
       { to: '/assistant', label: 'Query Assistant',  icon: <AIIcon />, badge: 'Beta' },
     ]
   },
 ]
+
 
 export default function Layout({ children, title, actions }) {
   const { user, logout } = useAuth()
@@ -312,3 +319,10 @@ function PatientIcon() { return <svg viewBox="0 0 16 16" fill="currentColor" wid
 function CohortIcon()  { return <svg viewBox="0 0 16 16" fill="currentColor" width="15" height="15"><path d="M1 2.5A1.5 1.5 0 012.5 1h3A1.5 1.5 0 017 2.5v3A1.5 1.5 0 015.5 7h-3A1.5 1.5 0 011 5.5v-3zm8 0A1.5 1.5 0 0110.5 1h3A1.5 1.5 0 0115 2.5v3A1.5 1.5 0 0113.5 7h-3A1.5 1.5 0 019 5.5v-3zm-8 8A1.5 1.5 0 012.5 9h3A1.5 1.5 0 017 10.5v3A1.5 1.5 0 015.5 15h-3A1.5 1.5 0 011 13.5v-3zm8 0A1.5 1.5 0 0110.5 9h3a1.5 1.5 0 011.5 1.5v3a1.5 1.5 0 01-1.5 1.5h-3A1.5 1.5 0 019 13.5v-3z"/></svg> }
 function StainIcon()   { return <svg viewBox="0 0 16 16" fill="currentColor" width="15" height="15"><path d="M14.5 3a.5.5 0 01.5.5v9a.5.5 0 01-.5.5h-13a.5.5 0 01-.5-.5v-9a.5.5 0 01.5-.5h13zM2 4v8h12V4H2zm2 1h8v1H4V5zm0 2h8v1H4V7zm0 2h4v1H4V9z"/></svg> }
 function AIIcon()      { return <svg viewBox="0 0 16 16" fill="currentColor" width="15" height="15"><path d="M2.678 11.894a1 1 0 01.287.801 10.97 10.97 0 01-.398 2c1.395-.323 2.247-.697 2.634-.893a1 1 0 01.71-.074A8.06 8.06 0 008 14c3.996 0 7-2.807 7-6 0-3.192-3.004-6-7-6S1 4.808 1 8c0 1.468.617 2.83 1.678 3.894z"/></svg> }
+function ProjectIcon() {
+  return (
+    <svg viewBox="0 0 16 16" fill="currentColor" width="15" height="15">
+      <path d="M1.5 0A1.5 1.5 0 000 1.5v2A1.5 1.5 0 001.5 5h2A1.5 1.5 0 005 3.5v-2A1.5 1.5 0 003.5 0h-2zm0 1h2a.5.5 0 01.5.5v2a.5.5 0 01-.5.5h-2a.5.5 0 01-.5-.5v-2a.5.5 0 01.5-.5zm6.5 0A1.5 1.5 0 006.5 1.5v2A1.5 1.5 0 008 5h2A1.5 1.5 0 0011.5 3.5v-2A1.5 1.5 0 0010 0H8zm0 1h2a.5.5 0 01.5.5v2a.5.5 0 01-.5.5H8a.5.5 0 01-.5-.5v-2A.5.5 0 018 1zM1.5 7A1.5 1.5 0 000 8.5v2A1.5 1.5 0 001.5 12h2A1.5 1.5 0 005 10.5v-2A1.5 1.5 0 003.5 7h-2zm0 1h2a.5.5 0 01.5.5v2a.5.5 0 01-.5.5h-2a.5.5 0 01-.5-.5v-2a.5.5 0 01.5-.5zm6.5 0A1.5 1.5 0 006.5 8.5v2A1.5 1.5 0 008 12h2a1.5 1.5 0 001.5-1.5v-2A1.5 1.5 0 0010 7H8zm0 1h2a.5.5 0 01.5.5v2a.5.5 0 01-.5.5H8a.5.5 0 01-.5-.5v-2A.5.5 0 018 8z"/>
+    </svg>
+  )
+}

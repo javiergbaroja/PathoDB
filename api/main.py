@@ -13,7 +13,7 @@ from .config import get_settings
 from .database import check_db_connection
 from .routers import (
     auth, patients, scans, stains, cohorts,
-    stats, slides, search, assistant, analysis, summarize,
+    stats, slides, search, assistant, analysis, summarize, projects
 )
 
 logging.basicConfig(level=logging.INFO)
@@ -70,6 +70,7 @@ api_router.include_router(search.router)
 api_router.include_router(assistant.router)
 api_router.include_router(analysis.router)
 api_router.include_router(summarize.router)
+api_router.include_router(projects.router)
 app.include_router(api_router)
 
 @api_router.get("/health")
