@@ -1,17 +1,22 @@
 // frontend/src/pages/ProjectDetail/AnnotationLayer.jsx
-// Unified SVG overlay for all annotation tools and rendering of saved annotations.
-// Sits above the OSD canvas, below UI chrome.
+//
+// BUG 3 FIX: accepts `osdRef` (a React ref object) instead of `viewer` (a value).
+// Reading osdRef.current on every render guarantees we always have the live
+// OSD instance, even though the ref assignment happens asynchronously after
+// the DZI fetch completes.
+//
+// All other coordinate helpers and drawing logic are unchanged from v1.
 
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { imageToElement, elementToImage } from '../../hooks/useOSDViewer'
 import { strokeToPolygon } from '../../lib/BrushEngine'
 
 // ─── Visual constants ─────────────────────────────────────────────────────────
 const VERTEX_R       = 5
 const FIRST_VERTEX_R = 7
-const CLOSE_THRESH   = 14    // px to snap-close a polygon
-const MIN_DRAG       = 4     // px before a click becomes a drag
-const BRUSH_SEGMENTS = 12    // arc segments in brush cap
+const CLOSE_THRESH   = 14
+const MIN_DRAG       = 4
+const BRUSH_SEGMENTS = 12
 
 function toSVGPath(pts, closed) {
   if (!pts.length) return ''
@@ -21,64 +26,64 @@ function toSVGPath(pts, closed) {
 
 function dist(a, b) { return Math.hypot(a.x - b.x, a.y - b.y) }
 
-// ─── Project vertex coords for a saved annotation ─────────────────────────────
+// ─── Project a saved annotation into element-space coordinates ────────────────
 function projectAnnotation(viewer, ann) {
   if (!viewer?.viewport) return null
   const g = ann.geometry
-  switch (ann.annotation_type) {
-    case 'point': {
-      const e = imageToElement(viewer, g.x, g.y)
-      return e ? { type: 'point', e } : null
-    }
-    case 'rectangle': {
-      const corners = [
-        { x: g.x,          y: g.y },
-        { x: g.x + g.width, y: g.y },
-        { x: g.x + g.width, y: g.y + g.height },
-        { x: g.x,          y: g.y + g.height },
-      ]
-      const proj = corners.map(p => imageToElement(viewer, p.x, p.y)).filter(Boolean)
-      return proj.length === 4 ? { type: 'polygon', pts: proj } : null
-    }
-    case 'ellipse': {
-      const N = 48
-      const pts = []
-      for (let i = 0; i < N; i++) {
-        const a = (2 * Math.PI * i) / N
-        const ix = g.cx + g.rx * Math.cos(a)
-        const iy = g.cy + g.ry * Math.sin(a)
-        const e = imageToElement(viewer, ix, iy)
-        if (e) pts.push(e)
+  try {
+    switch (ann.annotation_type) {
+      case 'point': {
+        const e = imageToElement(viewer, g.x, g.y)
+        return e ? { type: 'point', e } : null
       }
-      return pts.length > 3 ? { type: 'polygon', pts } : null
+      case 'rectangle': {
+        const corners = [
+          { x: g.x,           y: g.y },
+          { x: g.x + g.width, y: g.y },
+          { x: g.x + g.width, y: g.y + g.height },
+          { x: g.x,           y: g.y + g.height },
+        ]
+        const proj = corners.map(p => imageToElement(viewer, p.x, p.y)).filter(Boolean)
+        return proj.length === 4 ? { type: 'polygon', pts: proj } : null
+      }
+      case 'ellipse': {
+        const N = 48
+        const pts = []
+        for (let i = 0; i < N; i++) {
+          const a  = (2 * Math.PI * i) / N
+          const e  = imageToElement(viewer, g.cx + g.rx * Math.cos(a), g.cy + g.ry * Math.sin(a))
+          if (e) pts.push(e)
+        }
+        return pts.length > 3 ? { type: 'polygon', pts } : null
+      }
+      case 'polygon':
+      case 'brush': {
+        const pts = (g.points || []).map(p => imageToElement(viewer, p.x, p.y)).filter(Boolean)
+        return pts.length > 1 ? { type: 'polygon', pts } : null
+      }
+      default: return null
     }
-    case 'polygon':
-    case 'brush': {
-      const pts = (g.points || []).map(p => imageToElement(viewer, p.x, p.y)).filter(Boolean)
-      return pts.length > 1 ? { type: 'polygon', pts } : null
-    }
-    default: return null
-  }
+  } catch { return null }
 }
 
-// ─── Individual annotation shape ──────────────────────────────────────────────
-function AnnotationShape({ viewer, ann, color, selected, onClick, tick }) {
+// ─── Single saved annotation shape ───────────────────────────────────────────
+function AnnotationShape({ viewer, ann, selected, onClick }) {
   const proj = projectAnnotation(viewer, ann)
   if (!proj) return null
 
-  const alpha = selected ? 0.55 : 0.35
-  const strokeW = selected ? 2 : 1.5
-  const strokeColor = selected ? '#fff' : color
-  const fillColor = color
+  const color    = ann._color || '#6ee7b7'
+  const alpha    = selected ? 0.55 : 0.35
+  const strokeW  = selected ? 2 : 1.5
+  const strokeC  = selected ? '#fff' : color
 
   if (proj.type === 'point') {
     const { x, y } = proj.e
     return (
       <g onClick={() => onClick(ann)} style={{ cursor: 'pointer' }}>
         <circle cx={x} cy={y} r={selected ? 9 : 7}
-          fill={fillColor} fillOpacity={alpha + 0.2}
-          stroke={strokeColor} strokeWidth={strokeW} />
-        <circle cx={x} cy={y} r={3} fill={strokeColor} />
+          fill={color} fillOpacity={alpha + 0.2}
+          stroke={strokeC} strokeWidth={strokeW} />
+        <circle cx={x} cy={y} r={3} fill={strokeC} />
       </g>
     )
   }
@@ -86,12 +91,11 @@ function AnnotationShape({ viewer, ann, color, selected, onClick, tick }) {
   return (
     <g onClick={() => onClick(ann)} style={{ cursor: 'pointer' }}>
       <path d={toSVGPath(proj.pts, true)}
-        fill={fillColor} fillOpacity={alpha}
-        stroke={strokeColor} strokeWidth={strokeW}
-        strokeLinejoin="round" />
+        fill={color} fillOpacity={alpha}
+        stroke={strokeC} strokeWidth={strokeW} strokeLinejoin="round" />
       {selected && proj.pts.map((p, i) => (
         <circle key={i} cx={p.x} cy={p.y} r={4}
-          fill={strokeColor} stroke="rgba(0,0,0,0.5)" strokeWidth={1} />
+          fill={strokeC} stroke="rgba(0,0,0,0.5)" strokeWidth={1} />
       ))}
     </g>
   )
@@ -99,73 +103,77 @@ function AnnotationShape({ viewer, ann, color, selected, onClick, tick }) {
 
 // ─── Main component ───────────────────────────────────────────────────────────
 export default function AnnotationLayer({
-  viewer,
-  activeTool,       // 'polygon'|'rectangle'|'ellipse'|'point'|'brush'|null
-  activeClass,      // { id, name, color }
-  brushRadius,      // image pixels
-  annotations,      // saved annotations for current slide
+  osdRef,           // ← ref object (not the viewer value)
+  activeTool,
+  activeClass,
+  brushRadius,
+  annotations,
   selectedAnnId,
   onAnnotationClick,
-  onAnnotationCreated,  // (annotationCreate) => void
+  onAnnotationCreated,
   readOnly,
-  tick,             // bumped by OSD viewport events
+  tick,             // bumped by OSD viewport events — causes SVG to re-render & reproject
 }) {
   const svgRef = useRef(null)
 
   // In-progress drawing state
-  const [polyPts, setPolyPts]     = useState([])  // polygon vertices (image coords)
-  const [mouse, setMouse]         = useState(null) // element coords
-  const [dragStart, setDragStart] = useState(null) // for rect/ellipse
-  const [dragEnd, setDragEnd]     = useState(null)
-  const [brushPts, setBrushPts]   = useState([])   // brush stroke (image coords)
-  const [brushDown, setBrushDown] = useState(false)
+  const [polyPts,    setPolyPts]    = useState([])   // polygon vertices (image coords)
+  const [mouse,      setMouse]      = useState(null)  // element coords
+  const [dragStart,  setDragStart]  = useState(null)
+  const [dragEnd,    setDragEnd]    = useState(null)
+  const [brushPts,   setBrushPts]   = useState([])
+  const [brushDown,  setBrushDown]  = useState(false)
 
-  const polyRef  = useRef([])
+  const polyRef = useRef([])
   useEffect(() => { polyRef.current = polyPts }, [polyPts])
 
-  // Reset in-progress shapes when tool changes
+  // Reset in-progress drawing when tool changes
   useEffect(() => {
-    setPolyPts([]); setMouse(null); setDragStart(null); setDragEnd(null)
+    setPolyPts([]); setMouse(null)
+    setDragStart(null); setDragEnd(null)
     setBrushPts([]); setBrushDown(false)
   }, [activeTool])
 
-  // Disable OSD pan while a tool is active
+  // Disable OSD pan while a tool is armed
   useEffect(() => {
-    if (!viewer?.setMouseNavEnabled) return
-    viewer.setMouseNavEnabled(!activeTool)
-    return () => { viewer?.setMouseNavEnabled(true) }
-  }, [activeTool, viewer])
+    const v = osdRef.current
+    if (!v?.setMouseNavEnabled) return
+    v.setMouseNavEnabled(!activeTool)
+    return () => { osdRef.current?.setMouseNavEnabled(true) }
+  }, [activeTool, osdRef])
 
-  // ── Coordinate helpers ──────────────────────────────────────────────────────
-  function getElCoords(e) {
-    const rect = svgRef.current.getBoundingClientRect()
-    return { x: e.clientX - rect.left, y: e.clientY - rect.top }
+  // ── Helpers ───────────────────────────────────────────────────────────────────
+  function getEl(e) {
+    const r = svgRef.current.getBoundingClientRect()
+    return { x: e.clientX - r.left, y: e.clientY - r.top }
   }
 
-  // ── Project current drawing state to element coords ─────────────────────────
+  // Read osdRef.current at call time — always the live instance
+  function toImg(el) { return elementToImage(osdRef.current, el.x, el.y) }
+
+  // ── Projected in-progress drawing ─────────────────────────────────────────────
+  const viewer = osdRef.current   // snapshot for this render cycle
   const projPolyPts = polyPts.map(p => imageToElement(viewer, p.x, p.y)).filter(Boolean)
   const projBrush   = brushPts.map(p => imageToElement(viewer, p.x, p.y)).filter(Boolean)
 
-  // Rect/ellipse drag corners in element space
   let dragProj = null
   if (dragStart && dragEnd) {
-    dragProj = {
-      ds: imageToElement(viewer, dragStart.x, dragStart.y),
-      de: imageToElement(viewer, dragEnd.x,   dragEnd.y),
-    }
+    const ds = imageToElement(viewer, dragStart.x, dragStart.y)
+    const de = imageToElement(viewer, dragEnd.x, dragEnd.y)
+    if (ds && de) dragProj = { ds, de }
   }
 
-  // ── Emit created annotation ─────────────────────────────────────────────────
+  // ── Emit ──────────────────────────────────────────────────────────────────────
   function emit(ann) {
     if (!onAnnotationCreated || readOnly) return
     onAnnotationCreated({ ...ann, class_id: activeClass?.id, class_name: activeClass?.name })
   }
 
-  // ── Polygon handlers ────────────────────────────────────────────────────────
+  // ── Polygon ───────────────────────────────────────────────────────────────────
   function handlePolyClick(e) {
-    if (e.detail >= 2) return  // double-click handled separately
-    const el  = getElCoords(e)
-    const img = elementToImage(viewer, el.x, el.y)
+    if (e.detail >= 2) return
+    const el  = getEl(e)
+    const img = toImg(el)
     if (!img) return
 
     const cur = polyRef.current
@@ -178,69 +186,65 @@ export default function AnnotationLayer({
     setPolyPts(next)
   }
 
-  function handlePolyDblClick(e) {
+  function handlePolyDbl(e) {
     e.stopPropagation()
     const cur = polyRef.current
     if (cur.length >= 3) emit({ annotation_type: 'polygon', geometry: { points: cur } })
     setPolyPts([]); setMouse(null)
   }
 
-  // ── Rect / Ellipse handlers ─────────────────────────────────────────────────
-  function handleDragStart(e) {
-    const el  = getElCoords(e)
-    const img = elementToImage(viewer, el.x, el.y)
+  // ── Rectangle / Ellipse ───────────────────────────────────────────────────────
+  function onDragStart(e) {
+    const img = toImg(getEl(e))
     if (!img) return
     setDragStart(img); setDragEnd(img)
   }
 
-  function handleDragMove(e) {
+  function onDragMove(e) {
     if (!dragStart) return
-    const el  = getElCoords(e)
-    const img = elementToImage(viewer, el.x, el.y)
+    const img = toImg(getEl(e))
     if (img) setDragEnd(img)
   }
 
-  function handleDragEnd(e) {
+  function onDragEnd() {
     if (!dragStart || !dragEnd) return
     const dx = Math.abs(dragEnd.x - dragStart.x)
     const dy = Math.abs(dragEnd.y - dragStart.y)
     if (dx < MIN_DRAG && dy < MIN_DRAG) { setDragStart(null); setDragEnd(null); return }
 
     if (activeTool === 'rectangle') {
-      const x = Math.min(dragStart.x, dragEnd.x)
-      const y = Math.min(dragStart.y, dragEnd.y)
-      emit({ annotation_type: 'rectangle', geometry: { x, y, width: Math.abs(dx), height: Math.abs(dy) } })
+      emit({ annotation_type: 'rectangle', geometry: {
+        x: Math.min(dragStart.x, dragEnd.x),
+        y: Math.min(dragStart.y, dragEnd.y),
+        width: dx, height: dy,
+      }})
     } else if (activeTool === 'ellipse') {
       emit({ annotation_type: 'ellipse', geometry: {
         cx: (dragStart.x + dragEnd.x) / 2,
         cy: (dragStart.y + dragEnd.y) / 2,
-        rx: Math.abs(dragEnd.x - dragStart.x) / 2,
-        ry: Math.abs(dragEnd.y - dragStart.y) / 2,
+        rx: dx / 2, ry: dy / 2,
       }})
     }
     setDragStart(null); setDragEnd(null)
   }
 
-  // ── Point handler ────────────────────────────────────────────────────────────
+  // ── Point ──────────────────────────────────────────────────────────────────────
   function handlePointClick(e) {
-    const el  = getElCoords(e)
-    const img = elementToImage(viewer, el.x, el.y)
+    const img = toImg(getEl(e))
     if (!img) return
     emit({ annotation_type: 'point', geometry: { x: img.x, y: img.y } })
   }
 
-  // ── Brush handlers ───────────────────────────────────────────────────────────
-  function handleBrushDown(e) {
+  // ── Brush ──────────────────────────────────────────────────────────────────────
+  function onBrushDown(e) {
     setBrushDown(true)
-    const el  = getElCoords(e)
-    const img = elementToImage(viewer, el.x, el.y)
+    const img = toImg(getEl(e))
     if (img) setBrushPts([img])
   }
 
-  function handleBrushMove(e) {
+  function onBrushMove(e) {
     if (!brushDown) return
-    const el  = getElCoords(e)
-    const img = elementToImage(viewer, el.x, el.y)
+    const img = toImg(getEl(e))
     if (!img) return
     setBrushPts(prev => {
       const last = prev[prev.length - 1]
@@ -249,35 +253,33 @@ export default function AnnotationLayer({
     })
   }
 
-  function handleBrushUp() {
+  function onBrushUp() {
     if (!brushDown || brushPts.length === 0) return
     setBrushDown(false)
     const poly = strokeToPolygon(brushPts, brushRadius, BRUSH_SEGMENTS)
-    if (poly.length >= 3) {
-      emit({ annotation_type: 'brush', geometry: { points: poly } })
-    }
+    if (poly.length >= 3) emit({ annotation_type: 'brush', geometry: { points: poly } })
     setBrushPts([])
   }
 
-  // ── Unified pointer router ───────────────────────────────────────────────────
+  // ── Unified pointer router ────────────────────────────────────────────────────
   function onMouseDown(e) {
     if (!activeTool || readOnly) return
     e.stopPropagation()
-    if (activeTool === 'rectangle' || activeTool === 'ellipse') handleDragStart(e)
-    if (activeTool === 'brush') handleBrushDown(e)
+    if (activeTool === 'rectangle' || activeTool === 'ellipse') onDragStart(e)
+    if (activeTool === 'brush') onBrushDown(e)
   }
 
   function onMouseMove(e) {
-    setMouse(getElCoords(e))
+    setMouse(getEl(e))
     if (!activeTool || readOnly) return
-    if (activeTool === 'rectangle' || activeTool === 'ellipse') handleDragMove(e)
-    if (activeTool === 'brush') handleBrushMove(e)
+    if (activeTool === 'rectangle' || activeTool === 'ellipse') onDragMove(e)
+    if (activeTool === 'brush') onBrushMove(e)
   }
 
   function onMouseUp(e) {
     if (!activeTool || readOnly) return
-    if (activeTool === 'rectangle' || activeTool === 'ellipse') handleDragEnd(e)
-    if (activeTool === 'brush') handleBrushUp()
+    if (activeTool === 'rectangle' || activeTool === 'ellipse') onDragEnd(e)
+    if (activeTool === 'brush') onBrushUp()
   }
 
   function onClick(e) {
@@ -288,33 +290,37 @@ export default function AnnotationLayer({
 
   function onDblClick(e) {
     if (!activeTool || readOnly) return
-    if (activeTool === 'polygon') handlePolyDblClick(e)
+    if (activeTool === 'polygon') handlePolyDbl(e)
   }
 
-  // ── Cursor style ─────────────────────────────────────────────────────────────
+  // ── Cursor ────────────────────────────────────────────────────────────────────
   const cursorMap = {
-    polygon: projPolyPts.length >= 3 && mouse && dist(mouse, projPolyPts[0]) <= CLOSE_THRESH ? 'cell' : 'crosshair',
-    rectangle: 'crosshair', ellipse: 'crosshair',
-    point: 'cell', brush: 'none',
+    polygon:   projPolyPts.length >= 3 && mouse && dist(mouse, projPolyPts[0]) <= CLOSE_THRESH
+               ? 'cell' : 'crosshair',
+    rectangle: 'crosshair',
+    ellipse:   'crosshair',
+    point:     'cell',
+    brush:     'none',
   }
   const cursor = activeTool ? (cursorMap[activeTool] || 'crosshair') : 'default'
 
-  // ── Brush preview circle ──────────────────────────────────────────────────────
+  // ── Brush preview circle ───────────────────────────────────────────────────────
   let brushCircle = null
   if (activeTool === 'brush' && mouse && viewer?.viewport) {
-    // Convert brushRadius (image px) to element px
     const origin = imageToElement(viewer, 0, 0)
     const offset = imageToElement(viewer, brushRadius, 0)
     const elR = origin && offset ? Math.abs(offset.x - origin.x) : 20
-    brushCircle = <circle cx={mouse.x} cy={mouse.y} r={elR}
-      fill="rgba(255,215,0,0.12)" stroke="#ffd700" strokeWidth={1.5}
-      style={{ pointerEvents: 'none' }} />
+    brushCircle = (
+      <circle cx={mouse.x} cy={mouse.y} r={elR}
+        fill="rgba(255,215,0,0.12)" stroke="#ffd700" strokeWidth={1.5}
+        style={{ pointerEvents: 'none' }} />
+    )
   }
 
-  // ── Brush in-progress polygon ─────────────────────────────────────────────────
+  // Brush in-progress polygon preview
   let brushPreview = null
   if (brushDown && brushPts.length > 1) {
-    const poly = strokeToPolygon(brushPts, brushRadius, BRUSH_SEGMENTS)
+    const poly     = strokeToPolygon(brushPts, brushRadius, BRUSH_SEGMENTS)
     const projPoly = poly.map(p => imageToElement(viewer, p.x, p.y)).filter(Boolean)
     if (projPoly.length > 2) {
       brushPreview = (
@@ -324,6 +330,8 @@ export default function AnnotationLayer({
       )
     }
   }
+
+  const toolColor = activeClass?.color || '#6ee7b7'
 
   return (
     <svg
@@ -336,58 +344,54 @@ export default function AnnotationLayer({
       onMouseDown={onMouseDown}
       onMouseMove={onMouseMove}
       onMouseUp={onMouseUp}
-      onMouseLeave={() => { setMouse(null); if (brushDown) handleBrushUp() }}
+      onMouseLeave={() => { setMouse(null); if (brushDown) onBrushUp() }}
       onClick={onClick}
       onDoubleClick={onDblClick}
     >
-      {/* ── Saved annotations ──────────────────────────────────────────────── */}
-      {annotations.map(ann => {
-        const cls = ann.class_id
-        const color = activeClass?.id === cls ? activeClass.color : (ann._color || '#6ee7b7')
-        return (
-          <AnnotationShape key={ann.id} viewer={viewer} ann={ann}
-            color={ann._color || '#6ee7b7'}
-            selected={ann.id === selectedAnnId}
-            onClick={onAnnotationClick} tick={tick} />
-        )
-      })}
+      {/* ── Saved annotations (re-renders on every tick so they track pan/zoom) ── */}
+      {annotations.map(ann => (
+        <AnnotationShape
+          key={ann.id}
+          viewer={viewer}
+          ann={ann}
+          selected={ann.id === selectedAnnId}
+          onClick={onAnnotationClick}
+        />
+      ))}
 
-      {/* ── Polygon in progress ──────────────────────────────────────────────── */}
+      {/* ── Polygon in progress ────────────────────────────────────────────── */}
       {activeTool === 'polygon' && projPolyPts.length > 0 && (
         <g>
           {projPolyPts.length >= 3 && (
             <path d={toSVGPath(projPolyPts, true)}
-              fill={activeClass?.color || 'rgba(110,231,183,0.25)'}
-              fillOpacity={0.25} stroke="none" />
+              fill={toolColor} fillOpacity={0.25} stroke="none" />
           )}
           <path d={toSVGPath(projPolyPts, false)}
-            fill="none" stroke={activeClass?.color || '#6ee7b7'} strokeWidth={1.5}
-            strokeLinejoin="round" />
+            fill="none" stroke={toolColor} strokeWidth={1.5} strokeLinejoin="round" />
           {mouse && (
             <>
               <line
-                x1={projPolyPts[projPolyPts.length-1].x} y1={projPolyPts[projPolyPts.length-1].y}
+                x1={projPolyPts[projPolyPts.length - 1].x}
+                y1={projPolyPts[projPolyPts.length - 1].y}
                 x2={mouse.x} y2={mouse.y}
-                stroke={activeClass?.color || '#6ee7b7'} strokeWidth={1.5}
-                strokeDasharray="6 3" opacity={0.85} />
+                stroke={toolColor} strokeWidth={1.5} strokeDasharray="6 3" opacity={0.85} />
               {projPolyPts.length >= 2 && (
                 <line x1={mouse.x} y1={mouse.y}
                   x2={projPolyPts[0].x} y2={projPolyPts[0].y}
-                  stroke={activeClass?.color || '#6ee7b7'} strokeWidth={1}
-                  strokeDasharray="2 6" opacity={0.35} />
+                  stroke={toolColor} strokeWidth={1} strokeDasharray="2 6" opacity={0.35} />
               )}
             </>
           )}
           {projPolyPts.map((p, i) => (
             <circle key={i} cx={p.x} cy={p.y}
               r={i === 0 ? FIRST_VERTEX_R : VERTEX_R}
-              fill={i === 0 ? '#ff7c00' : (activeClass?.color || '#6ee7b7')}
+              fill={i === 0 ? '#ff7c00' : toolColor}
               stroke="white" strokeWidth={1.5} />
           ))}
         </g>
       )}
 
-      {/* ── Rectangle drag ───────────────────────────────────────────────────── */}
+      {/* ── Rectangle drag ─────────────────────────────────────────────────── */}
       {activeTool === 'rectangle' && dragProj && (() => {
         const x = Math.min(dragProj.ds.x, dragProj.de.x)
         const y = Math.min(dragProj.ds.y, dragProj.de.y)
@@ -395,13 +399,12 @@ export default function AnnotationLayer({
         const h = Math.abs(dragProj.de.y - dragProj.ds.y)
         return (
           <rect x={x} y={y} width={w} height={h}
-            fill={activeClass?.color || '#6ee7b7'} fillOpacity={0.2}
-            stroke={activeClass?.color || '#6ee7b7'} strokeWidth={1.5}
-            strokeDasharray="6 3" />
+            fill={toolColor} fillOpacity={0.2}
+            stroke={toolColor} strokeWidth={1.5} strokeDasharray="6 3" />
         )
       })()}
 
-      {/* ── Ellipse drag ─────────────────────────────────────────────────────── */}
+      {/* ── Ellipse drag ───────────────────────────────────────────────────── */}
       {activeTool === 'ellipse' && dragProj && (() => {
         const cx = (dragProj.ds.x + dragProj.de.x) / 2
         const cy = (dragProj.ds.y + dragProj.de.y) / 2
@@ -409,23 +412,22 @@ export default function AnnotationLayer({
         const ry = Math.abs(dragProj.de.y - dragProj.ds.y) / 2
         return (
           <ellipse cx={cx} cy={cy} rx={rx} ry={ry}
-            fill={activeClass?.color || '#6ee7b7'} fillOpacity={0.2}
-            stroke={activeClass?.color || '#6ee7b7'} strokeWidth={1.5}
-            strokeDasharray="6 3" />
+            fill={toolColor} fillOpacity={0.2}
+            stroke={toolColor} strokeWidth={1.5} strokeDasharray="6 3" />
         )
       })()}
 
-      {/* ── Brush preview ────────────────────────────────────────────────────── */}
+      {/* ── Brush stroke + circle ──────────────────────────────────────────── */}
       {brushPreview}
       {brushCircle}
 
-      {/* ── Point crosshair ──────────────────────────────────────────────────── */}
+      {/* ── Point crosshair ────────────────────────────────────────────────── */}
       {activeTool === 'point' && mouse && (
         <g style={{ pointerEvents: 'none' }}>
           <circle cx={mouse.x} cy={mouse.y} r={8}
-            fill={activeClass?.color || '#6ee7b7'} fillOpacity={0.3}
-            stroke={activeClass?.color || '#6ee7b7'} strokeWidth={1.5} />
-          <circle cx={mouse.x} cy={mouse.y} r={2} fill={activeClass?.color || '#6ee7b7'} />
+            fill={toolColor} fillOpacity={0.3}
+            stroke={toolColor} strokeWidth={1.5} />
+          <circle cx={mouse.x} cy={mouse.y} r={2} fill={toolColor} />
         </g>
       )}
     </svg>
