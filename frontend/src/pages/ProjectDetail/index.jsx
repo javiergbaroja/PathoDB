@@ -1,31 +1,14 @@
 // frontend/src/pages/ProjectDetail/index.jsx
 //
-// BUG FIXES vs v1:
-//
-// BUG 1 (root cause — viewer destroyed on every RQ refetch):
-//   useOSDViewer no longer takes slideInfo as a dep.  The hook polls until
-//   slideInfo arrives via its internal ref, then builds OSD exactly once per scanId.
-//
-// BUG 2 (tick handlers never attach):
-//   Replaced the useEffect([activeScanId, slideInfo]) that ran before OSD was ready
-//   with a stable onReady callback passed into useOSDViewer.  Handlers are attached
-//   inside that callback, guaranteed to run after 'open' fires.
-//
-// BUG 3 (osdRef.current passed as a prop value, always null):
-//   AnnotationLayer now receives the ref object itself (osdRef) and reads
-//   osdRef.current internally, so it always has the live viewer instance.
-//
-// BUG 4 (stale closure in navigation auto-save wipes previous slide's annotations):
-//   localAnnotations is now tracked in a ref (localAnnotationsRef) that is kept
-//   in sync with state. The navigation-save effect reads the ref, not the stale
-//   closure value, so it always captures the final set of annotations.
-//
-// BUG 5 (temp IDs never replaced after save — sync effect uses .length):
-//   Sync now triggers on a saveGeneration counter that increments after every
-//   successful save, not on rawAnnotations.length which is stable when N is unchanged.
-//
-// BUG 6 (save error swallowed silently):
-//   Save errors now set a visible saveError state shown in the topbar.
+// Changes vs previous version:
+//  FIX 1/5 — Added onAnnotationUpdated (brush expand) and onAnnotationsDeleted
+//             (brush merge) handlers that mutate localAnnotations in-place and
+//             trigger the debounced auto-save.
+//  FIX 2   — 'M' keyboard shortcut activates the select tool.
+//  FIX 3   — OSD double-click zoom disabled inside handleOSDReady via
+//             viewer.gestureSettingsMouse.dblClickToZoom = false.
+//  FIX 4   — setMouseNavEnabled is no longer called in AnnotationLayer;
+//             no changes needed here beyond passing the correct props.
 
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
@@ -48,7 +31,6 @@ if (!document.getElementById('pd-styles')) {
   document.head.appendChild(s)
 }
 
-// ── Gamma SVG filter (shared with SlideViewer) ────────────────────────────────
 function ensureGammaFilter() {
   if (document.getElementById('sv-gamma-svg')) return
   const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg')
@@ -95,17 +77,14 @@ export default function ProjectDetail() {
     }
   }, [projectScans]) // eslint-disable-line
 
-  // ── Slide info (used only for scalebar + ruler; NOT an OSD dep) ───────────────
   const { data: slideInfo } = useQuery({
     queryKey: ['slide', activeScanId, 'info'],
     queryFn:  () => api.getSlideInfo(activeScanId, token),
     enabled:  !!activeScanId && !!token,
-    staleTime: 60_000,   // slide dimensions don't change — cache aggressively
+    staleTime: 60_000,
   })
 
   // ── Raw annotations from server ───────────────────────────────────────────────
-  // saveGeneration is bumped after every successful save so we can use it as
-  // a stable dependency that correctly triggers re-sync (fixes BUG 5).
   const [saveGeneration, setSaveGeneration] = useState(0)
 
   const { data: rawAnnotations = [], refetch: refetchAnnotations } = useQuery({
@@ -114,7 +93,6 @@ export default function ProjectDetail() {
     enabled:  !!activeScanId && !!project,
   })
 
-  // ── Class map ────────────────────────────────────────────────────────────────
   const classMap = Object.fromEntries((project?.classes || []).map(c => [c.id, c]))
 
   // ── Local annotation state ────────────────────────────────────────────────────
@@ -125,13 +103,9 @@ export default function ProjectDetail() {
   const [saveError, setSaveError]               = useState('')
   const saveTimerRef = useRef(null)
 
-  // FIX BUG 4: keep a ref always in sync with current annotations so navigation
-  // save doesn't capture a stale closure value.
   const localAnnotationsRef = useRef([])
   useEffect(() => { localAnnotationsRef.current = localAnnotations }, [localAnnotations])
 
-  // FIX BUG 5: sync from server after a successful save (saveGeneration) OR when
-  // the active scan changes.  Do NOT depend on rawAnnotations.length.
   useEffect(() => {
     if (!rawAnnotations) return
     const merged = rawAnnotations.map(a => ({
@@ -143,46 +117,52 @@ export default function ProjectDetail() {
   }, [activeScanId, saveGeneration]) // eslint-disable-line
 
   // ── Tool state ───────────────────────────────────────────────────────────────
-  const [activeTool, setActiveTool]       = useState(null)
-  const [activeClass, setActiveClass]     = useState(null)
-  const [brushRadius, setBrushRadius]     = useState(80)
+  // FIX 2: default tool is 'select' (matches QuPath default).
+  const [activeTool,    setActiveTool]    = useState('select')
+  const [activeClass,   setActiveClass]   = useState(null)
+  const [brushRadius,   setBrushRadius]   = useState(80)
   const [isRulerActive, setIsRulerActive] = useState(false)
-  const [showAdjust, setShowAdjust]       = useState(false)
-  const [brightness, setBrightness]       = useState(100)
-  const [contrast, setContrast]           = useState(100)
-  const [gamma, setGamma]                 = useState(1.0)
-  const [zoom, setZoom]                   = useState(null)
+  const [showAdjust,    setShowAdjust]    = useState(false)
+  const [brightness,    setBrightness]    = useState(100)
+  const [contrast,      setContrast]      = useState(100)
+  const [gamma,         setGamma]         = useState(1.0)
+  const [zoom,          setZoom]          = useState(null)
 
-  // ── OSD ─────────────────────────────────────────────────────────────────────
+  // ── OSD ──────────────────────────────────────────────────────────────────────
   const containerRef = useRef(null)
   const osdRef       = useRef(null)
-
-  // FIX BUG 2: tick is bumped inside onReady callback so OSD handlers are
-  // attached only after the viewer's 'open' event, guaranteed to be non-null.
   const [tick, setTick] = useState(0)
 
   const handleOSDReady = useCallback(() => {
     const v = osdRef.current
     if (!v) return
+
+    // FIX 3: Disable double-click zoom — QuPath uses scroll wheel for zoom only.
+    if (v.gestureSettingsMouse) {
+      v.gestureSettingsMouse.dblClickToZoom = false
+    }
+    // Also disable for touch if needed:
+    if (v.gestureSettingsTouch) {
+      v.gestureSettingsTouch.dblClickToZoom = false
+    }
+
     const bump = () => setTick(n => n + 1)
     v.addHandler('animation', bump)
     v.addHandler('zoom',      bump)
     v.addHandler('pan',       bump)
     v.addHandler('resize',    bump)
-    // No need to remove — OSD cleans handlers on destroy
   }, [])
 
   useOSDViewer({
     containerRef,
-    scanId:    activeScanId,
-    slideInfo,      // passed so the hook can read it via internal ref
+    scanId:  activeScanId,
+    slideInfo,
     token,
-    onZoom:    setZoom,
+    onZoom:  setZoom,
     osdRef,
-    onReady:   handleOSDReady,  // fires after OSD 'open' — safe to attach handlers
+    onReady: handleOSDReady,
   })
 
-  // ── Gamma filter ─────────────────────────────────────────────────────────────
   useEffect(() => {
     ensureGammaFilter()
     const exp = (1 / gamma).toFixed(4)
@@ -239,7 +219,15 @@ export default function ProjectDetail() {
 
   // ── Keyboard shortcuts ────────────────────────────────────────────────────────
   useEffect(() => {
-    const toolMap = { g: 'polygon', r: 'rectangle', e: 'ellipse', p: 'point', b: 'brush' }
+    // FIX 2: tool map now includes 'm' → 'select'
+    const toolMap = {
+      m: 'select',
+      g: 'polygon',
+      r: 'rectangle',
+      e: 'ellipse',
+      p: 'point',
+      b: 'brush',
+    }
     function handler(ev) {
       if (['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement?.tagName)) return
       const k = ev.key.toLowerCase()
@@ -250,7 +238,7 @@ export default function ProjectDetail() {
       }
       if (k === 'l') { setIsRulerActive(r => !r); setActiveTool(null) }
       if (k === 'a') setShowAdjust(s => !s)
-      if (ev.key === 'Escape') { setActiveTool(null); setIsRulerActive(false) }
+      if (ev.key === 'Escape') { setActiveTool('select'); setIsRulerActive(false) }
       if (ev.key === 'Delete' && selectedAnnId) handleDeleteAnnotation(selectedAnnId)
     }
     document.addEventListener('keydown', handler)
@@ -260,10 +248,6 @@ export default function ProjectDetail() {
   // ── Save helpers ──────────────────────────────────────────────────────────────
   const readOnly = project?.access === 'read'
 
-  /**
-   * Debounced save — called after every local mutation.
-   * FIX BUG 6: errors are surfaced to the user via saveError state.
-   */
   const triggerSave = useCallback((anns) => {
     if (readOnly) return
     clearTimeout(saveTimerRef.current)
@@ -275,11 +259,8 @@ export default function ProjectDetail() {
       setSaving(true)
       try {
         await api.bulkSaveAnnotations(Number(projectId), activeScanId, anns)
-        // Refetch to replace temp IDs with real DB IDs
         await refetchAnnotations()
-        // Bump generation so the sync effect re-runs (FIX BUG 5)
         setSaveGeneration(g => g + 1)
-        // Update scan list annotation counts
         refetchScans()
         queryClient.invalidateQueries({ queryKey: ['project-progress', projectId] })
       } catch (e) {
@@ -292,21 +273,13 @@ export default function ProjectDetail() {
     }, 800)
   }, [activeScanId, projectId, readOnly]) // eslint-disable-line
 
-  /**
-   * Immediate save — fired when navigating away from a slide.
-   * FIX BUG 4: reads from ref, not from stale closure.
-   */
   const prevScanRef = useRef(null)
   useEffect(() => {
     const prev = prevScanRef.current
     prevScanRef.current = activeScanId
-
     if (prev && prev !== activeScanId) {
       clearTimeout(saveTimerRef.current)
       const annsToSave = localAnnotationsRef.current
-      if (annsToSave.length === 0) {
-        // Still call the API so that a deliberate delete-all is persisted
-      }
       api.bulkSaveAnnotations(Number(projectId), prev, annsToSave)
         .then(() => {
           refetchScans()
@@ -314,11 +287,8 @@ export default function ProjectDetail() {
         })
         .catch(e => console.error('[ProjectDetail] navigation save failed:', e))
     }
-  }, [activeScanId]) // eslint-disable-line — intentionally narrow dep
+  }, [activeScanId]) // eslint-disable-line
 
-  // Save on page unload (tab close / hard navigation).
-  // sendBeacon only supports POST; our bulk-save endpoint is PUT.
-  // fetch with keepalive:true supports any method and outlives the page.
   useEffect(() => {
     const handleUnload = () => {
       if (!activeScanId || readOnly) return
@@ -334,28 +304,39 @@ export default function ProjectDetail() {
           body:      JSON.stringify({ annotations: anns }),
           keepalive: true,
         })
-      } catch (_) { /* ignore — some browsers throw synchronously during unload */ }
+      } catch (_) {}
     }
     window.addEventListener('beforeunload', handleUnload)
     return () => window.removeEventListener('beforeunload', handleUnload)
   }, [activeScanId, projectId, readOnly])
 
   // ── Annotation mutation handlers ──────────────────────────────────────────────
+
   function handleAnnotationCreated(annCreate) {
-    const tempId = `temp_${Date.now()}_${Math.random().toString(36).slice(2)}`
-    const newAnn = {
-      id:         tempId,
-      project_id: Number(projectId),
-      scan_id:    activeScanId,
-      ...annCreate,
-      _color:     classMap[annCreate.class_id]?.color || '#94a3b8',
-      created_at: new Date().toISOString(),
-    }
-    const next = [...localAnnotationsRef.current, newAnn]
-    setLocalAnnotations(next)
-    setSelectedAnnId(tempId)
-    triggerSave(next)
+  const { _replaceId, ...rest } = annCreate
+ 
+  const tempId = `temp_${Date.now()}_${Math.random().toString(36).slice(2)}`
+  const newAnn = {
+    id:         tempId,
+    project_id: Number(projectId),
+    scan_id:    activeScanId,
+    ...rest,
+    _color:     classMap[rest.class_id]?.color || '#94a3b8',
+    created_at: new Date().toISOString(),
   }
+ 
+  // If the brush was editing an existing annotation, remove the old entry
+  // and replace it with the updated one.
+  const base = _replaceId
+    ? localAnnotationsRef.current.filter(a => a.id !== _replaceId)
+    : localAnnotationsRef.current
+ 
+  const next = [...base, newAnn]
+  setLocalAnnotations(next)
+  setSelectedAnnId(tempId)
+  triggerSave(next)
+}
+
 
   function handleDeleteAnnotation(annId) {
     const next = localAnnotationsRef.current.filter(a => a.id !== annId)
@@ -373,6 +354,32 @@ export default function ProjectDetail() {
     )
     setLocalAnnotations(next)
     triggerSave(next)
+  }
+
+  // FIX 5: Brush expansion — update an existing annotation's geometry in-place.
+  function handleAnnotationUpdated(annId, newGeometry) {
+    if (readOnly) return
+    const next = localAnnotationsRef.current.map(a =>
+      a.id === annId
+        ? { ...a, geometry: newGeometry }
+        : a
+    )
+    setLocalAnnotations(next)
+    triggerSave(next)
+  }
+
+  // FIX 1: Brush merging — delete annotations that were absorbed by a union.
+  function handleAnnotationsDeleted(ids) {
+    if (readOnly || !ids.length) return
+    // Remove immediately; the next triggerSave (called from onAnnotationCreated)
+    // will persist the state after the merged annotation is added.
+    const idSet = new Set(ids)
+    const next  = localAnnotationsRef.current.filter(a => !idSet.has(a.id))
+    // Don't call triggerSave here — the caller (AnnotationLayer onBrushUp) will
+    // follow up immediately with onAnnotationCreated for the merged result.
+    setLocalAnnotations(next)
+    localAnnotationsRef.current = next
+    if (ids.includes(selectedAnnId)) setSelectedAnnId(null)
   }
 
   // ── Derived ───────────────────────────────────────────────────────────────────
@@ -436,7 +443,14 @@ export default function ProjectDetail() {
 
         <div style={{ flex:1 }} />
 
-        {/* Slide info */}
+        {/* Active tool indicator */}
+        {activeTool && (
+          <span style={{ fontSize:10, fontFamily:'monospace', color:'rgba(255,255,255,0.35)',
+            background:'rgba(255,255,255,0.06)', padding:'2px 8px', borderRadius:4 }}>
+            {activeTool}
+          </span>
+        )}
+
         {activeScan && (
           <div style={{ display:'flex', alignItems:'center', gap:12 }}>
             <span style={{ fontSize:11, fontFamily:'monospace', color:'rgba(255,255,255,0.35)' }}>
@@ -454,7 +468,6 @@ export default function ProjectDetail() {
           </div>
         )}
 
-        {/* Save status — BUG 6 fix: errors surfaced here */}
         {saveError && (
           <div style={{ display:'flex', alignItems:'center', gap:5, fontSize:10,
             color:'#ff8099', background:'rgba(230,0,46,0.12)',
@@ -533,25 +546,29 @@ export default function ProjectDetail() {
             <div ref={containerRef} style={{ width:'100%', height:'100%' }} />
           </div>
 
-          {/* FIX BUG 3: pass osdRef (the ref object) not osdRef.current (the value).
-              AnnotationLayer reads osdRef.current internally on every render,
-              so it always has the live viewer instance. */}
           {activeScanId && (
             <AnnotationLayer
               osdRef={osdRef}
               activeTool={activeTool}
               activeClass={activeClass}
               brushRadius={brushRadius}
+              setBrushRadius={setBrushRadius}
               annotations={localAnnotations}
               selectedAnnId={selectedAnnId}
-              onAnnotationClick={ann => setSelectedAnnId(ann.id === selectedAnnId ? null : ann.id)}
+              onAnnotationClick={ann => {
+                // null id = deselect (passed from select tool empty-space click).
+                setSelectedAnnId(ann?.id === selectedAnnId || ann?.id == null ? null : ann.id)
+              }}
               onAnnotationCreated={handleAnnotationCreated}
+              onAnnotationUpdated={handleAnnotationUpdated}
+              onAnnotationsDeleted={handleAnnotationsDeleted}
               readOnly={readOnly}
               tick={tick}
             />
           )}
 
-          {activeTool && !readOnly && (
+          {/* Hint bar for drawing tools */}
+          {activeTool && activeTool !== 'select' && !readOnly && (
             <div style={{
               position:'absolute', bottom:16, left:'50%', transform:'translateX(-50%)',
               background:'rgba(0,0,0,0.75)', color:'rgba(255,255,255,0.7)',
@@ -562,7 +579,7 @@ export default function ProjectDetail() {
               {activeTool === 'rectangle' && 'Click and drag to draw rectangle'}
               {activeTool === 'ellipse'   && 'Click and drag to draw ellipse'}
               {activeTool === 'point'     && 'Click to place point'}
-              {activeTool === 'brush'     && 'Click and drag to paint · release to finish'}
+              {activeTool === 'brush'     && 'Drag to paint · drag on existing annotation to expand it'}
             </div>
           )}
         </div>

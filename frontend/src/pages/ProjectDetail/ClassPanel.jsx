@@ -1,4 +1,10 @@
 // frontend/src/pages/ProjectDetail/ClassPanel.jsx
+//
+// Changes vs previous version:
+//  FIX 2 — Keyboard shortcut legend updated to include Select (M) and
+//           corrected Ruler from 'L' to match AnnotationToolbar (L key).
+//           No structural changes — only the shortcuts array.
+
 import { useState } from 'react'
 
 export default function ClassPanel({
@@ -54,7 +60,7 @@ export default function ClassPanel({
 
       {/* Tabs */}
       <div style={{ display: 'flex', borderBottom: '1px solid rgba(255,255,255,0.05)', flexShrink: 0 }}>
-        {[['classes','Classes'],['list','This slide']].map(([val, lbl]) => (
+        {[['classes', 'Classes'], ['list', 'This slide']].map(([val, lbl]) => (
           <button key={val} onClick={() => setTab(val)} style={{
             flex: 1, padding: '7px 0', fontSize: 11,
             fontFamily: 'sans-serif', cursor: 'pointer', border: 'none',
@@ -94,10 +100,27 @@ export default function ClassPanel({
 
 // ── Classes tab ────────────────────────────────────────────────────────────────
 function ClassTab({ classes, activeClass, setActiveClass, readOnly }) {
+  // FIX 2: Updated shortcut table — matches AnnotationToolbar TOOLS array order.
+  const SHORTCUTS = [
+    { key: 'M', label: 'Select / move' },
+    { key: 'G', label: 'Polygon' },
+    { key: 'R', label: 'Rectangle' },
+    { key: 'E', label: 'Ellipse' },
+    { key: 'P', label: 'Point' },
+    { key: 'B', label: 'Brush (merges & expands)' },
+    { key: 'L', label: 'Ruler' },
+    { key: 'A', label: 'Image adjust' },
+    { key: '⌫', label: 'Delete selected' },
+    { key: 'Esc', label: 'Back to Select' },
+  ]
+
   if (!classes || classes.length === 0) {
     return (
-      <div style={{ padding: 16, fontSize: 12, color: 'rgba(255,255,255,0.35)', textAlign: 'center' }}>
-        No classes defined for this project.
+      <div style={{ padding: 16 }}>
+        <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.35)', textAlign: 'center', marginBottom: 16 }}>
+          No classes defined for this project.
+        </div>
+        <ShortcutLegend shortcuts={SHORTCUTS} />
       </div>
     )
   }
@@ -107,6 +130,7 @@ function ClassTab({ classes, activeClass, setActiveClass, readOnly }) {
       <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.35)', marginBottom: 8, padding: '0 4px' }}>
         {readOnly ? 'Classes' : 'Select a class, then draw on the slide'}
       </div>
+
       {classes.map(cls => {
         const isActive = activeClass?.id === cls.id
         return (
@@ -127,7 +151,12 @@ function ClassTab({ classes, activeClass, setActiveClass, readOnly }) {
               width: 14, height: 14, borderRadius: 3, flexShrink: 0,
               background: cls.color, border: '1px solid rgba(255,255,255,0.2)',
             }} />
-            <span style={{ fontSize: 12, color: isActive ? cls.color : 'rgba(255,255,255,0.7)', flex: 1, fontWeight: isActive ? 600 : 400 }}>
+            <span style={{
+              fontSize: 12,
+              color: isActive ? cls.color : 'rgba(255,255,255,0.7)',
+              flex: 1,
+              fontWeight: isActive ? 600 : 400,
+            }}>
               {cls.name}
             </span>
             {isActive && (
@@ -139,11 +168,41 @@ function ClassTab({ classes, activeClass, setActiveClass, readOnly }) {
         )
       })}
 
-      <div style={{ marginTop: 12, padding: '8px 4px', borderTop: '1px solid rgba(255,255,255,0.05)' }}>
-        <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.25)' }}>
-          Keyboard: G polygon · R rect · E ellipse · P point · B brush
-        </div>
+      {/* Shortcut legend at the bottom of the classes tab */}
+      <div style={{ marginTop: 16, borderTop: '1px solid rgba(255,255,255,0.05)', paddingTop: 12 }}>
+        <ShortcutLegend shortcuts={SHORTCUTS} />
       </div>
+    </div>
+  )
+}
+
+// ── Shortcut legend sub-component ─────────────────────────────────────────────
+function ShortcutLegend({ shortcuts }) {
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+      <div style={{
+        fontSize: 9, color: 'rgba(255,255,255,0.25)',
+        textTransform: 'uppercase', letterSpacing: '0.08em',
+        fontWeight: 600, marginBottom: 4,
+      }}>
+        Keyboard shortcuts
+      </div>
+      {shortcuts.map(({ key, label }) => (
+        <div key={key} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <kbd style={{
+            fontSize: 9, fontFamily: 'monospace',
+            background: 'rgba(255,255,255,0.07)',
+            border: '1px solid rgba(255,255,255,0.14)',
+            borderRadius: 3, padding: '1px 5px',
+            color: 'rgba(255,255,255,0.55)',
+            minWidth: 22, textAlign: 'center',
+            flexShrink: 0,
+          }}>
+            {key}
+          </kbd>
+          <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.3)' }}>{label}</span>
+        </div>
+      ))}
     </div>
   )
 }
@@ -163,10 +222,16 @@ function ListTab({ annotations, classes, selectedAnnId, onSelect, onDelete, onCh
   return (
     <div style={{ padding: '6px' }}>
       {annotations.map((ann, i) => {
-        const cls   = classMap[ann.class_id]
-        const color = cls?.color || ann._color || '#94a3b8'
+        const cls        = classMap[ann.class_id]
+        const color      = cls?.color || ann._color || '#94a3b8'
         const isSelected = ann.id === selectedAnnId
-        const typeLabel = { polygon: 'Poly', rectangle: 'Rect', ellipse: 'Ellipse', point: 'Point', brush: 'Brush' }[ann.annotation_type] || ann.annotation_type
+        const typeLabel  = {
+          polygon:   'Poly',
+          rectangle: 'Rect',
+          ellipse:   'Ellipse',
+          point:     'Point',
+          brush:     'Brush',
+        }[ann.annotation_type] || ann.annotation_type
 
         return (
           <div
@@ -180,18 +245,25 @@ function ListTab({ annotations, classes, selectedAnnId, onSelect, onDelete, onCh
               cursor: 'pointer',
             }}
           >
-            <div style={{ width: 10, height: 10, borderRadius: 2, background: color, flexShrink: 0 }} />
+            <div style={{
+              width: 10, height: 10, borderRadius: 2,
+              background: color, flexShrink: 0,
+            }} />
             <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.7)', fontWeight: isSelected ? 600 : 400 }}>
+              <div style={{
+                fontSize: 11,
+                color: 'rgba(255,255,255,0.7)',
+                fontWeight: isSelected ? 600 : 400,
+              }}>
                 {ann.class_name || 'Unclassified'}
               </div>
               <div style={{ fontSize: 9, color: 'rgba(255,255,255,0.3)', fontFamily: 'monospace' }}>
-                {typeLabel} #{ann.id ?? i+1}
+                {typeLabel} #{ann.id ?? i + 1}
                 {ann.area_px ? ` · ${Math.round(ann.area_px).toLocaleString()}px²` : ''}
               </div>
             </div>
 
-            {/* Quick class reassign */}
+            {/* Quick class reassign — only when selected */}
             {!readOnly && isSelected && classes?.length > 0 && (
               <select
                 onClick={e => e.stopPropagation()}
@@ -201,19 +273,25 @@ function ListTab({ annotations, classes, selectedAnnId, onSelect, onDelete, onCh
                   onChangeClass(ann.id, e.target.value, cls?.name || '')
                 }}
                 style={{
-                  fontSize: 10, background: 'rgba(255,255,255,0.07)',
-                  border: '1px solid rgba(255,255,255,0.15)', borderRadius: 4,
-                  color: 'rgba(255,255,255,0.7)', padding: '1px 4px',
+                  fontSize: 10,
+                  background: 'rgba(255,255,255,0.07)',
+                  border: '1px solid rgba(255,255,255,0.15)',
+                  borderRadius: 4,
+                  color: 'rgba(255,255,255,0.7)',
+                  padding: '1px 4px',
                 }}
               >
                 <option value="">—</option>
-                {classes.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                {classes.map(c => (
+                  <option key={c.id} value={c.id}>{c.name}</option>
+                ))}
               </select>
             )}
 
             {!readOnly && (
               <button
                 onClick={e => { e.stopPropagation(); onDelete(ann.id) }}
+                title="Delete annotation (Del)"
                 style={{
                   background: 'none', border: 'none', cursor: 'pointer',
                   color: 'rgba(255,100,100,0.5)', fontSize: 13, lineHeight: 1,

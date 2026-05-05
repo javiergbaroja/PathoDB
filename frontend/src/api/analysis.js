@@ -1,7 +1,11 @@
 import { request, BASE, getToken } from './client'
 
 export const getModels          = ()                    => request('GET', '/analysis/models')
-export const getAnalysisJobs    = (scanId)              => request('GET', `/analysis/jobs?scan_id=${scanId}`)
+// export const getAnalysisJobs    = (scanId)              => request('GET', `/analysis/jobs?scan_id=${scanId}`)
+export const getAnalysisJobs = (scanId = null) => {
+  const query = scanId ? `?scan_id=${scanId}` : ''
+  return request('GET', `/analysis/jobs${query}`)
+}
 export const getAnalysisJob     = (jobId)               => request('GET', `/analysis/jobs/${jobId}`)
 export const submitAnalysis     = (scanId, body)        => request('POST', `/analysis/jobs?scan_id=${scanId}`, body)
 export const cancelAnalysis     = (jobId)               => request('DELETE', `/analysis/jobs/${jobId}`)
@@ -45,3 +49,5 @@ export const downloadAnalysisFile = async (jobId, fileKey = 'download_file') => 
   a.remove()
   window.URL.revokeObjectURL(url)
 }
+
+export const submitBatchAnalysis = (body) => request('POST', `/analysis/batch`, body)

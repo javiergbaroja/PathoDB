@@ -14,6 +14,8 @@ import SlideViewer   from './pages/SlideViewer'
 import CohortResults from './pages/CohortResults'
 import Projects      from './pages/Projects'
 import ProjectDetail from './pages/ProjectDetail'
+import BatchAnalysis from './pages/BatchAnalysis'
+import JobTracker from './pages/JobTracker'
 import { ErrorBoundary } from './components/ErrorBoundary'
 
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
@@ -45,7 +47,8 @@ export default function App() {
             <Routes>
               <Route path="/login"    element={<Login />} />
               <Route path="/"         element={<Navigate to="/patients" replace />} />
-              
+              <Route path="/batch-analysis" element={<Protected><BatchAnalysis /></Protected>} />
+              <Route path="/job-tracker" element={<Protected><JobTracker /></Protected>} />
               <Route path="/patients" element={<Protected><Patients /></Protected>} />
               <Route path="/patients/:id" element={<Protected><PatientDetail /></Protected>} />
               <Route path="/cohorts"  element={<Protected><Cohorts /></Protected>} />
