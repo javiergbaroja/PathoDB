@@ -224,6 +224,7 @@ def _format_results(rows, return_level: str, db: Session, f=None) -> list[dict]:
                         "submission_type":   probe.submission_type,
                         "block_label":       block.block_label,
                         "block_info":        block.block_info,
+                        "block_id":          block.id,
                         "stain_name":        stain_name,
                         "stain_category":    stain_category,
                         "file_path":         sc.file_path,

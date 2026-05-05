@@ -1,13 +1,11 @@
 // frontend/src/api/index.js
-// FULL REPLACEMENT — adds projects API functions
-
 import { request } from './client'
 
 import { login, register, logout, getMe, getUsers, createUser, deactivateUser } from './auth'
 import { getPatients, getPatient, getHierarchy } from './patients'
 import { deleteCohort, getCohortResults, queryCohort, queryList, getCohorts, saveCohort, exportCohort } from './cohorts'
-import { getModels, getAnalysisJobs, getAnalysisJob, submitAnalysis, cancelAnalysis, deleteAnalysis, getAnalysisResult, getAnalysisOverlay, downloadAnalysisFile } from './analysis'
-import { getSlideInfo, getThumbnailUrl, getRelatedScans } from './slides'
+import { getModels, getAnalysisJobs, getAnalysisJob, submitAnalysis, submitBatchAnalysis, cancelAnalysis, deleteAnalysis, getAnalysisResult, getAnalysisOverlay, downloadAnalysisFile } from './analysis'
+import { getSlideInfo, getThumbnailUrl, getRelatedScans, matchSlides } from './slides'
 import { getScansForBlock, registerScan, deleteScan } from './scans'
 import { getStains, createStain, updateStain } from './stains'
 import { search, lookup, getStats } from './search'
@@ -27,11 +25,11 @@ export const api = {
   getPatients, getPatient, getHierarchy,
   // Cohorts
   deleteCohort, getCohortResults, queryCohort, queryList, getCohorts, saveCohort, exportCohort,
-  // Analysis
-  getModels, getAnalysisJobs, getAnalysisJob, submitAnalysis, cancelAnalysis, deleteAnalysis,
+
+  getModels, getAnalysisJobs, getAnalysisJob, submitAnalysis, submitBatchAnalysis, cancelAnalysis, deleteAnalysis,
   getAnalysisResult, getAnalysisOverlay, downloadAnalysisFile,
-  // Slides & Scans
-  getSlideInfo, getThumbnailUrl, getRelatedScans,
+
+  getSlideInfo, getThumbnailUrl, getRelatedScans, matchSlides,
   getScansForBlock, registerScan, deleteScan,
   // Stains
   getStains, createStain, updateStain,

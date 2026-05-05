@@ -10,6 +10,9 @@ import re
 from functools import lru_cache
 from pathlib import Path
 
+from pydantic import BaseModel
+from typing import List
+
 import openslide
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from sqlalchemy.orm import Session
@@ -364,3 +367,60 @@ def get_related_scans(
         })
 
     return results
+
+
+
+class MatchSlidesRequest(BaseModel):
+    queries: List[str]
+
+@router.post("/match")
+def match_slides(
+    req: MatchSlidesRequest,
+    db: Session = Depends(get_db),
+    _payload: dict = Depends(_auth_token),
+):
+    """
+    Takes a list of raw strings (filenames or paths) and attempts to match 
+    them against the database. Returns successfully matched Scan IDs and 
+    a list of strings that failed to match.
+    """
+    matched_slides = []
+    unmatched_queries = []
+
+    # Using a set to prevent duplicate matches if the user pastes the same path twice
+    seen_scan_ids = set()
+
+    for query in req.queries:
+        clean_query = query.strip()
+        if not clean_query:
+            continue
+
+        # Try to match the end of the file_path (acts like a filename match) 
+        # or exact path match
+        scan = db.query(Scan).filter(Scan.file_path.ilike(f"%{clean_query}")).first()
+
+        if scan and scan.id not in seen_scan_ids:
+            seen_scan_ids.add(scan.id)
+            
+            stain_name = scan.stain.stain_name if scan.stain else "Unknown"
+            stain_category = scan.stain.stain_category if scan.stain else "Unmatched"
+            
+            # OVERRIDE: If the actual stain name is "unmatched", break it out of special_stain
+            # and force it into its own distinct category.
+            if stain_name.lower() == "unmatched":
+                stain_category = "Unmatched"
+
+            matched_slides.append({
+                "scan_id": scan.id,
+                "block_id": scan.block_id,
+                "file_path": scan.file_path,
+                "stain": stain_name,
+                "stain_category": stain_category 
+            })
+        elif not scan:
+            unmatched_queries.append(clean_query)
+
+    return {
+        "matched": matched_slides,
+        "unmatched": unmatched_queries
+    }

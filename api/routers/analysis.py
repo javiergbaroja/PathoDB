@@ -35,6 +35,7 @@ import tiffslide
 import math
 import traceback
 from PIL import Image
+from pydantic import BaseModel
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from fastapi.responses import JSONResponse, FileResponse
@@ -335,19 +336,32 @@ def cancel_or_delete_job(
         return None
 
     # If purge=True, we destroy the data completely
-    # 1. Delete physical files
-    result_dir = _job_result_dir(job_id)
-    if result_dir.exists() and result_dir.is_dir():
-        try:
-            shutil.rmtree(result_dir)
-            log.info(f"Deleted files for job {job_id} at {result_dir}")
-        except Exception as e:
-            log.error(f"Failed to delete directory {result_dir} for job {job_id}: {e}")
-            raise HTTPException(status_code=500, detail="Failed to delete files on disk")
+    if purge:
+        result_dir = _job_result_dir(job_id)
+        
+        # Check if it's a batch job and has a custom output dir
+        context_file = result_dir / "batch_context.json"
+        if context_file.exists():
+            try:
+                ctx = json.loads(context_file.read_text())
+                custom_out_dir = Path(ctx.get("output_dir", ""))
+                if custom_out_dir.exists() and custom_out_dir.is_dir():
+                    shutil.rmtree(custom_out_dir)
+                    log.info(f"Deleted custom batch output at {custom_out_dir}")
+            except Exception as e:
+                log.error(f"Failed to read context or delete custom output for job {job_id}: {e}")
 
-    # 2. Delete database record
-    db.delete(job)
-    db.commit()
+        # Delete standard tracking files
+        if result_dir.exists() and result_dir.is_dir():
+            try:
+                shutil.rmtree(result_dir)
+                log.info(f"Deleted files for job {job_id} at {result_dir}")
+            except Exception as e:
+                log.error(f"Failed to delete directory {result_dir} for job {job_id}: {e}")
+                raise HTTPException(status_code=500, detail="Failed to delete files on disk")
+
+        db.delete(job)
+        db.commit()
     
     return None
 
@@ -508,21 +522,26 @@ def submit_job(
 
 @router.get("/jobs", response_model=List[AnalysisJobResponse])
 def list_jobs(
-    scan_id: int    = Query(..., description="Filter jobs by scan ID"),
-    db:      Session = Depends(get_db),
-    user:    User    = Depends(get_current_active_user),
+    scan_id: Optional[int] = Query(None, description="Filter jobs by scan ID"),
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_active_user),
 ):
     """
-    Return all analysis jobs for a given scan, most recent first.
+    Return analysis jobs, most recent first. 
+    If scan_id is provided, filters by that WSI. Otherwise, returns all jobs.
     Researchers see only their own jobs; admins see all.
-    Status is synced from SLURM on each call for non-terminal jobs.
     """
-    q = db.query(AnalysisJob).filter(AnalysisJob.scan_id == scan_id)
+    q = db.query(AnalysisJob)
+    
+    if scan_id is not None:
+        q = q.filter(AnalysisJob.scan_id == scan_id)
+        
     if user.role != "admin":
         q = q.filter(AnalysisJob.submitted_by == user.id)
+        
     jobs = q.order_by(AnalysisJob.created_at.desc()).all()
 
-    # Sync status for any non-terminal jobs
+    # Sync status for any non-terminal jobs (this queries SLURM)
     for job in jobs:
         if job.status not in ("done", "failed", "cancelled"):
             _sync_job_status(job, db)
@@ -711,3 +730,106 @@ def download_job_file(
         filename=filename, 
         media_type="application/octet-stream"
     )
+
+
+class BatchAnalysisRequest(BaseModel):
+    model_id: str
+    output_directory: str
+    scan_ids: List[int]
+    params: dict = {}
+
+@router.post("/batch", response_model=AnalysisJobResponse, status_code=201)
+def submit_batch_job(
+    req: BatchAnalysisRequest,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_active_user),
+):
+    if not req.scan_ids:
+        raise HTTPException(status_code=422, detail="No valid scan IDs provided.")
+        
+    model = _catalog_model(req.model_id)
+    if not model:
+        raise HTTPException(status_code=422, detail=f"Model '{req.model_id}' not found.")
+
+    req.params["is_batch"] = True
+    req.params["output_directory"] = req.output_directory
+    
+    job = AnalysisJob(
+        scan_id=req.scan_ids[0],
+        model_id=req.model_id,
+        status="queued",
+        scope="whole_slide", # Bypasses the DB constraint
+        params_json=req.params,
+        submitted_by=user.id,
+    )
+    db.add(job)
+    db.commit()
+    db.refresh(job)
+
+    # 1. API Tracking Directory (Metadata)
+    result_dir = _job_result_dir(job.id)
+    result_dir.mkdir(parents=True, exist_ok=True)
+
+    # 2. User Custom Directory (Heavy Overlays)
+    custom_out_dir = Path(req.output_directory) / f"batch_job_{job.id}"
+    try:
+        custom_out_dir.mkdir(parents=True, exist_ok=True)
+    except Exception as e:
+        job.status = "failed"
+        job.error_message = f"Failed to create output directory: {e}"
+        job.updated_at = datetime.now(timezone.utc)
+        db.commit()
+        raise HTTPException(status_code=500, detail=f"Invalid output directory: {e}")
+
+    model_script = _models_dir() / req.model_id / "run_batch.sh"
+    if not model_script.exists():
+        job.status = "failed"
+        job.error_message = f"Model script not found: {model_script}"
+        db.commit()
+        raise HTTPException(status_code=500, detail="Batch script missing")
+
+    scans = db.query(Scan).filter(Scan.id.in_(req.scan_ids)).all()
+    target_files = [{"scan_id": s.id, "file_path": s.file_path} for s in scans]
+
+    # Write context to the API Tracking Directory
+    context_file = result_dir / "batch_context.json"
+    
+    context_data = {
+        "job_id": job.id,
+        "result_dir": str(result_dir),         # For progress/results
+        "output_dir": str(custom_out_dir),     # For GeoJSONs
+        "params": req.params,
+        "targets": target_files
+    }
+    context_file.write_text(json.dumps(context_data), encoding="utf-8")
+
+    # Log file also goes to the tracking directory
+    log_file = result_dir / "slurm_%j.out"
+    sbatch_cmd = [
+        "sbatch", "--parsable",
+        f"--job-name=pathodb_batch_{req.model_id}_{job.id}",
+        f"--output={log_file}", "--export=NONE",
+        str(model_script), str(context_file)
+    ]
+
+    try:
+        result = subprocess.run(sbatch_cmd, capture_output=True, text=True, timeout=15)
+        if result.returncode != 0:
+            err = result.stderr.strip() or "sbatch returned non-zero exit code"
+            raise Exception(err)
+
+        job.slurm_job_id = int(result.stdout.strip().split(";")[0])
+        job.updated_at = datetime.now(timezone.utc)
+        db.commit()
+
+    except FileNotFoundError:
+        log.warning(f"sbatch not found — dev mode for job {job.id}")
+    except Exception as e:
+        job.status = "failed"
+        job.error_message = str(e)
+        job.updated_at = datetime.now(timezone.utc)
+        db.commit()
+        raise HTTPException(status_code=500, detail=str(e))
+
+    db.refresh(job)
+    return job
