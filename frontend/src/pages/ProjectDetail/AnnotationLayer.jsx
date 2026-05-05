@@ -123,6 +123,12 @@ export default function AnnotationLayer({
   const [dragEnd,    setDragEnd]    = useState(null)
   const [brushPts,   setBrushPts]   = useState([])
   const [brushDown,  setBrushDown]  = useState(false)
+  const [isSpacePan, setIsSpacePan] = useState(false)
+  const [isMiddlePan, setIsMiddlePan] = useState(false)
+
+  const isSpacePanRef = useRef(false)
+  const isMiddlePanRef = useRef(false)
+  const navOverride = isSpacePan || isMiddlePan
 
   const polyRef = useRef([])
   useEffect(() => { polyRef.current = polyPts }, [polyPts])
@@ -132,15 +138,59 @@ export default function AnnotationLayer({
     setPolyPts([]); setMouse(null)
     setDragStart(null); setDragEnd(null)
     setBrushPts([]); setBrushDown(false)
+    setIsSpacePan(false); setIsMiddlePan(false)
+    isSpacePanRef.current = false
+    isMiddlePanRef.current = false
   }, [activeTool])
 
   // Disable OSD pan while a tool is armed
   useEffect(() => {
     const v = osdRef.current
     if (!v?.setMouseNavEnabled) return
-    v.setMouseNavEnabled(!activeTool)
+    v.setMouseNavEnabled(readOnly || !activeTool || navOverride)
     return () => { osdRef.current?.setMouseNavEnabled(true) }
-  }, [activeTool, osdRef])
+  }, [activeTool, navOverride, osdRef, readOnly])
+
+  // Allow temporary navigation while drawing (spacebar)
+  useEffect(() => {
+    if (!activeTool || readOnly) return
+    const isTyping = () => ['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement?.tagName)
+    const onDown = (ev) => {
+      if (ev.code !== 'Space' || isTyping()) return
+      ev.preventDefault()
+      isSpacePanRef.current = true
+      setIsSpacePan(true)
+    }
+    const onUp = (ev) => {
+      if (ev.code !== 'Space') return
+      isSpacePanRef.current = false
+      setIsSpacePan(false)
+    }
+    const onBlur = () => {
+      isSpacePanRef.current = false
+      setIsSpacePan(false)
+    }
+    window.addEventListener('keydown', onDown)
+    window.addEventListener('keyup', onUp)
+    window.addEventListener('blur', onBlur)
+    return () => {
+      window.removeEventListener('keydown', onDown)
+      window.removeEventListener('keyup', onUp)
+      window.removeEventListener('blur', onBlur)
+    }
+  }, [activeTool, readOnly])
+
+  // Track middle mouse navigation
+  useEffect(() => {
+    if (!activeTool) return
+    const onUp = (ev) => {
+      if (ev.button !== 1) return
+      isMiddlePanRef.current = false
+      setIsMiddlePan(false)
+    }
+    window.addEventListener('mouseup', onUp)
+    return () => window.removeEventListener('mouseup', onUp)
+  }, [activeTool])
 
   // ── Helpers ───────────────────────────────────────────────────────────────────
   function getEl(e) {
@@ -264,12 +314,20 @@ export default function AnnotationLayer({
   // ── Unified pointer router ────────────────────────────────────────────────────
   function onMouseDown(e) {
     if (!activeTool || readOnly) return
+    if (e.button === 1) {
+      isMiddlePanRef.current = true
+      setIsMiddlePan(true)
+      osdRef.current?.setMouseNavEnabled(true)
+      return
+    }
+    if (isSpacePanRef.current || isMiddlePanRef.current) return
     e.stopPropagation()
     if (activeTool === 'rectangle' || activeTool === 'ellipse') onDragStart(e)
     if (activeTool === 'brush') onBrushDown(e)
   }
 
   function onMouseMove(e) {
+    if (isSpacePanRef.current || isMiddlePanRef.current) return
     setMouse(getEl(e))
     if (!activeTool || readOnly) return
     if (activeTool === 'rectangle' || activeTool === 'ellipse') onDragMove(e)
@@ -283,12 +341,14 @@ export default function AnnotationLayer({
   }
 
   function onClick(e) {
+    if (isSpacePanRef.current || isMiddlePanRef.current) return
     if (!activeTool || readOnly) return
     if (activeTool === 'polygon') handlePolyClick(e)
     if (activeTool === 'point')   handlePointClick(e)
   }
 
   function onDblClick(e) {
+    if (isSpacePanRef.current || isMiddlePanRef.current) return
     if (!activeTool || readOnly) return
     if (activeTool === 'polygon') handlePolyDbl(e)
   }
@@ -302,7 +362,7 @@ export default function AnnotationLayer({
     point:     'cell',
     brush:     'none',
   }
-  const cursor = activeTool ? (cursorMap[activeTool] || 'crosshair') : 'default'
+  const cursor = activeTool ? (navOverride ? 'grab' : (cursorMap[activeTool] || 'crosshair')) : 'default'
 
   // ── Brush preview circle ───────────────────────────────────────────────────────
   let brushCircle = null
