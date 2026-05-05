@@ -147,7 +147,8 @@ export default function AnnotationLayer({
   onAnnotationCreated,
   readOnly,
   tick,
-}) {
+}) 
+{
   const svgRef = useRef(null)
 
   // ── in-progress polygon (non-brush tools) ─────────────────────────────────
@@ -341,8 +342,6 @@ export default function AnnotationLayer({
       if (inside) return ann
     }
     return null
-  }
-
   }
 
   /** Look for an existing editable brush/polygon annotation under the cursor. */
@@ -663,37 +662,7 @@ export default function AnnotationLayer({
     document.addEventListener('keydown', handler)
     return () => document.removeEventListener('keydown', handler)
   }, [activeTool])
-
-  // ─────────────────────────────────────────────────────────────────────────
-  // PROJECTED COORDINATES (re-runs every tick so SVG tracks pan/zoom)
-  // ─────────────────────────────────────────────────────────────────────────
-  const viewer     = osdRef.current
-  const projPolyPts = polyPts.map(p => imageToElement(viewer, p.x, p.y)).filter(Boolean)
-
-  let dragProj = null
-  if (dragStart && dragEnd) {
-    const ds = imageToElement(viewer, dragStart.x, dragStart.y)
-    const de = imageToElement(viewer, dragEnd.x, dragEnd.y)
-    if (ds && de) dragProj = { ds, de }
-  }
-
-  // project brushROI for live preview
-  const projBrushROI = brushROI
-    ? brushROI.map(p => imageToElement(viewer, p.x, p.y)).filter(Boolean)
-    : null
-
-  // ─────────────────────────────────────────────────────────────────────────
-  // CURSOR
-  // ─────────────────────────────────────────────────────────────────────────
-  const nearFirst = activeTool === 'polygon' && projPolyPts.length >= 3 && mouse &&
-    dist(mouse, projPolyPts[0] || { x: -999, y: -999 }) <= CLOSE_THRESH
-  const cursorMap = {
-    polygon:   nearFirst ? 'cell' : 'crosshair',
-    rectangle: 'crosshair',
-    ellipse:   'crosshair',
-    point:     'cell',
-    brush:     'none',   // BrushLimits replaces the native cursor
-  }
+  
   const cursor = activeTool ? (navOverride ? 'grab' : (cursorMap[activeTool] || 'crosshair')) : 'default'
 
   const toolColor = activeClass?.color || '#6ee7b7'
