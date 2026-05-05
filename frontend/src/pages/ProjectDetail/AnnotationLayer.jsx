@@ -256,6 +256,8 @@ export default function AnnotationLayer({
 
   // ── helpers ───────────────────────────────────────────────────────────────
 
+  // ── helpers ───────────────────────────────────────────────────────────────
+
   function getEl(e) {
     const r = svgRef.current.getBoundingClientRect()
     return { x: e.clientX - r.left, y: e.clientY - r.top }
@@ -314,6 +316,33 @@ export default function AnnotationLayer({
       }
     }
     return next
+  }
+
+  /** Look for an existing editable brush/polygon annotation under the cursor. */
+  function findEditableAnnotationUnder(imgPt) {
+    for (const ann of [...annotations].reverse()) {
+      if (ann.annotation_type !== 'brush' && ann.annotation_type !== 'polygon') continue
+      const pts = ann.geometry?.points || []
+      if (!pts.length) continue
+      // simple bounding-box pre-filter
+      const xs = pts.map(p => p.x), ys = pts.map(p => p.y)
+      const minX = Math.min(...xs), maxX = Math.max(...xs)
+      const minY = Math.min(...ys), maxY = Math.max(...ys)
+      if (imgPt.x < minX || imgPt.x > maxX || imgPt.y < minY || imgPt.y > maxY) continue
+      // point-in-polygon test
+      let inside = false
+      const n = pts.length
+      for (let i = 0, j = n - 1; i < n; j = i++) {
+        if ((pts[i].y > imgPt.y) !== (pts[j].y > imgPt.y) &&
+            imgPt.x < (pts[j].x - pts[i].x) * (imgPt.y - pts[i].y) / (pts[j].y - pts[i].y) + pts[i].x) {
+          inside = !inside
+        }
+      }
+      if (inside) return ann
+    }
+    return null
+  }
+
   }
 
   /** Look for an existing editable brush/polygon annotation under the cursor. */
@@ -514,6 +543,7 @@ export default function AnnotationLayer({
       return
     }
     if (isSpacePanRef.current || isMiddlePanRef.current || e.button !== 0) return
+    if (!activeTool || readOnly || e.button !== 0) return
     svgRef.current.setPointerCapture(e.pointerId)
     e.stopPropagation()
     if (activeTool === 'brush')                              onBrushDown(e)
@@ -533,6 +563,7 @@ export default function AnnotationLayer({
 
   function onPointerUp(e) {
     if (!activeTool || readOnly || e.button !== 0) return
+    if (!activeTool || readOnly) return
     if (activeTool === 'brush')                              onBrushUp()
     if (activeTool === 'rectangle' || activeTool === 'ellipse') onDragEnd()
     if (svgRef.current.hasPointerCapture?.(e.pointerId))
@@ -568,6 +599,53 @@ export default function AnnotationLayer({
     // deltaY < 0 = scroll up = increase radius
     const delta = e.deltaY < 0 ? 5 : -5
     setBrushRadius(r => Math.max(10, Math.min(500, Math.round(r + delta))))
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // 'F' KEY → fill holes in current brush ROI (QuPath: KeyCode.F while drawing)
+  // ─────────────────────────────────────────────────────────────────────────
+  useEffect(() => {
+    if (activeTool !== 'brush') return
+    function handler(ev) {
+      if (ev.key !== 'f' && ev.key !== 'F') return
+      if (!brushROIRef.current) return
+      const filled = fillHoles(brushROIRef.current)
+      setBrushROI(filled)
+      brushROIRef.current = filled
+    }
+    document.addEventListener('keydown', handler)
+    return () => document.removeEventListener('keydown', handler)
+  }, [activeTool])
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // PROJECTED COORDINATES (re-runs every tick so SVG tracks pan/zoom)
+  // ─────────────────────────────────────────────────────────────────────────
+  const viewer     = osdRef.current
+  const projPolyPts = polyPts.map(p => imageToElement(viewer, p.x, p.y)).filter(Boolean)
+
+  let dragProj = null
+  if (dragStart && dragEnd) {
+    const ds = imageToElement(viewer, dragStart.x, dragStart.y)
+    const de = imageToElement(viewer, dragEnd.x, dragEnd.y)
+    if (ds && de) dragProj = { ds, de }
+  }
+
+  // project brushROI for live preview
+  const projBrushROI = brushROI
+    ? brushROI.map(p => imageToElement(viewer, p.x, p.y)).filter(Boolean)
+    : null
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // CURSOR
+  // ─────────────────────────────────────────────────────────────────────────
+  const nearFirst = activeTool === 'polygon' && projPolyPts.length >= 3 && mouse &&
+    dist(mouse, projPolyPts[0] || { x: -999, y: -999 }) <= CLOSE_THRESH
+  const cursorMap = {
+    polygon:   nearFirst ? 'cell' : 'crosshair',
+    rectangle: 'crosshair',
+    ellipse:   'crosshair',
+    point:     'cell',
+    brush:     'none',   // BrushLimits replaces the native cursor
   }
 
   // ─────────────────────────────────────────────────────────────────────────
