@@ -155,6 +155,12 @@ export default function AnnotationLayer({
   const [mouse,      setMouse]      = useState(null)   // element-space {x,y}
   const [dragStart,  setDragStart]  = useState(null)
   const [dragEnd,    setDragEnd]    = useState(null)
+  const [isSpacePan, setIsSpacePan] = useState(false)
+  const [isMiddlePan, setIsMiddlePan] = useState(false)
+
+  const isSpacePanRef = useRef(false)
+  const isMiddlePanRef = useRef(false)
+  const navOverride = isSpacePan || isMiddlePan
 
   const polyRef = useRef([])
   useEffect(() => { polyRef.current = polyPts }, [polyPts])
@@ -193,15 +199,62 @@ export default function AnnotationLayer({
     setMouse(null)
     setDragStart(null)
     setDragEnd(null)
+    setIsSpacePan(false)
+    setIsMiddlePan(false)
+    isSpacePanRef.current = false
+    isMiddlePanRef.current = false
   }, [activeTool])
 
   // disable OSD pan while a tool is armed
   useEffect(() => {
     const v = osdRef.current
     if (!v?.setMouseNavEnabled) return
-    v.setMouseNavEnabled(!activeTool)
+    v.setMouseNavEnabled(readOnly || !activeTool || navOverride)
     return () => { osdRef.current?.setMouseNavEnabled(true) }
-  }, [activeTool, osdRef])
+  }, [activeTool, navOverride, osdRef, readOnly])
+
+  // Allow temporary navigation while drawing (spacebar)
+  useEffect(() => {
+    if (!activeTool || readOnly) return
+    const isTyping = () => ['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement?.tagName)
+    const onDown = (ev) => {
+      if (ev.code !== 'Space' || isTyping()) return
+      ev.preventDefault()
+      isSpacePanRef.current = true
+      setIsSpacePan(true)
+    }
+    const onUp = (ev) => {
+      if (ev.code !== 'Space') return
+      isSpacePanRef.current = false
+      setIsSpacePan(false)
+    }
+    const onBlur = () => {
+      isSpacePanRef.current = false
+      setIsSpacePan(false)
+    }
+    window.addEventListener('keydown', onDown)
+    window.addEventListener('keyup', onUp)
+    window.addEventListener('blur', onBlur)
+    return () => {
+      window.removeEventListener('keydown', onDown)
+      window.removeEventListener('keyup', onUp)
+      window.removeEventListener('blur', onBlur)
+    }
+  }, [activeTool, readOnly])
+
+  // Track middle mouse navigation
+  useEffect(() => {
+    if (!activeTool) return
+    const onUp = (ev) => {
+      if (ev.button !== 1) return
+      isMiddlePanRef.current = false
+      setIsMiddlePan(false)
+    }
+    window.addEventListener('mouseup', onUp)
+    return () => window.removeEventListener('mouseup', onUp)
+  }, [activeTool])
+
+  // ── helpers ───────────────────────────────────────────────────────────────
 
   // ── helpers ───────────────────────────────────────────────────────────────
 
@@ -263,6 +316,33 @@ export default function AnnotationLayer({
       }
     }
     return next
+  }
+
+  /** Look for an existing editable brush/polygon annotation under the cursor. */
+  function findEditableAnnotationUnder(imgPt) {
+    for (const ann of [...annotations].reverse()) {
+      if (ann.annotation_type !== 'brush' && ann.annotation_type !== 'polygon') continue
+      const pts = ann.geometry?.points || []
+      if (!pts.length) continue
+      // simple bounding-box pre-filter
+      const xs = pts.map(p => p.x), ys = pts.map(p => p.y)
+      const minX = Math.min(...xs), maxX = Math.max(...xs)
+      const minY = Math.min(...ys), maxY = Math.max(...ys)
+      if (imgPt.x < minX || imgPt.x > maxX || imgPt.y < minY || imgPt.y > maxY) continue
+      // point-in-polygon test
+      let inside = false
+      const n = pts.length
+      for (let i = 0, j = n - 1; i < n; j = i++) {
+        if ((pts[i].y > imgPt.y) !== (pts[j].y > imgPt.y) &&
+            imgPt.x < (pts[j].x - pts[i].x) * (imgPt.y - pts[i].y) / (pts[j].y - pts[i].y) + pts[i].x) {
+          inside = !inside
+        }
+      }
+      if (inside) return ann
+    }
+    return null
+  }
+
   }
 
   /** Look for an existing editable brush/polygon annotation under the cursor. */
@@ -455,6 +535,14 @@ export default function AnnotationLayer({
   // ─────────────────────────────────────────────────────────────────────────
 
   function onPointerDown(e) {
+    if (!activeTool || readOnly) return
+    if (e.button === 1) {
+      isMiddlePanRef.current = true
+      setIsMiddlePan(true)
+      osdRef.current?.setMouseNavEnabled(true)
+      return
+    }
+    if (isSpacePanRef.current || isMiddlePanRef.current || e.button !== 0) return
     if (!activeTool || readOnly || e.button !== 0) return
     svgRef.current.setPointerCapture(e.pointerId)
     e.stopPropagation()
@@ -463,6 +551,7 @@ export default function AnnotationLayer({
   }
 
   function onPointerMove(e) {
+    if (isSpacePanRef.current || isMiddlePanRef.current) return
     const el = getEl(e)
     setMouse(el)
     // update BrushLimits visibility
@@ -473,6 +562,7 @@ export default function AnnotationLayer({
   }
 
   function onPointerUp(e) {
+    if (!activeTool || readOnly || e.button !== 0) return
     if (!activeTool || readOnly) return
     if (activeTool === 'brush')                              onBrushUp()
     if (activeTool === 'rectangle' || activeTool === 'ellipse') onDragEnd()
@@ -487,12 +577,14 @@ export default function AnnotationLayer({
   }
 
   function onClick(e) {
+    if (isSpacePanRef.current || isMiddlePanRef.current) return
     if (!activeTool || readOnly) return
     if (activeTool === 'polygon') handlePolyClick(e)
     if (activeTool === 'point')   handlePointClick(e)
   }
 
   function onDblClick(e) {
+    if (isSpacePanRef.current || isMiddlePanRef.current) return
     if (!activeTool || readOnly) return
     if (activeTool === 'polygon') handlePolyDbl(e)
   }
@@ -555,7 +647,54 @@ export default function AnnotationLayer({
     point:     'cell',
     brush:     'none',   // BrushLimits replaces the native cursor
   }
-  const cursor = activeTool ? (cursorMap[activeTool] || 'crosshair') : 'default'
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // 'F' KEY → fill holes in current brush ROI (QuPath: KeyCode.F while drawing)
+  // ─────────────────────────────────────────────────────────────────────────
+  useEffect(() => {
+    if (activeTool !== 'brush') return
+    function handler(ev) {
+      if (ev.key !== 'f' && ev.key !== 'F') return
+      if (!brushROIRef.current) return
+      const filled = fillHoles(brushROIRef.current)
+      setBrushROI(filled)
+      brushROIRef.current = filled
+    }
+    document.addEventListener('keydown', handler)
+    return () => document.removeEventListener('keydown', handler)
+  }, [activeTool])
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // PROJECTED COORDINATES (re-runs every tick so SVG tracks pan/zoom)
+  // ─────────────────────────────────────────────────────────────────────────
+  const viewer     = osdRef.current
+  const projPolyPts = polyPts.map(p => imageToElement(viewer, p.x, p.y)).filter(Boolean)
+
+  let dragProj = null
+  if (dragStart && dragEnd) {
+    const ds = imageToElement(viewer, dragStart.x, dragStart.y)
+    const de = imageToElement(viewer, dragEnd.x, dragEnd.y)
+    if (ds && de) dragProj = { ds, de }
+  }
+
+  // project brushROI for live preview
+  const projBrushROI = brushROI
+    ? brushROI.map(p => imageToElement(viewer, p.x, p.y)).filter(Boolean)
+    : null
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // CURSOR
+  // ─────────────────────────────────────────────────────────────────────────
+  const nearFirst = activeTool === 'polygon' && projPolyPts.length >= 3 && mouse &&
+    dist(mouse, projPolyPts[0] || { x: -999, y: -999 }) <= CLOSE_THRESH
+  const cursorMap = {
+    polygon:   nearFirst ? 'cell' : 'crosshair',
+    rectangle: 'crosshair',
+    ellipse:   'crosshair',
+    point:     'cell',
+    brush:     'none',   // BrushLimits replaces the native cursor
+  }
+  const cursor = activeTool ? (navOverride ? 'grab' : (cursorMap[activeTool] || 'crosshair')) : 'default'
 
   const toolColor = activeClass?.color || '#6ee7b7'
 
