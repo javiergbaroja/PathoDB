@@ -1,18 +1,29 @@
 // frontend/src/hooks/useOSDViewer.js
-// BUG FIXES vs v1:
-//  - slideInfo is now compared by scanId only (not by object reference) so React
-//    Query background refetches no longer destroy/recreate OSD every render.
-//  - isMounted ref is reset correctly inside the effect, not outside.
-//  - Returns a stable `reinit` callback so callers can force reinit after scan change.
+//
+// Changes vs previous version:
+//  FIX 3 — Accepts disableDblClickZoom option (default true for ProjectDetail,
+//           false for SlideViewer which keeps the original behaviour).
+//           The option is applied at OSD construction time via gestureSettingsMouse,
+//           which is more reliable than patching the property after 'open' fires.
+//
+//  Everything else is unchanged from the previous version.
 
 import { useEffect, useRef, useCallback } from 'react'
 
 const SCALEBAR_NICE = [10, 20, 50, 100, 200, 500, 1000, 2000, 5000, 10000, 20000, 50000]
 
-function buildOSD({ containerRef, scanId, slideInfo, token, onZoom, osdRef, isMounted }) {
+function buildOSD({
+  containerRef,
+  scanId,
+  slideInfo,
+  token,
+  onZoom,
+  osdRef,
+  isMounted,
+  disableDblClickZoom,
+}) {
   if (!slideInfo || !containerRef.current || !window.OpenSeadragon) return
 
-  // Tear down any existing instance first
   if (osdRef.current) {
     try { osdRef.current.destroy() } catch (_) {}
     osdRef.current = null
@@ -24,9 +35,9 @@ function buildOSD({ containerRef, scanId, slideInfo, token, onZoom, osdRef, isMo
     .then(xml => {
       if (!isMounted.current) return
 
-      const doc      = new DOMParser().parseFromString(xml, 'application/xml')
-      const imgEl    = doc.querySelector('Image')
-      const sizeEl   = doc.querySelector('Size')
+      const doc    = new DOMParser().parseFromString(xml, 'application/xml')
+      const imgEl  = doc.querySelector('Image')
+      const sizeEl = doc.querySelector('Size')
       if (!imgEl || !sizeEl) throw new Error('Malformed DZI XML')
 
       const tileSize = parseInt(imgEl.getAttribute('TileSize'))
@@ -34,9 +45,16 @@ function buildOSD({ containerRef, scanId, slideInfo, token, onZoom, osdRef, isMo
       const width    = parseInt(sizeEl.getAttribute('Width'))
       const height   = parseInt(sizeEl.getAttribute('Height'))
 
-      if (!containerRef.current) return  // unmounted between fetch and here
+      if (!containerRef.current) return
 
-      const viewer = window.OpenSeadragon({
+      // FIX 3: Pass dblClickToZoom: false at construction time.
+      // This is more reliable than setting gestureSettingsMouse after 'open' because
+      // OpenSeadragon applies gesture settings from the config object during init.
+      const gestureSettingsMouse = disableDblClickZoom
+        ? new window.OpenSeadragon.GestureSettings({ dblClickToZoom: false })
+        : undefined
+
+      const osdConfig = {
         element: containerRef.current,
         tileSources: {
           width, height, tileSize, tileOverlap: overlap,
@@ -50,9 +68,25 @@ function buildOSD({ containerRef, scanId, slideInfo, token, onZoom, osdRef, isMo
         navigatorSizeRatio: 0.13, showZoomControl: true, showHomeControl: true,
         showFullPageControl: false, showRotationControl: false,
         background: '#111827',
-      })
+      }
 
+      // GestureSettings constructor is available from OSD ≥ 2.4.
+      // Guard so it degrades gracefully if the version doesn't support it.
+      if (gestureSettingsMouse && window.OpenSeadragon.GestureSettings) {
+        osdConfig.gestureSettingsMouse = gestureSettingsMouse
+      }
+
+      const viewer = window.OpenSeadragon(osdConfig)
       osdRef.current = viewer
+
+      // Belt-and-suspenders: also set it on the live object in case the config
+      // path didn't take (older OSD versions).
+      if (disableDblClickZoom && viewer.gestureSettingsMouse) {
+        viewer.gestureSettingsMouse.dblClickToZoom = false
+      }
+      if (disableDblClickZoom && viewer.gestureSettingsTouch) {
+        viewer.gestureSettingsTouch.dblClickToZoom = false
+      }
 
       if (viewer.navigator?.element) {
         Object.assign(viewer.navigator.element.style, {
@@ -87,8 +121,8 @@ function buildOSD({ containerRef, scanId, slideInfo, token, onZoom, osdRef, isMo
         const updateSB = () => {
           const el = containerRef.current?.querySelector('.openseadragon-scalebar')
           if (!el || !viewer.viewport) return
-          const zoom   = viewer.viewport.getZoom(true)
-          const ti     = viewer.world.getItemAt(0)
+          const zoom  = viewer.viewport.getZoom(true)
+          const ti    = viewer.world.getItemAt(0)
           if (!ti) return
           const umPerPx = rawMpp / ti.viewportToImageZoom(zoom)
           const niceUm  = SCALEBAR_NICE.find(l => l >= umPerPx * window.innerWidth * 0.03)
@@ -101,7 +135,10 @@ function buildOSD({ containerRef, scanId, slideInfo, token, onZoom, osdRef, isMo
         viewer.addHandler('zoom', req)
         viewer.addHandler('animation', req)
         window.addEventListener('resize', req)
-        viewer.addHandler('destroy', () => { window.removeEventListener('resize', req); if (raf) cancelAnimationFrame(raf) })
+        viewer.addHandler('destroy', () => {
+          window.removeEventListener('resize', req)
+          if (raf) cancelAnimationFrame(raf)
+        })
         updateSB()
       })
     })
@@ -130,28 +167,32 @@ function loadOSDScripts(cb) {
 
 /**
  * Hook that initialises/reinitialises OpenSeadragon when scanId changes.
- * Deliberately does NOT include slideInfo in its dependency array —
- * React Query returns a new object on every background refetch which
- * would otherwise destroy and recreate the viewer constantly.
- * slideInfo is read via a ref so the init function always sees the latest value.
  *
- * @param {object} opts
+ * @param {object}          opts
  * @param {React.RefObject} opts.containerRef
  * @param {number|null}     opts.scanId
- * @param {object|null}     opts.slideInfo    — passed as prop but read via ref inside
+ * @param {object|null}     opts.slideInfo          read via ref inside — no re-init on refetch
  * @param {string}          opts.token
  * @param {function}        opts.onZoom
- * @param {React.RefObject} opts.osdRef       — caller keeps this ref; hook writes to it
- * @param {function}        opts.onReady      — called after OSD 'open' fires (optional)
+ * @param {React.RefObject} opts.osdRef             caller keeps this; hook writes to it
+ * @param {function}        opts.onReady            called after OSD 'open' fires
+ * @param {boolean}         opts.disableDblClickZoom default false; set true for annotation views
  */
-export function useOSDViewer({ containerRef, scanId, slideInfo, token, onZoom, osdRef, onReady }) {
-  const isMounted   = useRef(false)
-  // Keep a ref to slideInfo so the async init closure always sees latest value
-  // without slideInfo being a dependency that causes re-init on every RQ refetch
+export function useOSDViewer({
+  containerRef,
+  scanId,
+  slideInfo,
+  token,
+  onZoom,
+  osdRef,
+  onReady,
+  disableDblClickZoom = false,
+}) {
+  const isMounted    = useRef(false)
   const slideInfoRef = useRef(slideInfo)
   useEffect(() => { slideInfoRef.current = slideInfo }, [slideInfo])
 
-  const onZoomRef = useRef(onZoom)
+  const onZoomRef  = useRef(onZoom)
   useEffect(() => { onZoomRef.current = onZoom }, [onZoom])
 
   const onReadyRef = useRef(onReady)
@@ -161,29 +202,22 @@ export function useOSDViewer({ containerRef, scanId, slideInfo, token, onZoom, o
     if (!scanId) return
     isMounted.current = true
 
-    // We need slideInfo before we can build the OSD viewer (for scalebar mpp).
-    // Poll until slideInfo arrives (it comes from a separate React Query fetch).
     let cancelPoll = false
     const tryInit = () => {
       if (cancelPoll) return
-      if (!slideInfoRef.current) {
-        // slideInfo not yet loaded — try again in 200 ms
-        setTimeout(tryInit, 200)
-        return
-      }
+      if (!slideInfoRef.current) { setTimeout(tryInit, 200); return }
       loadOSDScripts(() => {
         if (cancelPoll || !isMounted.current) return
         buildOSD({
           containerRef,
           scanId,
-          slideInfo:  slideInfoRef.current,
+          slideInfo:           slideInfoRef.current,
           token,
-          onZoom:     (z) => onZoomRef.current?.(z),
+          onZoom:              (z) => onZoomRef.current?.(z),
           osdRef,
           isMounted,
+          disableDblClickZoom, // ← forwarded to OSD constructor
         })
-        // Fire onReady once 'open' has been called
-        // We piggyback on the viewer ref — poll until it exists then subscribe
         const waitForViewer = () => {
           if (cancelPoll) return
           if (!osdRef.current) { setTimeout(waitForViewer, 100); return }
@@ -204,10 +238,10 @@ export function useOSDViewer({ containerRef, scanId, slideInfo, token, onZoom, o
         osdRef.current = null
       }
     }
-  }, [scanId, token]) // ← deliberately excludes slideInfo — see doc comment above
+  }, [scanId, token]) // eslint-disable-line
 }
 
-// ─── Coordinate helpers ────────────────────────────────────────────────────────
+// ─── Coordinate helpers (unchanged) ──────────────────────────────────────────
 
 export function elementToImage(viewer, ex, ey) {
   if (!viewer?.viewport) return null

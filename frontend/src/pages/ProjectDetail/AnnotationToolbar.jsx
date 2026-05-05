@@ -1,7 +1,25 @@
 // frontend/src/pages/ProjectDetail/AnnotationToolbar.jsx
+//
+// Changes vs previous version:
+//  FIX 2 — Select tool added as the first tool in the list, shortcut M,
+//           with a standard arrow/pointer icon. Matches QuPath's "Move" tool
+//           which also serves as the annotation selector.
+
 import { useViewerStore } from '../../store/viewerStore'
 
 const TOOLS = [
+  // FIX 2: Select tool — first in the list, just like QuPath's toolbar.
+  {
+    id: 'select',
+    label: 'Select (move)',
+    shortcut: 'M',
+    icon: (
+      // Arrow/pointer cursor icon
+      <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
+        <path d="M14.082 2.182a.5.5 0 01.103.557L8.528 15.467a.5.5 0 01-.917-.007L5.57 10.694.803 8.652a.5.5 0 01-.006-.916l12.728-5.657a.5.5 0 01.556.103z"/>
+      </svg>
+    ),
+  },
   {
     id: 'polygon',
     label: 'Polygon',
@@ -75,9 +93,8 @@ export default function AnnotationToolbar({
   isRulerActive, setIsRulerActive,
 }) {
   function toggleTool(id) {
-    if (readOnly) return
+    if (readOnly && id !== 'select') return
     setActiveTool(prev => (prev === id ? null : id))
-    // ruler and annotation tools are mutually exclusive
     if (id !== 'ruler') setIsRulerActive(false)
   }
 
@@ -90,19 +107,24 @@ export default function AnnotationToolbar({
       alignItems: 'center',
       zIndex: 20,
     }}>
-      {/* Annotation tools */}
-      {TOOLS.map(t => (
-        <ToolBtn
-          key={t.id}
-          active={activeTool === t.id}
-          disabled={readOnly}
-          title={`${t.label} (${t.shortcut})`}
-          onClick={() => toggleTool(t.id)}
-          accentColor="#ffd700"
-        >
-          {t.icon}
-        </ToolBtn>
-      ))}
+
+      {/* Annotation + select tools */}
+      {TOOLS.map(t => {
+        // Select tool is always enabled even in readOnly (for navigation).
+        const disabled = readOnly && t.id !== 'select'
+        return (
+          <ToolBtn
+            key={t.id}
+            active={activeTool === t.id}
+            disabled={disabled}
+            title={`${t.label} (${t.shortcut})`}
+            onClick={() => toggleTool(t.id)}
+            accentColor={t.id === 'select' ? '#6ee7b7' : '#ffd700'}
+          >
+            {t.icon}
+          </ToolBtn>
+        )
+      })}
 
       <Divider />
 
@@ -166,13 +188,26 @@ export default function AnnotationToolbar({
           </div>
         </>
       )}
+
+      {/* Shortcut legend at the bottom */}
+      <Divider />
+      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3 }}>
+        {TOOLS.map(t => (
+          <div key={t.id} title={`${t.label} (${t.shortcut})`}
+            style={{ fontSize: 9, fontFamily: 'monospace', color: 'rgba(255,255,255,0.22)', userSelect: 'none' }}>
+            {t.shortcut}
+          </div>
+        ))}
+      </div>
     </div>
   )
 }
 
+// ── Sub-components ─────────────────────────────────────────────────────────────
+
 function ToolBtn({ active, disabled, title, onClick, children, accentColor = '#1b998b' }) {
   const activeStyle = active
-    ? { background: `rgba(${hexToRgb(accentColor)}, 0.18)`, borderColor: accentColor, color: accentColor }
+    ? { background: `${accentColor}2e`, borderColor: accentColor, color: accentColor }
     : {}
   return (
     <button
@@ -212,11 +247,4 @@ function Slider({ label, value, min, max, step, unit = '', format, onChange }) {
         style={{ width: '100%', accentColor: '#1b998b', cursor: 'pointer' }} />
     </div>
   )
-}
-
-function hexToRgb(hex) {
-  const r = parseInt(hex.slice(1,3),16)
-  const g = parseInt(hex.slice(3,5),16)
-  const b = parseInt(hex.slice(5,7),16)
-  return `${r},${g},${b}`
 }
