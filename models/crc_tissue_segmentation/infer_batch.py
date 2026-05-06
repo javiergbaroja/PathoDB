@@ -135,9 +135,38 @@ def main() -> None:
         out_indices=FEATURE_LAYERS
     )
 
-    batch_results = []
+    empty_result = {
+        "scan_id": None,
+        "scan_path": None,
+        "status": None,
+        "error": None,
+        "timing_s": None,
+        "composition_pct": None,
+        "files": {},
+        "overlays": None
+    }
+
+    batch_results = [None] * len(TARGETS)
     successful = 0
     failed = 0
+
+    # create empty result.json early to ensure API can read it even if all slides fail
+    for idx, target in enumerate(TARGETS):
+        batch_results[idx] = {**empty_result, "scan_id": target.get("scan_id"), "scan_path": target.get("file_path")}
+
+    with open(os.path.join(RESULT_DIR, "result.json"), "w") as f:
+        json.dump({
+            "model_id": MODEL_ID,
+            "scope": "batch",
+            "job_id": JOB_ID,
+            "params": PARAMS,
+            "batch_summary": {
+                "total_slides": total_slides,
+                "successful": successful,
+                "failed": failed
+            },
+            "scans": batch_results
+        }, f, indent=2)
 
     # ── 2. Process each slide ──────────────────────────────────────────────────
     for idx, target in enumerate(TARGETS):
@@ -205,7 +234,7 @@ def main() -> None:
             tissue_composition = dict(sorted(tissue_composition.items(), key=lambda item: item[1], reverse=True))
 
             # Store result for this slide
-            batch_results.append({
+            batch_results[idx] = {
                 "scan_id": scan_id,
                 "scan_path": scan_path,
                 "status": "success",
@@ -223,42 +252,43 @@ def main() -> None:
                         c: "#{:02x}{:02x}{:02x}".format(*COLORMAP.get(c, "#000000")) for c in LABEL2ID.keys() if c not in IGNORE_IDS
                     }
                 }]
-            })
+            }
             successful += 1
 
         except Exception as e:
             tb = traceback.format_exc()
             print(f"\n[ERROR] Slide {wsi_name} failed:\n{tb}", file=sys.stderr)
-            batch_results.append({
+            batch_results[idx] = {
                 "scan_id": scan_id,
                 "scan_path": scan_path,
                 "status": "failed",
                 "error": str(e)
-            })
+            }
             failed += 1
             
         finally:
             # Free memory between slides to prevent creeping OOM errors
             torch.cuda.empty_cache()
+        final_result = {
+            "model_id": MODEL_ID,
+            "scope": "batch",
+            "job_id": JOB_ID,
+            "params": PARAMS,
+            "batch_summary": {
+                "total_slides": total_slides,
+                "successful": successful,
+                "failed": failed
+            },
+            "scans": batch_results 
+        }
+
+        with open(os.path.join(RESULT_DIR, "result.json"), "w") as f:
+            json.dump(final_result, f, indent=2)
 
     # ── 3. Write aggregated batch result ───────────────────────────────────────
-    write_progress(98, "Writing batch summary...")
-    
-    final_result = {
-        "model_id": MODEL_ID,
-        "scope": "batch",
-        "job_id": JOB_ID,
-        "params": PARAMS,
-        "batch_summary": {
-            "total_slides": total_slides,
-            "successful": successful,
-            "failed": failed
-        },
-        "scans": batch_results 
-    }
 
-    with open(os.path.join(RESULT_DIR, "result.json"), "w") as f:
-        json.dump(final_result, f, indent=2)
+    
+    
 
     write_progress(100, f"Batch complete. {successful}/{total_slides} successful.")
     print(f"\n=== Batch Complete ===")

@@ -605,19 +605,23 @@ def get_job_result(
 ):
     """
     Serve the JSON result produced by the model.
-    The model writes result.json to {analysis_results_dir}/{job_id}/result.json.
-    Returns 404 if the job is not yet done or the file doesn't exist.
+    Allows fetching while 'running' for live batch tracking.
     """
     job = _get_job_or_404(job_id, db, user)
 
-    if job.status != "done":
+    # 1. ALLOW 'running' state
+    if job.status not in ("done", "running"):
         raise HTTPException(
             status_code=409,
-            detail=f"Job is not done yet (status: {job.status})",
+            detail=f"Job is not active yet (status: {job.status})",
         )
 
     result_file = _job_result_dir(job_id) / "result.json"
     if not result_file.exists():
+        # 2. If it's running but hasn't written the file yet, return an empty scans list
+        if job.status == "running":
+            return JSONResponse(content={"scans": []})
+            
         raise HTTPException(
             status_code=404,
             detail="Result file not found on disk",
@@ -630,7 +634,6 @@ def get_job_result(
         raise HTTPException(status_code=500, detail="Failed to read result file")
 
     return JSONResponse(content=data)
-
 
 @router.get("/jobs/{job_id}/overlay")
 def get_job_overlay(
