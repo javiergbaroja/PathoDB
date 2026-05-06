@@ -1,15 +1,3 @@
-// frontend/src/pages/ProjectDetail/index.jsx
-//
-// Changes vs previous version:
-//  FIX 1/5 — Added onAnnotationUpdated (brush expand) and onAnnotationsDeleted
-//             (brush merge) handlers that mutate localAnnotations in-place and
-//             trigger the debounced auto-save.
-//  FIX 2   — 'M' keyboard shortcut activates the select tool.
-//  FIX 3   — OSD double-click zoom disabled inside handleOSDReady via
-//             viewer.gestureSettingsMouse.dblClickToZoom = false.
-//  FIX 4   — setMouseNavEnabled is no longer called in AnnotationLayer;
-//             no changes needed here beyond passing the correct props.
-
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
@@ -20,7 +8,6 @@ import AnnotationToolbar from './AnnotationToolbar'
 import ClassPanel from './ClassPanel'
 import SlideTray from './SlideTray'
 
-// ── Style injection ───────────────────────────────────────────────────────────
 if (!document.getElementById('pd-styles')) {
   const s = document.createElement('style')
   s.id = 'pd-styles'
@@ -50,7 +37,6 @@ export default function ProjectDetail() {
   const token         = localStorage.getItem('pathodb_token')
   const queryClient   = useQueryClient()
 
-  // ── Project & scans ──────────────────────────────────────────────────────────
   const { data: project, isLoading: projLoading } = useQuery({
     queryKey: ['project', projectId],
     queryFn:  () => api.getProject(Number(projectId)),
@@ -69,7 +55,6 @@ export default function ProjectDetail() {
     refetchInterval: 15000,
   })
 
-  // ── Active slide ─────────────────────────────────────────────────────────────
   const [activeScanId, setActiveScanId] = useState(null)
   useEffect(() => {
     if (projectScans.length > 0 && !activeScanId) {
@@ -84,8 +69,7 @@ export default function ProjectDetail() {
     staleTime: 60_000,
   })
 
-  // ── Raw annotations from server ───────────────────────────────────────────────
-  const [saveGeneration, setSaveGeneration] = useState(0)
+  // const [saveGeneration, setSaveGeneration] = useState(0)
 
   const { data: rawAnnotations = [], refetch: refetchAnnotations } = useQuery({
     queryKey: ['annotations', projectId, activeScanId],
@@ -95,7 +79,6 @@ export default function ProjectDetail() {
 
   const classMap = Object.fromEntries((project?.classes || []).map(c => [c.id, c]))
 
-  // ── Local annotation state ────────────────────────────────────────────────────
   const [localAnnotations, setLocalAnnotations] = useState([])
   const [selectedAnnId, setSelectedAnnId]       = useState(null)
   const [saving, setSaving]                     = useState(false)
@@ -106,18 +89,23 @@ export default function ProjectDetail() {
   const localAnnotationsRef = useRef([])
   useEffect(() => { localAnnotationsRef.current = localAnnotations }, [localAnnotations])
 
+  const initializedScanRef = useRef(null)
   useEffect(() => {
     if (!rawAnnotations) return
-    const merged = rawAnnotations.map(a => ({
-      ...a,
-      _color: classMap[a.class_id]?.color || '#94a3b8',
-    }))
-    setLocalAnnotations(merged)
-    setSelectedAnnId(null)
-  }, [activeScanId, saveGeneration]) // eslint-disable-line
+    
+    // ONLY overwrite the UI state if we are loading a completely new slide.
+    // This prevents background refetches from destroying your active drawings!
+    if (initializedScanRef.current !== activeScanId) {
+      initializedScanRef.current = activeScanId
+      const merged = rawAnnotations.map(a => ({
+        ...a,
+        _color: classMap[a.class_id]?.color || '#94a3b8',
+      }))
+      setLocalAnnotations(merged)
+      setSelectedAnnId(null)
+    }
+  }, [rawAnnotations, activeScanId, classMap])
 
-  // ── Tool state ───────────────────────────────────────────────────────────────
-  // FIX 2: default tool is 'select' (matches QuPath default).
   const [activeTool,    setActiveTool]    = useState('select')
   const [activeClass,   setActiveClass]   = useState(null)
   const [brushRadius,   setBrushRadius]   = useState(80)
@@ -128,7 +116,6 @@ export default function ProjectDetail() {
   const [gamma,         setGamma]         = useState(1.0)
   const [zoom,          setZoom]          = useState(null)
 
-  // ── OSD ──────────────────────────────────────────────────────────────────────
   const containerRef = useRef(null)
   const osdRef       = useRef(null)
   const [tick, setTick] = useState(0)
@@ -137,11 +124,9 @@ export default function ProjectDetail() {
     const v = osdRef.current
     if (!v) return
 
-    // FIX 3: Disable double-click zoom — QuPath uses scroll wheel for zoom only.
     if (v.gestureSettingsMouse) {
       v.gestureSettingsMouse.dblClickToZoom = false
     }
-    // Also disable for touch if needed:
     if (v.gestureSettingsTouch) {
       v.gestureSettingsTouch.dblClickToZoom = false
     }
@@ -170,7 +155,6 @@ export default function ProjectDetail() {
       .forEach(el => el.setAttribute('exponent', exp))
   }, [gamma])
 
-  // ── Ruler tool ───────────────────────────────────────────────────────────────
   useEffect(() => {
     if (!isRulerActive || !osdRef.current) return
     const viewer    = osdRef.current
@@ -217,9 +201,7 @@ export default function ProjectDetail() {
     }
   }, [isRulerActive, slideInfo])
 
-  // ── Keyboard shortcuts ────────────────────────────────────────────────────────
   useEffect(() => {
-    // FIX 2: tool map now includes 'm' → 'select'
     const toolMap = {
       m: 'select',
       g: 'polygon',
@@ -245,7 +227,6 @@ export default function ProjectDetail() {
     return () => document.removeEventListener('keydown', handler)
   }, [selectedAnnId]) // eslint-disable-line
 
-  // ── Save helpers ──────────────────────────────────────────────────────────────
   const readOnly = project?.access === 'read'
 
   const triggerSave = useCallback((anns) => {
@@ -259,8 +240,11 @@ export default function ProjectDetail() {
       setSaving(true)
       try {
         await api.bulkSaveAnnotations(Number(projectId), activeScanId, anns)
-        await refetchAnnotations()
-        setSaveGeneration(g => g + 1)
+        
+        // REMOVE THESE TWO LINES:
+        // await refetchAnnotations()
+        // setSaveGeneration(g => g + 1)
+        
         refetchScans()
         queryClient.invalidateQueries({ queryKey: ['project-progress', projectId] })
       } catch (e) {
@@ -271,7 +255,7 @@ export default function ProjectDetail() {
         setPendingSave(false)
       }
     }, 800)
-  }, [activeScanId, projectId, readOnly]) // eslint-disable-line
+  }, [activeScanId, projectId, readOnly])
 
   const prevScanRef = useRef(null)
   useEffect(() => {
@@ -310,33 +294,28 @@ export default function ProjectDetail() {
     return () => window.removeEventListener('beforeunload', handleUnload)
   }, [activeScanId, projectId, readOnly])
 
-  // ── Annotation mutation handlers ──────────────────────────────────────────────
-
   function handleAnnotationCreated(annCreate) {
-  const { _replaceId, ...rest } = annCreate
- 
-  const tempId = `temp_${Date.now()}_${Math.random().toString(36).slice(2)}`
-  const newAnn = {
-    id:         tempId,
-    project_id: Number(projectId),
-    scan_id:    activeScanId,
-    ...rest,
-    _color:     classMap[rest.class_id]?.color || '#94a3b8',
-    created_at: new Date().toISOString(),
+    const { _replaceId, ...rest } = annCreate
+    
+    const tempId = `temp_${Date.now()}_${Math.random().toString(36).slice(2)}`
+    const newAnn = {
+      id:         tempId,
+      project_id: Number(projectId),
+      scan_id:    activeScanId,
+      ...rest,
+      _color:     classMap[rest.class_id]?.color || '#94a3b8',
+      created_at: new Date().toISOString(),
+    }
+    
+    const base = _replaceId
+      ? localAnnotationsRef.current.filter(a => a.id !== _replaceId)
+      : localAnnotationsRef.current
+    
+    const next = [...base, newAnn]
+    setLocalAnnotations(next)
+    setSelectedAnnId(tempId)
+    triggerSave(next)
   }
- 
-  // If the brush was editing an existing annotation, remove the old entry
-  // and replace it with the updated one.
-  const base = _replaceId
-    ? localAnnotationsRef.current.filter(a => a.id !== _replaceId)
-    : localAnnotationsRef.current
- 
-  const next = [...base, newAnn]
-  setLocalAnnotations(next)
-  setSelectedAnnId(tempId)
-  triggerSave(next)
-}
-
 
   function handleDeleteAnnotation(annId) {
     const next = localAnnotationsRef.current.filter(a => a.id !== annId)
@@ -356,9 +335,16 @@ export default function ProjectDetail() {
     triggerSave(next)
   }
 
-  // FIX 5: Brush expansion — update an existing annotation's geometry in-place.
+  // FIX: Route empty geometry updates to handleDeleteAnnotation
   function handleAnnotationUpdated(annId, newGeometry) {
     if (readOnly) return
+
+    // If geometry points array is completely empty, delete the annotation.
+    if (!newGeometry.points || newGeometry.points.length === 0) {
+      handleDeleteAnnotation(annId)
+      return
+    }
+
     const next = localAnnotationsRef.current.map(a =>
       a.id === annId
         ? { ...a, geometry: newGeometry }
@@ -368,21 +354,15 @@ export default function ProjectDetail() {
     triggerSave(next)
   }
 
-  // FIX 1: Brush merging — delete annotations that were absorbed by a union.
   function handleAnnotationsDeleted(ids) {
     if (readOnly || !ids.length) return
-    // Remove immediately; the next triggerSave (called from onAnnotationCreated)
-    // will persist the state after the merged annotation is added.
     const idSet = new Set(ids)
     const next  = localAnnotationsRef.current.filter(a => !idSet.has(a.id))
-    // Don't call triggerSave here — the caller (AnnotationLayer onBrushUp) will
-    // follow up immediately with onAnnotationCreated for the merged result.
     setLocalAnnotations(next)
     localAnnotationsRef.current = next
     if (ids.includes(selectedAnnId)) setSelectedAnnId(null)
   }
 
-  // ── Derived ───────────────────────────────────────────────────────────────────
   const filterStr  = `brightness(${brightness}%) contrast(${contrast}%) url(#sv-gamma)`
   const activeScan = projectScans.find(s => s.scan_id === activeScanId)
 

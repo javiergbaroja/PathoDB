@@ -87,7 +87,15 @@ def _bbox(ann_type: str, g: dict):
             pts = g.get("points", [])
             if not pts:
                 return 0.0, 0.0, 0.0, 0.0
-            xs, ys = [p["x"] for p in pts], [p["y"] for p in pts]
+                
+            # FIX: Handle both 1D (no holes) and 2D (with holes) point arrays.
+            # If it's a 2D array, the exterior ring is always at index 0.
+            exterior = pts[0] if isinstance(pts[0], list) else pts
+            
+            if not exterior:
+                 return 0.0, 0.0, 0.0, 0.0
+
+            xs, ys = [p["x"] for p in exterior], [p["y"] for p in exterior]
             return min(xs), min(ys), max(xs)-min(xs), max(ys)-min(ys)
     except (KeyError, TypeError):
         pass
@@ -101,12 +109,28 @@ def _area(ann_type: str, g: dict) -> Optional[float]:
         if ann_type == "ellipse":   return math.pi * g["rx"] * g["ry"]
         if ann_type in ("polygon", "brush"):
             pts = g.get("points", [])
-            if len(pts) < 3:
+            if not pts:
                 return None
-            n = len(pts)
-            a = sum(pts[i]["x"]*pts[(i+1)%n]["y"] - pts[(i+1)%n]["x"]*pts[i]["y"]
-                    for i in range(n))
-            return abs(a) / 2.0
+
+            # Helper function to calculate area of a single ring using the Shoelace formula
+            def ring_area(ring):
+                n = len(ring)
+                if n < 3: return 0.0
+                a = sum(ring[i]["x"] * ring[(i+1)%n]["y"] - ring[(i+1)%n]["x"] * ring[i]["y"] for i in range(n))
+                return abs(a) / 2.0
+
+            # If it's a 1D array (no holes)
+            if not isinstance(pts[0], list):
+                if len(pts) < 3: return None
+                return ring_area(pts)
+            
+            # If it's a 2D array (has holes)
+            exterior_area = ring_area(pts[0])
+            holes_area = sum(ring_area(hole) for hole in pts[1:])
+            
+            # The true area is the exterior minus the holes
+            return exterior_area - holes_area
+            
     except (KeyError, TypeError):
         pass
     return None

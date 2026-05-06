@@ -21,7 +21,6 @@ export function useSelectTool({ osdRef, annotations, selectedAnnId, onAnnotation
     const v = osdRef.current
     const selAnn = selectedAnnId ? annotations.find(a => a.id === selectedAnnId) : null
 
-    // UPDATED: Safely handle vertex editing for 2D arrays (polygons with holes)
     if (!readOnly && selAnn && (selAnn.annotation_type === 'polygon' || selAnn.annotation_type === 'brush')) {
       const rawPts = selAnn.geometry?.points || []
       const is2D = Array.isArray(rawPts[0])
@@ -178,18 +177,26 @@ export function useBrushTool({ osdRef, activeTool, brushRadius, annotations, sel
   const brushDown = useRef(false)
   const pressureRef = useRef(1.0)
 
-  useEffect(() => { brushROIRef.current = brushROI }, [brushROI])
+  // REMOVED async effect: useEffect(() => { brushROIRef.current = brushROI }, [brushROI])
+
   useEffect(() => { if (activeTool !== 'brush') cancel() }, [activeTool])
+  
   useEffect(() => {
     if (activeTool !== 'brush') return
-    const h = ev => { if ((ev.key === 'f' || ev.key === 'F') && brushROIRef.current) setBrushROI(fillHoles(brushROIRef.current)) }
+    const h = ev => { 
+      if ((ev.key === 'f' || ev.key === 'F') && brushROIRef.current) {
+        // SYNCHRONOUS UPDATE
+        const next = fillHoles(brushROIRef.current)
+        brushROIRef.current = next
+        setBrushROI(next)
+      } 
+    }
     document.addEventListener('keydown', h)
     return () => document.removeEventListener('keydown', h)
   }, [activeTool])
 
   function effectiveBrushR() { return brushRadius * pressureRef.current }
 
-  // UPDATED: Topologically bulletproof brush
   function applyBrush(geom, current) {
     let next = subtractMode.current ? difference(current, geom) : union(current, geom)
     let validState = next;
@@ -197,12 +204,10 @@ export function useBrushTool({ osdRef, activeTool, brushRadius, annotations, sel
     const totalPts = Array.isArray(validState[0]) ? validState.reduce((sum, ring) => sum + ring.length, 0) : validState.length;
     if (totalPts > 8) {
        let simplified = simplify(validState, 0.1)
-       // Reject simplification if it introduces self-intersections
        if (validateTopology(simplified)) validState = simplified;
     }
 
     let rounded = roundCoordinates(validState)
-    // Reject integer rounding if it forces lines to cross
     if (validateTopology(rounded)) validState = rounded;
 
     const info = osdRef.current?.source
@@ -239,7 +244,12 @@ export function useBrushTool({ osdRef, activeTool, brushRadius, annotations, sel
 
     const startROI = existing ? (existing.geometry?.points || []) : []
     editingAnn.current = existing || null
-    setBrushROI(applyBrush(circlePoly(img.x, img.y, effectiveBrushR()), startROI))
+    
+    // SYNCHRONOUS UPDATE
+    const nextROI = applyBrush(circlePoly(img.x, img.y, effectiveBrushR()), startROI)
+    brushROIRef.current = nextROI
+    setBrushROI(nextROI)
+    
     lastBrushPt.current = img
   }
 
@@ -249,7 +259,13 @@ export function useBrushTool({ osdRef, activeTool, brushRadius, annotations, sel
     pressureRef.current = (e.pressure && e.pressure > 0) ? e.pressure : pressureRef.current
     const r = effectiveBrushR(), last = lastBrushPt.current
     const geom = (!last || (Math.abs(last.x - img.x) < 0.5 && Math.abs(last.y - img.y) < 0.5)) ? circlePoly(img.x, img.y, r) : capsulePoly(last.x, last.y, img.x, img.y, r)
-    setBrushROI(applyBrush(geom, brushROIRef.current || []))
+    
+    // SYNCHRONOUS UPDATE
+    const currentROI = brushROIRef.current || []
+    const nextROI = applyBrush(geom, currentROI)
+    brushROIRef.current = nextROI
+    setBrushROI(nextROI)
+    
     lastBrushPt.current = img
   }
 
@@ -261,12 +277,26 @@ export function useBrushTool({ osdRef, activeTool, brushRadius, annotations, sel
     if (final.length >= 3 || (Array.isArray(final[0]) && final[0].length >= 3)) {
       onEmit(editingAnn.current ? { annotation_type: 'brush', geometry: { points: final }, _replaceId: editingAnn.current.id } : { annotation_type: 'brush', geometry: { points: final } })
     } else if (editingAnn.current && final.length < 3) {
+      // NOTE: Parent (AnnotationLayer) handles sending this to the backend
       onEmit({ annotation_type: 'brush', geometry: { points: [] }, _replaceId: editingAnn.current.id })
     }
-    setBrushROI(null); lastBrushPt.current = null; editingAnn.current = null; subtractMode.current = false
+    
+    // SYNCHRONOUS CLEANUP
+    brushROIRef.current = null
+    setBrushROI(null)
+    lastBrushPt.current = null
+    editingAnn.current = null
+    subtractMode.current = false
   }
 
-  function cancel() { brushDown.current = false; setBrushROI(null); lastBrushPt.current = null; editingAnn.current = null; setBrushLimitsV(false) }
+  function cancel() { 
+    brushDown.current = false; 
+    brushROIRef.current = null; // SYNCHRONOUS CLEANUP
+    setBrushROI(null); 
+    lastBrushPt.current = null; 
+    editingAnn.current = null; 
+    setBrushLimitsV(false) 
+  }
 
   return { brushROI, brushLimitsV, editingAnn, subtractMode, pressureRef, onPointerDown, onPointerMove, onPointerUp, onPointerLeave: cancel, cancel }
 }
@@ -279,8 +309,11 @@ export function usePolygonTool({ osdRef, activeTool, readOnly, onEmit }) {
   const polyPressElRef = useRef(null)
   const polyFreehandRef = useRef(false)
 
+  // Polygon arrays are small enough and clicks are slow enough that useState syncing is safe here
   useEffect(() => { polyRef.current = polyPts }, [polyPts])
+  
   useEffect(() => { if (activeTool !== 'polygon') cancel() }, [activeTool])
+  
   useEffect(() => {
     if (activeTool !== 'polygon') return
     const h = ev => {
