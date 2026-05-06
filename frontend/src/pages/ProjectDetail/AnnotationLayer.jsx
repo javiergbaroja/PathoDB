@@ -128,9 +128,29 @@ export default function AnnotationLayer({
   }
 
   function onWheel(e) {
-    if (!e.altKey || activeTool !== 'brush') return
-    e.preventDefault(); e.stopPropagation()
-    setBrushRadius(r => Math.max(10, Math.min(500, Math.round(r + (e.deltaY < 0 ? 5 : -5)))))
+    // Alt + brush → resize brush
+    if (e.altKey && activeTool === 'brush') {
+      e.preventDefault()
+      e.stopPropagation()
+      setBrushRadius(r => Math.max(10, Math.min(500, Math.round(r + (e.deltaY < 0 ? 5 : -5)))))
+      return
+    }
+
+    // Always forward scroll to OSD for zoom, even when mouse nav is disabled.
+    // This makes scroll-to-zoom work regardless of which tool is active.
+    const v = osdRef.current
+    if (v?.viewport) {
+      e.preventDefault()
+      const el = getEl(e)
+      const refPoint = v.viewport.viewerElementToViewportCoordinates(
+        new window.OpenSeadragon.Point(el.x, el.y)
+      )
+      const factor = e.deltaY < 0
+        ? (v.zoomPerScroll ?? 1.4)
+        : 1 / (v.zoomPerScroll ?? 1.4)
+      v.viewport.zoomBy(factor, refPoint, true)
+      v.viewport.applyConstraints()
+    }
   }
 
   const viewer = osdRef.current

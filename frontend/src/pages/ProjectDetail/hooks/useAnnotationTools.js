@@ -177,7 +177,30 @@ export function useBrushTool({ osdRef, activeTool, brushRadius, annotations, sel
   const brushDown = useRef(false)
   const pressureRef = useRef(1.0)
 
-  // REMOVED async effect: useEffect(() => { brushROIRef.current = brushROI }, [brushROI])
+  function geometryToPoints(ann) {
+    const g = ann.geometry
+    switch (ann.annotation_type) {
+      case 'brush':
+      case 'polygon':
+        return g.points || []
+      case 'rectangle':
+        return [
+          { x: g.x,             y: g.y },
+          { x: g.x + g.width,   y: g.y },
+          { x: g.x + g.width,   y: g.y + g.height },
+          { x: g.x,             y: g.y + g.height },
+        ]
+      case 'ellipse': {
+        const N = 64
+        return Array.from({ length: N }, (_, i) => {
+          const a = (2 * Math.PI * i) / N
+          return { x: g.cx + g.rx * Math.cos(a), y: g.cy + g.ry * Math.sin(a) }
+        })
+      }
+      default:
+        return []
+    }
+  }
 
   useEffect(() => { if (activeTool !== 'brush') cancel() }, [activeTool])
   
@@ -218,13 +241,16 @@ export function useBrushTool({ osdRef, activeTool, brushRadius, annotations, sel
   }
 
   function findEditableAnnUnder(img) {
+    const CONVERTIBLE = new Set(['brush', 'polygon', 'rectangle', 'ellipse'])
     for (const ann of [...annotations].reverse()) {
-      if (ann.annotation_type !== 'brush' && ann.annotation_type !== 'polygon') continue
-      const pts = ann.geometry?.points || []
+      if (!CONVERTIBLE.has(ann.annotation_type)) continue
+      const pts = geometryToPoints(ann)
       if (!pts.length) continue
       const ring = Array.isArray(pts[0]) ? pts[0] : pts
       const xs = ring.map(p => p.x), ys = ring.map(p => p.y)
-      if (img.x < Math.min(...xs) || img.x > Math.max(...xs) || img.y < Math.min(...ys) || img.y > Math.max(...ys)) continue
+      const minX = Math.min(...xs), maxX = Math.max(...xs)
+      const minY = Math.min(...ys), maxY = Math.max(...ys)
+      if (img.x < minX || img.x > maxX || img.y < minY || img.y > maxY) continue
       if (polygonContains(ring, img)) return ann
     }
     return null
@@ -242,7 +268,7 @@ export function useBrushTool({ osdRef, activeTool, brushRadius, annotations, sel
       if (sel && (sel.annotation_type === 'brush' || sel.annotation_type === 'polygon')) existing = sel
     }
 
-    const startROI = existing ? (existing.geometry?.points || []) : []
+    const startROI = existing ? geometryToPoints(existing) : []
     editingAnn.current = existing || null
     
     // SYNCHRONOUS UPDATE

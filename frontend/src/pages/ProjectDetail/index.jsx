@@ -106,7 +106,7 @@ export default function ProjectDetail() {
     }
   }, [rawAnnotations, activeScanId, classMap])
 
-  const [activeTool,    setActiveTool]    = useState('select')
+  const [activeTool,    setActiveTool]    = useState(null)
   const [activeClass,   setActiveClass]   = useState(null)
   const [brushRadius,   setBrushRadius]   = useState(80)
   const [isRulerActive, setIsRulerActive] = useState(false)
@@ -126,6 +126,9 @@ export default function ProjectDetail() {
 
     if (v.gestureSettingsMouse) {
       v.gestureSettingsMouse.dblClickToZoom = false
+      v.gestureSettingsMouse.clickToZoom = false
+      v.gestureSettingsMouse.dragToPan = !activeTool || navOverride
+      v.gestureSettingsMouse.scrollToZoom = true   // never kill this
     }
     if (v.gestureSettingsTouch) {
       v.gestureSettingsTouch.dblClickToZoom = false
