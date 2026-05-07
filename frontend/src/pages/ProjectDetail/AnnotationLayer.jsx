@@ -34,10 +34,6 @@ export default function AnnotationLayer({
 
   const toolColor = activeClass?.color || '#6ee7b7'
 
-  // FIX 2: When _replaceId is present we always route through onAnnotationCreated
-  // so that annotation_type is updated too (e.g. rect → brush).
-  // Preserve the replaced annotation's class so it doesn't accidentally inherit
-  // the currently-active class (which may be null).
   function onEmit(ann) {
     if (readOnly) return
     if (ann._replaceId) {
@@ -151,18 +147,13 @@ export default function AnnotationLayer({
     if (activeTool === 'polygon') poly.onDoubleClick(e)
   }
 
-  // FIX 4: wheel handler logic (kept as a named function so the ref below can call it).
-  // NOTE: this function is NOT passed as a React prop — it is registered via
-  // addEventListener({ passive: false }) in the useEffect below.
   function handleWheel(e) {
-    // Alt + brush → resize brush
     if (e.altKey && activeTool === 'brush') {
       e.preventDefault()
       e.stopPropagation()
       setBrushRadius(r => Math.max(10, Math.min(500, Math.round(r + (e.deltaY < 0 ? 5 : -5)))))
       return
     }
-    // Forward scroll to OSD for zoom regardless of which tool is active
     const v = osdRef.current
     if (v?.viewport) {
       e.preventDefault()
@@ -173,17 +164,12 @@ export default function AnnotationLayer({
       const factor = e.deltaY < 0
         ? (v.zoomPerScroll ?? 1.4)
         : 1 / (v.zoomPerScroll ?? 1.4)
-      v.viewport.zoomBy(factor, refPoint, true)
-      v.viewport.applyConstraints()
+      v.viewport.zoomBy(factor, refPoint)
     }
   }
 
-  // FIX 4: Register the wheel handler with { passive: false } directly on the DOM node
-  // so we can call e.preventDefault() without the browser warning.
-  // React's synthetic onWheel is passive in React 17+ on document-level listeners,
-  // but adding directly to the element still works with passive:false.
   const wheelHandlerRef = useRef(handleWheel)
-  useEffect(() => { wheelHandlerRef.current = handleWheel })   // keep ref current on every render
+  useEffect(() => { wheelHandlerRef.current = handleWheel })
 
   useEffect(() => {
     const el = svgRef.current
@@ -191,7 +177,7 @@ export default function AnnotationLayer({
     const handler = (e) => wheelHandlerRef.current(e)
     el.addEventListener('wheel', handler, { passive: false })
     return () => el.removeEventListener('wheel', handler)
-  }, []) // runs once — the ref keeps the handler up-to-date
+  }, [])
 
   // ── Derived render state ───────────────────────────────────────────────────
   const viewer  = osdRef.current
@@ -304,9 +290,6 @@ export default function AnnotationLayer({
   })()
 
   return (
-    // FIX 4: onWheel prop intentionally omitted — the non-passive listener is
-    // registered via useEffect above. All other pointer/click handlers stay as
-    // React synthetic props (they are fine on the element itself).
     <svg
       ref={svgRef}
       style={{
@@ -321,7 +304,6 @@ export default function AnnotationLayer({
       onPointerCancel={onPointerCancel}
       onClick={onClick}
       onDoubleClick={onDblClick}
-      /* onWheel intentionally removed — see useEffect above */
     >
       {annotations.filter(a => !hiddenIds.has(a.id)).map(ann => (
         <AnnotationShape key={ann.id} viewer={viewer} ann={ann} selected={ann.id === selectedAnnId} />

@@ -18,6 +18,7 @@ function buildOSD({
   osdRef,
   isMounted,
   disableDblClickZoom,
+  onReady,
 }) {
   if (!slideInfo || !containerRef.current || !window.OpenSeadragon) return
 
@@ -44,9 +45,6 @@ function buildOSD({
 
       if (!containerRef.current) return
 
-      // FIX 1: disable BOTH single-click zoom and double-click zoom when requested.
-      // We pass both flags in the GestureSettings constructor so they take effect
-      // before the first user interaction.
       const gestureSettingsMouse = disableDblClickZoom
         ? { dblClickToZoom: false, clickToZoom: false }
         : undefined
@@ -93,9 +91,12 @@ function buildOSD({
       }
 
       if (onZoom) {
-        viewer.addHandler('zoom', ({ zoom: z }) =>
-          onZoom(z ? parseFloat(z.toFixed(1)) : null)
-        )
+        viewer.addHandler('open', () => {
+          if (!isMounted.current) return
+          onReady?.()
+          const rawMpp = slideInfo?.mpp_x ? parseFloat(slideInfo.mpp_x) : null
+          if (!rawMpp || !viewer.scalebar) return
+        })
       }
 
       viewer.addHandler('open', () => {
@@ -200,15 +201,8 @@ export function useOSDViewer({
           osdRef,
           isMounted,
           disableDblClickZoom,
+          onReady: () => onReadyRef.current?.(),
         })
-        const waitForViewer = () => {
-          if (cancelPoll) return
-          if (!osdRef.current) { setTimeout(waitForViewer, 100); return }
-          osdRef.current.addHandler('open', () => {
-            if (!cancelPoll && isMounted.current) onReadyRef.current?.()
-          })
-        }
-        waitForViewer()
       })
     }
     tryInit()
