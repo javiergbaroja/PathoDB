@@ -69,7 +69,7 @@ export default function ProjectDetail() {
     staleTime: 60_000,
   })
 
-  const { data: rawAnnotations = [], refetch: refetchAnnotations } = useQuery({
+  const { data: rawAnnotations = [], refetch: refetchAnnotations, isFetching } = useQuery({
     queryKey: ['annotations', projectId, activeScanId],
     queryFn:  () => api.getAnnotations(Number(projectId), activeScanId),
     enabled:  !!activeScanId && !!project,
@@ -87,19 +87,24 @@ export default function ProjectDetail() {
   const localAnnotationsRef = useRef([])
   useEffect(() => { localAnnotationsRef.current = localAnnotations }, [localAnnotations])
 
-  const initializedScanRef = useRef(null)
+  const initializedScanRef = useRef(null);
+  const [loadedData, setLoadedData] = useState(null);
+
   useEffect(() => {
-    if (!rawAnnotations) return
-    if (initializedScanRef.current !== activeScanId) {
-      initializedScanRef.current = activeScanId
+    if (!rawAnnotations || isFetching) return;
+
+    if (initializedScanRef.current !== activeScanId || loadedData !== rawAnnotations) {
+      initializedScanRef.current = activeScanId;
+      setLoadedData(rawAnnotations);
+
       const merged = rawAnnotations.map(a => ({
         ...a,
         _color: classMap[a.class_id]?.color || '#94a3b8',
-      }))
-      setLocalAnnotations(merged)
-      setSelectedAnnId(null)
+      }));
+      setLocalAnnotations(merged);
+      setSelectedAnnId(null);
     }
-  }, [rawAnnotations, activeScanId, classMap])
+  }, [rawAnnotations, isFetching, activeScanId, classMap, loadedData]);
 
   const [activeTool,    setActiveTool]    = useState(null)
   const [activeClass,   setActiveClass]   = useState(null)
@@ -221,7 +226,7 @@ export default function ProjectDetail() {
       }
       if (k === 'l') { setIsRulerActive(r => !r); setActiveTool(null) }
       if (k === 'a') setShowAdjust(s => !s)
-      if (ev.key === 'Escape') { setActiveTool('select'); setIsRulerActive(false) }
+      if (ev.key === 'Escape') { setActiveTool(null); setIsRulerActive(false) }
       if (ev.key === 'Delete' && selectedAnnId) handleDeleteAnnotation(selectedAnnId)
     }
     document.addEventListener('keydown', handler)
@@ -241,6 +246,9 @@ export default function ProjectDetail() {
       setSaving(true)
       try {
         await api.bulkSaveAnnotations(Number(projectId), activeScanId, anns)
+        
+        queryClient.setQueryData(['annotations', projectId, activeScanId], anns)
+        
         refetchScans()
         queryClient.invalidateQueries({ queryKey: ['project-progress', projectId] })
       } catch (e) {
@@ -251,7 +259,7 @@ export default function ProjectDetail() {
         setPendingSave(false)
       }
     }, 800)
-  }, [activeScanId, projectId, readOnly])
+  }, [activeScanId, projectId, readOnly, queryClient])
 
   const prevScanRef = useRef(null)
   useEffect(() => {
@@ -373,6 +381,22 @@ export default function ProjectDetail() {
     </div>
   )
 
+  const handleBackToProjects = async () => {
+    if (!readOnly && activeScanId) {
+      // Clear the debounced timer and force an immediate save
+      clearTimeout(saveTimerRef.current);
+      try {
+        const annsToSave = localAnnotationsRef.current;
+        await api.bulkSaveAnnotations(Number(projectId), activeScanId, annsToSave);
+        // Ensure the cache is updated before we leave
+        queryClient.setQueryData(['annotations', projectId, activeScanId], annsToSave);
+      } catch (e) {
+        console.error('[ProjectDetail] Failed to save on exit:', e);
+      }
+    }
+    navigate('/projects');
+  }
+
   return (
     <div style={{ width:'100vw', height:'100vh', background:'#111827',
       display:'flex', flexDirection:'column', overflow:'hidden' }}>
@@ -383,7 +407,7 @@ export default function ProjectDetail() {
         borderBottom: '1px solid rgba(255,255,255,0.07)',
         display: 'flex', alignItems: 'center', gap: 10, padding: '0 14px',
       }}>
-        <button onClick={() => navigate('/projects')} title="Back to Projects"
+        <button onClick={handleBackToProjects} title="Back to Projects"
           style={{ display:'flex', alignItems:'center', gap:6, padding:'4px 10px',
             borderRadius:6, background:'rgba(255,255,255,0.05)',
             border:'1px solid rgba(255,255,255,0.12)', color:'rgba(255,255,255,0.65)',
