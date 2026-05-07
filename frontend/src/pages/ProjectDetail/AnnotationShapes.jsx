@@ -10,10 +10,10 @@ import {
   VTX_R_VIS
 } from '../../lib/annotationMath'
 
-export function AnnotationShape({ viewer, ann, selected }) {
+export function AnnotationShape({ viewer, ann, selected, fillAnnotations = true }) {
   if (!viewer?.viewport) return null
   const color   = ann._color || '#6ee7b7'
-  const fillOp  = selected ? 0.50 : 0.28
+  const fillOp  = fillAnnotations ? (selected ? 0.50 : 0.28) : 0
   const sw      = selected ? 2 : 1.5
   const strokeC = selected ? '#fff' : color
   const g = ann.geometry

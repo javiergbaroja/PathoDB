@@ -111,6 +111,8 @@ export default function ProjectDetail() {
   const [brushRadius,   setBrushRadius]   = useState(80)
   const [isRulerActive, setIsRulerActive] = useState(false)
   const [showAdjust,    setShowAdjust]    = useState(false)
+  const [showAnnotations, setShowAnnotations] = useState(true)
+  const [fillAnnotations, setFillAnnotations] = useState(true)
   const [brightness,    setBrightness]    = useState(100)
   const [contrast,      setContrast]      = useState(100)
   const [gamma,         setGamma]         = useState(1.0)
@@ -226,6 +228,8 @@ export default function ProjectDetail() {
       }
       if (k === 'l') { setIsRulerActive(r => !r); setActiveTool(null) }
       if (k === 'a') setShowAdjust(s => !s)
+      if (k === 'h') setShowAnnotations(s => !s)
+      if (k === 'o') setFillAnnotations(s => !s)
       if (ev.key === 'Escape') { setActiveTool(null); setIsRulerActive(false) }
       if (ev.key === 'Delete' && selectedAnnId) handleDeleteAnnotation(selectedAnnId)
     }
@@ -533,6 +537,8 @@ export default function ProjectDetail() {
           resetAdjustments={() => { setBrightness(100); setContrast(100); setGamma(1.0) }}
           showAdjust={showAdjust} setShowAdjust={setShowAdjust}
           isRulerActive={isRulerActive} setIsRulerActive={setIsRulerActive}
+          showAnnotations={showAnnotations} setShowAnnotations={setShowAnnotations}
+          fillAnnotations={fillAnnotations} setFillAnnotations={setFillAnnotations}
         />
 
         {/* Canvas area */}
@@ -566,6 +572,8 @@ export default function ProjectDetail() {
               onAnnotationsDeleted={handleAnnotationsDeleted}
               readOnly={readOnly}
               tick={tick}
+              showAnnotations={showAnnotations}
+              fillAnnotations={fillAnnotations}
             />
           )}
 

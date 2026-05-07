@@ -91,6 +91,9 @@ export default function AnnotationToolbar({
   showAdjust, setShowAdjust,
   // ruler
   isRulerActive, setIsRulerActive,
+  // annotation visibility
+  showAnnotations, setShowAnnotations,
+  fillAnnotations, setFillAnnotations,
 }) {
   function toggleTool(id) {
     if (readOnly && id !== 'select') return
@@ -127,6 +130,39 @@ export default function AnnotationToolbar({
       })}
 
       <Divider />
+
+      <ToolBtn
+        active={!showAnnotations}
+        title="Toggle Visibility (H)"
+        onClick={() => setShowAnnotations(s => !s)}
+      >
+        {showAnnotations ? (
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
+            <path d="M8 3C4 3 1 8 1 8s3 5 7 5 7-5 7-5-3-5-7-5zm0 8a3 3 0 110-6 3 3 0 010 6z"/>
+          </svg>
+        ) : (
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
+            <path d="M8 3C4 3 1 8 1 8s.8 1.3 2 2.4l1.5-1.5A5.9 5.9 0 018 4c1.8 0 3.4.8 4.5 2l1.4-1.4C12.5 3.5 10.5 3 8 3zm4.5 7.6L14 12l-1.4 1.4-1.5-1.5C10 12.6 9 13 8 13c-4 0-7-5-7-5s1.2-2 3-3.2l-2-2L3.4 1.4l10.6 10.6c-.4.4-.9.7-1.5 1z"/>
+          </svg>
+        )}
+      </ToolBtn>
+
+      {/* Toggle Fill */}
+      <ToolBtn
+        active={!fillAnnotations} 
+        title="Toggle Fill (O)"
+        onClick={() => setFillAnnotations(s => !s)}
+      >
+        {fillAnnotations ? (
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
+            <rect x="2" y="2" width="12" height="12" rx="2" />
+          </svg>
+        ) : (
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2">
+            <rect x="2" y="2" width="12" height="12" rx="2" />
+          </svg>
+        )}
+      </ToolBtn>
 
       {/* Ruler */}
       <ToolBtn

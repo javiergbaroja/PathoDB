@@ -18,7 +18,7 @@ import BrushLimits from './BrushLimits'
 export default function AnnotationLayer({
   osdRef, activeTool, activeClass, brushRadius, setBrushRadius,
   annotations, selectedAnnId, onAnnotationClick, onAnnotationCreated,
-  onAnnotationUpdated, readOnly, tick
+  onAnnotationUpdated, readOnly, tick, showAnnotations=true, fillAnnotations=true
 }) {
   const svgRef = useRef(null)
   const [mouse, setMouse] = useState(null)
@@ -305,8 +305,8 @@ export default function AnnotationLayer({
       onClick={onClick}
       onDoubleClick={onDblClick}
     >
-      {annotations.filter(a => !hiddenIds.has(a.id)).map(ann => (
-        <AnnotationShape key={ann.id} viewer={viewer} ann={ann} selected={ann.id === selectedAnnId} />
+      {showAnnotations && annotations.filter(a => !hiddenIds.has(a.id)).map(ann => (
+        <AnnotationShape key={ann.id} viewer={viewer} ann={ann} selected={ann.id === selectedAnnId} fillAnnotations={fillAnnotations}/>
       ))}
 
       {liveGeom && liveType && (
@@ -316,7 +316,7 @@ export default function AnnotationLayer({
         <LiveAnnotation viewer={viewer} type={dragAnn.annotation_type} geometry={{ points: liveVtxPts }} color={dragAnn._color || '#6ee7b7'} />
       )}
 
-      {showHandles && (
+      {showAnnotations && showHandles && (
         <>
           {['polygon', 'brush'].includes(selAnn.annotation_type) && overlayVtxPts && (
             <PolygonHandleOverlay viewer={viewer} pts={overlayVtxPts} color={selAnn._color || '#6ee7b7'} />
