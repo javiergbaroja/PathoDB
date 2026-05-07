@@ -1,12 +1,9 @@
 // frontend/src/hooks/useOSDViewer.js
 //
 // Changes vs previous version:
-//  FIX 3 — Accepts disableDblClickZoom option (default true for ProjectDetail,
-//           false for SlideViewer which keeps the original behaviour).
-//           The option is applied at OSD construction time via gestureSettingsMouse,
-//           which is more reliable than patching the property after 'open' fires.
-//
-//  Everything else is unchanged from the previous version.
+//  FIX 1 — disableDblClickZoom now also disables single-click zoom
+//           (clickToZoom: false added to GestureSettings and the belt-and-suspenders
+//           block that patches the live viewer object).
 
 import { useEffect, useRef, useCallback } from 'react'
 
@@ -47,11 +44,11 @@ function buildOSD({
 
       if (!containerRef.current) return
 
-      // FIX 3: Pass dblClickToZoom: false at construction time.
-      // This is more reliable than setting gestureSettingsMouse after 'open' because
-      // OpenSeadragon applies gesture settings from the config object during init.
+      // FIX 1: disable BOTH single-click zoom and double-click zoom when requested.
+      // We pass both flags in the GestureSettings constructor so they take effect
+      // before the first user interaction.
       const gestureSettingsMouse = disableDblClickZoom
-        ? new window.OpenSeadragon.GestureSettings({ dblClickToZoom: false })
+        ? { dblClickToZoom: false, clickToZoom: false }
         : undefined
 
       const osdConfig = {
@@ -70,22 +67,21 @@ function buildOSD({
         background: '#111827',
       }
 
-      // GestureSettings constructor is available from OSD ≥ 2.4.
-      // Guard so it degrades gracefully if the version doesn't support it.
-      if (gestureSettingsMouse && window.OpenSeadragon.GestureSettings) {
+      if (gestureSettingsMouse) {
         osdConfig.gestureSettingsMouse = gestureSettingsMouse
       }
 
       const viewer = window.OpenSeadragon(osdConfig)
       osdRef.current = viewer
 
-      // Belt-and-suspenders: also set it on the live object in case the config
-      // path didn't take (older OSD versions).
+      // Belt-and-suspenders: also patch the live object for older OSD versions.
       if (disableDblClickZoom && viewer.gestureSettingsMouse) {
         viewer.gestureSettingsMouse.dblClickToZoom = false
+        viewer.gestureSettingsMouse.clickToZoom    = false  // ← NEW
       }
       if (disableDblClickZoom && viewer.gestureSettingsTouch) {
         viewer.gestureSettingsTouch.dblClickToZoom = false
+        viewer.gestureSettingsTouch.clickToZoom    = false  // ← NEW
       }
 
       if (viewer.navigator?.element) {
@@ -165,19 +161,6 @@ function loadOSDScripts(cb) {
   document.head.appendChild(s1)
 }
 
-/**
- * Hook that initialises/reinitialises OpenSeadragon when scanId changes.
- *
- * @param {object}          opts
- * @param {React.RefObject} opts.containerRef
- * @param {number|null}     opts.scanId
- * @param {object|null}     opts.slideInfo          read via ref inside — no re-init on refetch
- * @param {string}          opts.token
- * @param {function}        opts.onZoom
- * @param {React.RefObject} opts.osdRef             caller keeps this; hook writes to it
- * @param {function}        opts.onReady            called after OSD 'open' fires
- * @param {boolean}         opts.disableDblClickZoom default false; set true for annotation views
- */
 export function useOSDViewer({
   containerRef,
   scanId,
@@ -216,7 +199,7 @@ export function useOSDViewer({
           onZoom:              (z) => onZoomRef.current?.(z),
           osdRef,
           isMounted,
-          disableDblClickZoom, // ← forwarded to OSD constructor
+          disableDblClickZoom,
         })
         const waitForViewer = () => {
           if (cancelPoll) return
@@ -241,7 +224,7 @@ export function useOSDViewer({
   }, [scanId, token]) // eslint-disable-line
 }
 
-// ─── Coordinate helpers (unchanged) ──────────────────────────────────────────
+// ─── Coordinate helpers ───────────────────────────────────────────────────────
 
 export function elementToImage(viewer, ex, ey) {
   if (!viewer?.viewport) return null

@@ -69,8 +69,6 @@ export default function ProjectDetail() {
     staleTime: 60_000,
   })
 
-  // const [saveGeneration, setSaveGeneration] = useState(0)
-
   const { data: rawAnnotations = [], refetch: refetchAnnotations } = useQuery({
     queryKey: ['annotations', projectId, activeScanId],
     queryFn:  () => api.getAnnotations(Number(projectId), activeScanId),
@@ -92,9 +90,6 @@ export default function ProjectDetail() {
   const initializedScanRef = useRef(null)
   useEffect(() => {
     if (!rawAnnotations) return
-    
-    // ONLY overwrite the UI state if we are loading a completely new slide.
-    // This prevents background refetches from destroying your active drawings!
     if (initializedScanRef.current !== activeScanId) {
       initializedScanRef.current = activeScanId
       const merged = rawAnnotations.map(a => ({
@@ -124,14 +119,15 @@ export default function ProjectDetail() {
     const v = osdRef.current
     if (!v) return
 
+    // Ensure click-to-zoom is off (belt-and-suspenders — already set in useOSDViewer)
     if (v.gestureSettingsMouse) {
       v.gestureSettingsMouse.dblClickToZoom = false
-      v.gestureSettingsMouse.clickToZoom = false
-      v.gestureSettingsMouse.dragToPan = !activeTool || navOverride
-      v.gestureSettingsMouse.scrollToZoom = true   // never kill this
+      v.gestureSettingsMouse.clickToZoom    = false
+      v.gestureSettingsMouse.scrollToZoom   = true
     }
     if (v.gestureSettingsTouch) {
       v.gestureSettingsTouch.dblClickToZoom = false
+      v.gestureSettingsTouch.clickToZoom    = false
     }
 
     const bump = () => setTick(n => n + 1)
@@ -141,14 +137,16 @@ export default function ProjectDetail() {
     v.addHandler('resize',    bump)
   }, [])
 
+  // FIX 1: pass disableDblClickZoom:true so both click and dblClick zoom are off
   useOSDViewer({
     containerRef,
-    scanId:  activeScanId,
+    scanId:              activeScanId,
     slideInfo,
     token,
-    onZoom:  setZoom,
+    onZoom:              setZoom,
     osdRef,
-    onReady: handleOSDReady,
+    onReady:             handleOSDReady,
+    disableDblClickZoom: true,
   })
 
   useEffect(() => {
@@ -243,11 +241,6 @@ export default function ProjectDetail() {
       setSaving(true)
       try {
         await api.bulkSaveAnnotations(Number(projectId), activeScanId, anns)
-        
-        // REMOVE THESE TWO LINES:
-        // await refetchAnnotations()
-        // setSaveGeneration(g => g + 1)
-        
         refetchScans()
         queryClient.invalidateQueries({ queryKey: ['project-progress', projectId] })
       } catch (e) {
@@ -299,7 +292,7 @@ export default function ProjectDetail() {
 
   function handleAnnotationCreated(annCreate) {
     const { _replaceId, ...rest } = annCreate
-    
+
     const tempId = `temp_${Date.now()}_${Math.random().toString(36).slice(2)}`
     const newAnn = {
       id:         tempId,
@@ -309,11 +302,11 @@ export default function ProjectDetail() {
       _color:     classMap[rest.class_id]?.color || '#94a3b8',
       created_at: new Date().toISOString(),
     }
-    
+
     const base = _replaceId
       ? localAnnotationsRef.current.filter(a => a.id !== _replaceId)
       : localAnnotationsRef.current
-    
+
     const next = [...base, newAnn]
     setLocalAnnotations(next)
     setSelectedAnnId(tempId)
@@ -338,20 +331,24 @@ export default function ProjectDetail() {
     triggerSave(next)
   }
 
-  // FIX: Route empty geometry updates to handleDeleteAnnotation
+  // FIX 3: Only delete when a brush/polygon explicitly returns empty points.
+  // Rectangle and ellipse geometry has no `.points` field at all — the old guard
+  // `!newGeometry.points` was always true for them, silently deleting every rect/ellipse
+  // on move or handle-drag.
   function handleAnnotationUpdated(annId, newGeometry) {
     if (readOnly) return
 
-    // If geometry points array is completely empty, delete the annotation.
-    if (!newGeometry.points || newGeometry.points.length === 0) {
+    const ann = localAnnotationsRef.current.find(a => a.id === annId)
+    if (!ann) return
+
+    const isPolygonType = ann.annotation_type === 'brush' || ann.annotation_type === 'polygon'
+    if (isPolygonType && (!newGeometry.points || newGeometry.points.length === 0)) {
       handleDeleteAnnotation(annId)
       return
     }
 
     const next = localAnnotationsRef.current.map(a =>
-      a.id === annId
-        ? { ...a, geometry: newGeometry }
-        : a
+      a.id === annId ? { ...a, geometry: newGeometry } : a
     )
     setLocalAnnotations(next)
     triggerSave(next)
@@ -426,7 +423,6 @@ export default function ProjectDetail() {
 
         <div style={{ flex:1 }} />
 
-        {/* Active tool indicator */}
         {activeTool && (
           <span style={{ fontSize:10, fontFamily:'monospace', color:'rgba(255,255,255,0.35)',
             background:'rgba(255,255,255,0.06)', padding:'2px 8px', borderRadius:4 }}>
@@ -539,7 +535,6 @@ export default function ProjectDetail() {
               annotations={localAnnotations}
               selectedAnnId={selectedAnnId}
               onAnnotationClick={ann => {
-                // null id = deselect (passed from select tool empty-space click).
                 setSelectedAnnId(ann?.id === selectedAnnId || ann?.id == null ? null : ann.id)
               }}
               onAnnotationCreated={handleAnnotationCreated}
@@ -550,7 +545,6 @@ export default function ProjectDetail() {
             />
           )}
 
-          {/* Hint bar for drawing tools */}
           {activeTool && activeTool !== 'select' && !readOnly && (
             <div style={{
               position:'absolute', bottom:16, left:'50%', transform:'translateX(-50%)',

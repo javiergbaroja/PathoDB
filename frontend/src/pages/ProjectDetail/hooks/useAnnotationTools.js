@@ -25,7 +25,7 @@ export function useSelectTool({ osdRef, annotations, selectedAnnId, onAnnotation
       const rawPts = selAnn.geometry?.points || []
       const is2D = Array.isArray(rawPts[0])
       const exterior = is2D ? rawPts[0] : rawPts
-      
+
       const hit = hitVertexHandle(v, selAnn, el)
       if (hit) {
         if (hit.type === 'vertex' && e.altKey) {
@@ -96,10 +96,10 @@ export function useSelectTool({ osdRef, annotations, selectedAnnId, onAnnotation
     if (drag.kind === 'vtxEdit') {
       const img = elementToImage(osdRef.current, el.x, el.y)
       if (img) {
-         const newPts = drag.is2D 
-           ? [ drag.pts[0].map((p, i) => i === drag.idx ? img : p), ...drag.pts.slice(1) ]
-           : drag.pts.map((p, i) => i === drag.idx ? img : p)
-         setDragState({ ...drag, pts: newPts })
+        const newPts = drag.is2D
+          ? [ drag.pts[0].map((p, i) => i === drag.idx ? img : p), ...drag.pts.slice(1) ]
+          : drag.pts.map((p, i) => i === drag.idx ? img : p)
+        setDragState({ ...drag, pts: newPts })
       }
       return true
     }
@@ -203,16 +203,15 @@ export function useBrushTool({ osdRef, activeTool, brushRadius, annotations, sel
   }
 
   useEffect(() => { if (activeTool !== 'brush') cancel() }, [activeTool])
-  
+
   useEffect(() => {
     if (activeTool !== 'brush') return
-    const h = ev => { 
+    const h = ev => {
       if ((ev.key === 'f' || ev.key === 'F') && brushROIRef.current) {
-        // SYNCHRONOUS UPDATE
         const next = fillHoles(brushROIRef.current)
         brushROIRef.current = next
         setBrushROI(next)
-      } 
+      }
     }
     document.addEventListener('keydown', h)
     return () => document.removeEventListener('keydown', h)
@@ -222,20 +221,22 @@ export function useBrushTool({ osdRef, activeTool, brushRadius, annotations, sel
 
   function applyBrush(geom, current) {
     let next = subtractMode.current ? difference(current, geom) : union(current, geom)
-    let validState = next;
+    let validState = next
 
-    const totalPts = Array.isArray(validState[0]) ? validState.reduce((sum, ring) => sum + ring.length, 0) : validState.length;
+    const totalPts = Array.isArray(validState[0])
+      ? validState.reduce((sum, ring) => sum + ring.length, 0)
+      : validState.length
     if (totalPts > 8) {
-       let simplified = simplify(validState, 0.1)
-       if (validateTopology(simplified)) validState = simplified;
+      const simplified = simplify(validState, 0.1)
+      if (validateTopology(simplified)) validState = simplified
     }
 
-    let rounded = roundCoordinates(validState)
-    if (validateTopology(rounded)) validState = rounded;
+    const rounded = roundCoordinates(validState)
+    if (validateTopology(rounded)) validState = rounded
 
     const info = osdRef.current?.source
     if (info?.width && info?.height) {
-       validState = constrainToBounds(validState, info.width, info.height)
+      validState = constrainToBounds(validState, info.width, info.height)
     }
     return validState
   }
@@ -270,12 +271,10 @@ export function useBrushTool({ osdRef, activeTool, brushRadius, annotations, sel
 
     const startROI = existing ? geometryToPoints(existing) : []
     editingAnn.current = existing || null
-    
-    // SYNCHRONOUS UPDATE
+
     const nextROI = applyBrush(circlePoly(img.x, img.y, effectiveBrushR()), startROI)
     brushROIRef.current = nextROI
     setBrushROI(nextROI)
-    
     lastBrushPt.current = img
   }
 
@@ -284,14 +283,13 @@ export function useBrushTool({ osdRef, activeTool, brushRadius, annotations, sel
     if (!brushDown.current || readOnly) return
     pressureRef.current = (e.pressure && e.pressure > 0) ? e.pressure : pressureRef.current
     const r = effectiveBrushR(), last = lastBrushPt.current
-    const geom = (!last || (Math.abs(last.x - img.x) < 0.5 && Math.abs(last.y - img.y) < 0.5)) ? circlePoly(img.x, img.y, r) : capsulePoly(last.x, last.y, img.x, img.y, r)
-    
-    // SYNCHRONOUS UPDATE
-    const currentROI = brushROIRef.current || []
-    const nextROI = applyBrush(geom, currentROI)
+    const geom = (!last || (Math.abs(last.x - img.x) < 0.5 && Math.abs(last.y - img.y) < 0.5))
+      ? circlePoly(img.x, img.y, r)
+      : capsulePoly(last.x, last.y, img.x, img.y, r)
+
+    const nextROI = applyBrush(geom, brushROIRef.current || [])
     brushROIRef.current = nextROI
     setBrushROI(nextROI)
-    
     lastBrushPt.current = img
   }
 
@@ -299,29 +297,30 @@ export function useBrushTool({ osdRef, activeTool, brushRadius, annotations, sel
     if (!brushDown.current || readOnly) return
     brushDown.current = false
     const final = brushROIRef.current || []
-    
+
     if (final.length >= 3 || (Array.isArray(final[0]) && final[0].length >= 3)) {
-      onEmit(editingAnn.current ? { annotation_type: 'brush', geometry: { points: final }, _replaceId: editingAnn.current.id } : { annotation_type: 'brush', geometry: { points: final } })
+      onEmit(editingAnn.current
+        ? { annotation_type: 'brush', geometry: { points: final }, _replaceId: editingAnn.current.id }
+        : { annotation_type: 'brush', geometry: { points: final } }
+      )
     } else if (editingAnn.current && final.length < 3) {
-      // NOTE: Parent (AnnotationLayer) handles sending this to the backend
       onEmit({ annotation_type: 'brush', geometry: { points: [] }, _replaceId: editingAnn.current.id })
     }
-    
-    // SYNCHRONOUS CLEANUP
+
     brushROIRef.current = null
     setBrushROI(null)
     lastBrushPt.current = null
-    editingAnn.current = null
+    editingAnn.current  = null
     subtractMode.current = false
   }
 
-  function cancel() { 
-    brushDown.current = false; 
-    brushROIRef.current = null; // SYNCHRONOUS CLEANUP
-    setBrushROI(null); 
-    lastBrushPt.current = null; 
-    editingAnn.current = null; 
-    setBrushLimitsV(false) 
+  function cancel() {
+    brushDown.current    = false
+    brushROIRef.current  = null
+    setBrushROI(null)
+    lastBrushPt.current  = null
+    editingAnn.current   = null
+    setBrushLimitsV(false)
   }
 
   return { brushROI, brushLimitsV, editingAnn, subtractMode, pressureRef, onPointerDown, onPointerMove, onPointerUp, onPointerLeave: cancel, cancel }
@@ -330,16 +329,14 @@ export function useBrushTool({ osdRef, activeTool, brushRadius, annotations, sel
 // ─── 3. Polygon Tool Hook ─────────────────────────────────────────────────────
 export function usePolygonTool({ osdRef, activeTool, readOnly, onEmit }) {
   const [polyPts, setPolyPts] = useState([])
-  const polyRef = useRef([])
-  const polyDownRef = useRef(false)
-  const polyPressElRef = useRef(null)
+  const polyRef         = useRef([])
+  const polyDownRef     = useRef(false)
+  const polyPressElRef  = useRef(null)
   const polyFreehandRef = useRef(false)
 
-  // Polygon arrays are small enough and clicks are slow enough that useState syncing is safe here
   useEffect(() => { polyRef.current = polyPts }, [polyPts])
-  
   useEffect(() => { if (activeTool !== 'polygon') cancel() }, [activeTool])
-  
+
   useEffect(() => {
     if (activeTool !== 'polygon') return
     const h = ev => {
@@ -358,7 +355,8 @@ export function usePolygonTool({ osdRef, activeTool, readOnly, onEmit }) {
       const firstEl = imageToElement(osdRef.current, cur[0].x, cur[0].y)
       if (firstEl && dist(el, firstEl) <= CLOSE_THRESH) {
         onEmit({ annotation_type: 'polygon', geometry: { points: cur } })
-        setPolyPts([]); return
+        setPolyPts([])
+        return
       }
     }
     setPolyPts([...cur, img])
@@ -371,13 +369,19 @@ export function usePolygonTool({ osdRef, activeTool, readOnly, onEmit }) {
     cancel()
   }
 
-  function onPointerDown(e, el) { polyDownRef.current = true; polyPressElRef.current = el; polyFreehandRef.current = false }
+  function onPointerDown(e, el) {
+    polyDownRef.current    = true
+    polyPressElRef.current = el
+    polyFreehandRef.current = false
+  }
 
   function onPointerMove(e, el, img) {
     if (!polyDownRef.current) return
-    const pressEl = polyPressElRef.current; if (!pressEl) return
+    const pressEl = polyPressElRef.current
+    if (!pressEl) return
 
     if (!polyFreehandRef.current) {
+      // If we already have click-mode points, don't trigger freehand on move
       if (polyRef.current.length > 0) return
       if (Math.hypot(el.x - pressEl.x, el.y - pressEl.y) < FREEHAND_THRESH) return
       polyFreehandRef.current = true
@@ -392,15 +396,31 @@ export function usePolygonTool({ osdRef, activeTool, readOnly, onEmit }) {
     setPolyPts([...cur, img])
   }
 
+  // FIX 5: In click-by-click mode, onPointerUp must NOT clear polyPts.
+  // Calling cancel() (which calls setPolyPts([])) here caused the accumulated
+  // points to be wiped before the browser fired the 'click' event, making every
+  // second vertex disappear.
+  // Only freehand mode completes and clears on pointerUp.
   function onPointerUp() {
-    if (polyFreehandRef.current && polyRef.current.length >= 3) {
-      onEmit({ annotation_type: 'polygon', geometry: { points: polyRef.current } })
-      setPolyPts([])
+    if (polyFreehandRef.current) {
+      if (polyRef.current.length >= 3) {
+        onEmit({ annotation_type: 'polygon', geometry: { points: polyRef.current } })
+      }
+      cancel()
+      return
     }
-    cancel()
+    // Click mode: only reset the drag-tracking state; keep accumulated polyPts.
+    polyDownRef.current     = false
+    polyFreehandRef.current = false
+    polyPressElRef.current  = null
   }
 
-  function cancel() { setPolyPts([]); polyDownRef.current = false; polyFreehandRef.current = false; polyPressElRef.current = null }
+  function cancel() {
+    setPolyPts([])
+    polyDownRef.current     = false
+    polyFreehandRef.current = false
+    polyPressElRef.current  = null
+  }
 
   return { polyPts, polyFreehandRef, onClick, onDoubleClick, onPointerDown, onPointerMove, onPointerUp, cancel }
 }
@@ -408,8 +428,8 @@ export function usePolygonTool({ osdRef, activeTool, readOnly, onEmit }) {
 // ─── 4. Shape (Rect/Ellipse) Tool Hook ────────────────────────────────────────
 export function useShapeTool({ activeTool, onEmit }) {
   const [dragStart, setDragStart] = useState(null)
-  const [dragEnd, setDragEnd] = useState(null)
-  const [isShift, setIsShift] = useState(false)
+  const [dragEnd,   setDragEnd]   = useState(null)
+  const [isShift,   setIsShift]   = useState(false)
 
   useEffect(() => { if (activeTool !== 'rectangle' && activeTool !== 'ellipse') cancel() }, [activeTool])
 
@@ -418,13 +438,13 @@ export function useShapeTool({ activeTool, onEmit }) {
     const down = e => { if (e.key === 'Shift') setIsShift(true) }
     const up   = e => { if (e.key === 'Shift') setIsShift(false) }
     window.addEventListener('keydown', down)
-    window.addEventListener('keyup', up)
+    window.addEventListener('keyup',   up)
     return () => { window.removeEventListener('keydown', down); window.removeEventListener('keyup', up) }
   }, [dragStart])
 
   function onPointerDown(e, img) { setDragStart(img); setDragEnd(img); setIsShift(e.shiftKey) }
   function onPointerMove(e, img) { if (dragStart) { setDragEnd(img); setIsShift(e.shiftKey) } }
-  
+
   function onPointerUp(e) {
     if (!dragStart || !dragEnd) return
     const finalShift = e.shiftKey !== undefined ? e.shiftKey : isShift
@@ -433,11 +453,8 @@ export function useShapeTool({ activeTool, onEmit }) {
     if (absDx < MIN_DRAG && absDy < MIN_DRAG) { cancel(); return }
 
     let finalW = absDx, finalH = absDy
-    if (finalShift) {
-      const max = Math.max(absDx, absDy)
-      finalW = max; finalH = max
-    }
-    
+    if (finalShift) { const max = Math.max(absDx, absDy); finalW = max; finalH = max }
+
     const finalX = dx < 0 ? dragStart.x - finalW : dragStart.x
     const finalY = dy < 0 ? dragStart.y - finalH : dragStart.y
 
