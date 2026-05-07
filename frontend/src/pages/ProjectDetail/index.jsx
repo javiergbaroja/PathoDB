@@ -81,10 +81,28 @@ export default function ProjectDetail() {
   const [localAnnotations, setLocalAnnotations] = useState([])
   const [selectedAnnIds, setSelectedAnnIds] = useState(new Set())
   const isShiftDownRef = useRef(false)
+  const isAltDownRef = useRef(false)
   const [saving, setSaving]                     = useState(false)
   const [pendingSave, setPendingSave]            = useState(false)
   const [saveError, setSaveError]               = useState('')
   const saveTimerRef = useRef(null)
+
+  useEffect(() => {
+    const handleKeyDown = e => { 
+      if (e.key === 'Shift') isShiftDownRef.current = true;
+      if (e.key === 'Alt') isAltDownRef.current = true; // <-- Add this
+    }
+    const handleKeyUp   = e => { 
+      if (e.key === 'Shift') isShiftDownRef.current = false;
+      if (e.key === 'Alt') isAltDownRef.current = false; // <-- Add this
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    window.addEventListener('keyup', handleKeyUp)
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown)
+      window.removeEventListener('keyup', handleKeyUp)
+    }
+  }, [])
 
   useEffect(() => {
     const handleKeyDown = e => { if (e.key === 'Shift') isShiftDownRef.current = true }
@@ -247,6 +265,13 @@ export default function ProjectDetail() {
     setLocalAnnotations(next)
     setSelectedAnnIds(new Set())
     triggerSave(next)
+  }
+
+  function handleSelectAllOfClass(classId) {
+    const ids = localAnnotationsRef.current
+      .filter(a => a.class_id === classId)
+      .map(a => a.id)
+    setSelectedAnnIds(new Set(ids))
   }
 
   const readOnly = project?.access === 'read'
@@ -576,12 +601,29 @@ export default function ProjectDetail() {
               selectedAnnIds={selectedAnnIds}
               onAnnotationClick={ann => {
                 const isShift = isShiftDownRef.current;
+                const isAlt   = isAltDownRef.current; 
+                
+                if (!ann) {
+                  if (!isShift) setSelectedAnnIds(new Set());
+                  return;
+                }
+
+                // If Alt is pressed, select all of the same class
+                if (isAlt) {
+                  const sameClassIds = localAnnotationsRef.current
+                    .filter(a => a.class_id === ann.class_id)
+                    .map(a => a.id);
+                  setSelectedAnnIds(prev => {
+                    const next = isShift ? new Set(prev) : new Set();
+                    sameClassIds.forEach(id => next.add(id));
+                    return next;
+                  });
+                  return;
+                }
+
+                // Normal Shift+Click logic
                 setSelectedAnnIds(prev => {
                   const next = new Set(prev);
-                  if (!ann) {
-                    if (!isShift) next.clear();
-                    return next;
-                  }
                   if (isShift) {
                     if (next.has(ann.id)) next.delete(ann.id);
                     else next.add(ann.id);
@@ -624,7 +666,22 @@ export default function ProjectDetail() {
           setActiveClass={setActiveClass}
           annotations={localAnnotations}
           selectedAnnIds={selectedAnnIds}
-          onSelectAnnotation={(id, isShift) => {
+          onSelectAllOfClass={handleSelectAllOfClass}
+          onSelectAnnotation={(id, isShift, isAlt) => { 
+            if (isAlt) {
+              const ann = localAnnotations.find(a => a.id === id);
+              if (!ann) return;
+              const sameClassIds = localAnnotations
+                .filter(a => a.class_id === ann.class_id)
+                .map(a => a.id);
+              setSelectedAnnIds(prev => {
+                const next = isShift ? new Set(prev) : new Set();
+                sameClassIds.forEach(i => next.add(i));
+                return next;
+              });
+              return;
+            }
+
             setSelectedAnnIds(prev => {
               const next = new Set(prev);
               if (isShift) {

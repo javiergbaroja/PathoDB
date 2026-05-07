@@ -1,9 +1,4 @@
 // frontend/src/pages/ProjectDetail/ClassPanel.jsx
-//
-// Changes vs previous version:
-//  FIX 2 — Keyboard shortcut legend updated to include Select (M) and
-//           corrected Ruler from 'L' to match AnnotationToolbar (L key).
-//           No structural changes — only the shortcuts array.
 
 import { useState } from 'react'
 
@@ -16,6 +11,7 @@ export default function ClassPanel({
   onSelectAnnotation,
   onDeleteAnnotation,
   onChangeClass,
+  onSelectAllOfClass,
   readOnly,
   annotationCount,
   totalScans,
@@ -79,6 +75,8 @@ export default function ClassPanel({
             classes={classes}
             activeClass={activeClass}
             setActiveClass={setActiveClass}
+            annotations={annotations}
+            onSelectAllOfClass={onSelectAllOfClass} 
             readOnly={readOnly}
           />
         )}
@@ -99,19 +97,18 @@ export default function ClassPanel({
 }
 
 // ── Classes tab ────────────────────────────────────────────────────────────────
-function ClassTab({ classes, activeClass, setActiveClass, readOnly }) {
-  // FIX 2: Updated shortcut table — matches AnnotationToolbar TOOLS array order.
+// ── Classes tab ────────────────────────────────────────────────────────────────
+function ClassTab({ classes, activeClass, setActiveClass, annotations, onSelectAllOfClass, readOnly }) {
   const SHORTCUTS = [
     { key: 'M', label: 'Select / move' },
     { key: 'G', label: 'Polygon' },
     { key: 'R', label: 'Rectangle' },
     { key: 'E', label: 'Ellipse' },
-    { key: 'P', label: 'Point' },
-    { key: 'B', label: 'Brush (merges & expands)' },
-    { key: 'L', label: 'Ruler' },
-    { key: 'A', label: 'Image adjust' },
+    { key: 'B', label: 'Brush' },
+    { key: '⇧+Click', label: 'Multi-select' },         // <-- Added to legend
+    { key: 'Alt+Click', label: 'Select all of class' },// <-- Added to legend
     { key: '⌫', label: 'Delete selected' },
-    { key: 'Esc', label: 'Back to Select' },
+    { key: 'Esc', label: 'Deselect / Back' },
   ]
 
   if (!classes || classes.length === 0) {
@@ -133,42 +130,70 @@ function ClassTab({ classes, activeClass, setActiveClass, readOnly }) {
 
       {classes.map(cls => {
         const isActive = activeClass?.id === cls.id
+        // NEW: Calculate how many annotations belong to this class
+        const count = annotations.filter(a => a.class_id === cls.id).length
+
         return (
-          <button
-            key={cls.id}
-            onClick={() => !readOnly && setActiveClass(isActive ? null : cls)}
-            disabled={readOnly}
-            style={{
-              width: '100%', display: 'flex', alignItems: 'center', gap: 10,
-              padding: '8px 10px', borderRadius: 6, marginBottom: 4,
-              background: isActive ? `${cls.color}22` : 'rgba(255,255,255,0.03)',
-              border: `1.5px solid ${isActive ? cls.color : 'rgba(255,255,255,0.08)'}`,
-              cursor: readOnly ? 'default' : 'pointer',
-              transition: 'all 0.15s', textAlign: 'left',
-            }}
-          >
-            <div style={{
-              width: 14, height: 14, borderRadius: 3, flexShrink: 0,
-              background: cls.color, border: '1px solid rgba(255,255,255,0.2)',
-            }} />
-            <span style={{
-              fontSize: 12,
-              color: isActive ? cls.color : 'rgba(255,255,255,0.7)',
-              flex: 1,
-              fontWeight: isActive ? 600 : 400,
-            }}>
-              {cls.name}
-            </span>
-            {isActive && (
-              <svg width="10" height="10" viewBox="0 0 16 16" fill={cls.color}>
-                <path d="M13.854 3.646a.5.5 0 010 .708l-7 7a.5.5 0 01-.708 0l-3.5-3.5a.5.5 0 11.708-.708L6.5 10.293l6.646-6.647a.5.5 0 01.708 0z"/>
-              </svg>
+          <div key={cls.id} style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
+            <button
+              onClick={() => !readOnly && setActiveClass(isActive ? null : cls)}
+              disabled={readOnly}
+              style={{
+                flex: 1, display: 'flex', alignItems: 'center', gap: 10,
+                padding: '8px 10px', borderRadius: 6,
+                background: isActive ? `${cls.color}22` : 'rgba(255,255,255,0.03)',
+                border: `1.5px solid ${isActive ? cls.color : 'rgba(255,255,255,0.08)'}`,
+                cursor: readOnly ? 'default' : 'pointer',
+                transition: 'all 0.15s', textAlign: 'left', minWidth: 0
+              }}
+            >
+              <div style={{
+                width: 14, height: 14, borderRadius: 3, flexShrink: 0,
+                background: cls.color, border: '1px solid rgba(255,255,255,0.2)',
+              }} />
+              <span style={{
+                fontSize: 12, color: isActive ? cls.color : 'rgba(255,255,255,0.7)',
+                flex: 1, fontWeight: isActive ? 600 : 400,
+                overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap'
+              }}>
+                {cls.name}
+              </span>
+              {/* NEW: Display annotation count badge */}
+              {count > 0 && (
+                <span style={{
+                  fontSize: 10, color: 'rgba(255,255,255,0.5)', fontFamily: 'monospace',
+                  background: 'rgba(255,255,255,0.08)', padding: '2px 6px', borderRadius: 10
+                }}>
+                  {count}
+                </span>
+              )}
+            </button>
+
+            {/* NEW: Dedicated Select All button next to the class */}
+            {count > 0 && (
+              <button
+                onClick={() => onSelectAllOfClass(cls.id)}
+                title={`Select all ${count} annotations`}
+                style={{
+                  width: 32, height: 32, flexShrink: 0, borderRadius: 6,
+                  background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)',
+                  color: 'rgba(255,255,255,0.6)', cursor: 'pointer',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  transition: 'all 0.15s'
+                }}
+                onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.15)'; e.currentTarget.style.color = '#fff' }}
+                onMouseLeave={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.05)'; e.currentTarget.style.color = 'rgba(255,255,255,0.6)' }}
+              >
+                <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
+                  <path d="M4 4h2v1.5H4.5V7H3V5a1 1 0 011-1zM12 4h-2v1.5h1.5V7H13V5a1 1 0 00-1-1zM4 12h2v-1.5H4.5V9H3v2a1 1 0 001 1zM12 12h-2v-1.5h1.5V9H13v2a1 1 0 01-1 1z"/>
+                  <rect x="6.5" y="6.5" width="3" height="3" />
+                </svg>
+              </button>
             )}
-          </button>
+          </div>
         )
       })}
 
-      {/* Shortcut legend at the bottom of the classes tab */}
       <div style={{ marginTop: 16, borderTop: '1px solid rgba(255,255,255,0.05)', paddingTop: 12 }}>
         <ShortcutLegend shortcuts={SHORTCUTS} />
       </div>
@@ -232,7 +257,7 @@ function ListTab({ annotations, classes, selectedAnnIds, onSelect, onDelete, onC
         return (
           <div
             key={ann.id}
-            onClick={(e) => onSelect(ann.id, e.shiftKey)} 
+            onClick={(e) => onSelect(ann.id, e.shiftKey, e.altKey)}
             style={{
               display: 'flex', alignItems: 'center', gap: 8,
               padding: '6px 8px', borderRadius: 5, marginBottom: 3,
