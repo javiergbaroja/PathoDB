@@ -1,3 +1,4 @@
+// frontend/src/pages/ProjectDetail/AnnotationLayer.jsx
 import { useState, useEffect, useRef } from 'react'
 import { elementToImage, imageToElement } from '../../hooks/useOSDViewer'
 import {
@@ -17,7 +18,7 @@ import BrushLimits from './BrushLimits'
 
 export default function AnnotationLayer({
   osdRef, activeTool, activeClass, brushRadius, setBrushRadius,
-  annotations, selectedAnnId, onAnnotationClick, onAnnotationCreated,
+  annotations, selectedAnnIds, onAnnotationClick, onAnnotationCreated,
   onAnnotationUpdated, readOnly, tick, showAnnotations=true, fillAnnotations=true
 }) {
   const svgRef = useRef(null)
@@ -31,8 +32,13 @@ export default function AnnotationLayer({
   const isSpacePanRef  = useRef(false)
   const isMiddlePanRef = useRef(false)
   const navOverride = isSpacePan || isMiddlePan
-
+  const singleSelectedId = selectedAnnIds.size === 1 ? Array.from(selectedAnnIds)[0] : null;
   const toolColor = activeClass?.color || '#6ee7b7'
+  const select = useSelectTool({ 
+    osdRef, annotations, 
+    selectedAnnId: singleSelectedId, 
+    onAnnotationClick, onAnnotationUpdated, readOnly, suppressClickRef, pendingDeselectRef 
+  })
 
   function onEmit(ann) {
     if (readOnly) return
@@ -52,8 +58,7 @@ export default function AnnotationLayer({
     }
   }
 
-  const select = useSelectTool({ osdRef, annotations, selectedAnnId, onAnnotationClick, onAnnotationUpdated, readOnly, suppressClickRef, pendingDeselectRef })
-  const brush  = useBrushTool({ osdRef, activeTool, brushRadius, annotations, selectedAnnId, readOnly, onEmit })
+  const brush  = useBrushTool({ osdRef, activeTool, brushRadius, annotations, selectedAnnId: singleSelectedId, readOnly, onEmit })
   const poly   = usePolygonTool({ osdRef, activeTool, readOnly, onEmit })
   const shape  = useShapeTool({ activeTool, onEmit })
 
@@ -187,8 +192,8 @@ export default function AnnotationLayer({
   const dragAnn = select.activeDrag?.annId
     ? annotations.find(a => a.id === select.activeDrag.annId) ?? null
     : null
-  const selAnn  = (activeTool === 'select' && selectedAnnId)
-    ? annotations.find(a => a.id === selectedAnnId) ?? null
+  const selAnn = (activeTool === 'select' && singleSelectedId)
+    ? annotations.find(a => a.id === singleSelectedId) ?? null
     : null
 
   const hiddenIds = new Set()
@@ -282,7 +287,7 @@ export default function AnnotationLayer({
       }
       for (let i = annotations.length - 1; i >= 0; i--) {
         if (hitTestBody(viewer, annotations[i], mouse))
-          return annotations[i].id === selectedAnnId ? (readOnly ? 'pointer' : 'move') : 'pointer'
+          return selectedAnnIds.has(annotations[i].id) ? (readOnly ? 'pointer' : 'move') : 'pointer'
       }
       return 'default'
     }
@@ -306,7 +311,7 @@ export default function AnnotationLayer({
       onDoubleClick={onDblClick}
     >
       {showAnnotations && annotations.filter(a => !hiddenIds.has(a.id)).map(ann => (
-        <AnnotationShape key={ann.id} viewer={viewer} ann={ann} selected={ann.id === selectedAnnId} fillAnnotations={fillAnnotations}/>
+        <AnnotationShape key={ann.id} viewer={viewer} ann={ann} selected={selectedAnnIds.has(ann.id)} fillAnnotations={fillAnnotations}/>
       ))}
 
       {liveGeom && liveType && (

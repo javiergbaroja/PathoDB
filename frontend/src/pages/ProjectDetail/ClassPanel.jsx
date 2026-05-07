@@ -12,7 +12,7 @@ export default function ClassPanel({
   activeClass,
   setActiveClass,
   annotations,
-  selectedAnnId,
+  selectedAnnIds,
   onSelectAnnotation,
   onDeleteAnnotation,
   onChangeClass,
@@ -86,7 +86,7 @@ export default function ClassPanel({
           <ListTab
             annotations={annotations}
             classes={classes}
-            selectedAnnId={selectedAnnId}
+            selectedAnnIds={selectedAnnIds}
             onSelect={onSelectAnnotation}
             onDelete={onDeleteAnnotation}
             onChangeClass={onChangeClass}
@@ -208,15 +208,11 @@ function ShortcutLegend({ shortcuts }) {
 }
 
 // ── List tab ──────────────────────────────────────────────────────────────────
-function ListTab({ annotations, classes, selectedAnnId, onSelect, onDelete, onChangeClass, readOnly }) {
+function ListTab({ annotations, classes, selectedAnnIds, onSelect, onDelete, onChangeClass, readOnly }) {
   const classMap = Object.fromEntries((classes || []).map(c => [c.id, c]))
 
   if (annotations.length === 0) {
-    return (
-      <div style={{ padding: 16, fontSize: 12, color: 'rgba(255,255,255,0.35)', textAlign: 'center' }}>
-        No annotations on this slide yet.
-      </div>
-    )
+    return <div style={{ padding: 16, fontSize: 12, color: 'rgba(255,255,255,0.35)', textAlign: 'center' }}>No annotations on this slide yet.</div>
   }
 
   return (
@@ -224,7 +220,7 @@ function ListTab({ annotations, classes, selectedAnnId, onSelect, onDelete, onCh
       {annotations.map((ann, i) => {
         const cls        = classMap[ann.class_id]
         const color      = cls?.color || ann._color || '#94a3b8'
-        const isSelected = ann.id === selectedAnnId
+        const isSelected = selectedAnnIds.has(ann.id)
         const typeLabel  = {
           polygon:   'Poly',
           rectangle: 'Rect',
@@ -236,7 +232,7 @@ function ListTab({ annotations, classes, selectedAnnId, onSelect, onDelete, onCh
         return (
           <div
             key={ann.id}
-            onClick={() => onSelect(ann.id)}
+            onClick={(e) => onSelect(ann.id, e.shiftKey)} 
             style={{
               display: 'flex', alignItems: 'center', gap: 8,
               padding: '6px 8px', borderRadius: 5, marginBottom: 3,

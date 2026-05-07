@@ -1,3 +1,4 @@
+// frontend/src/pages/ProjectDetail/index.jsx
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
@@ -78,11 +79,23 @@ export default function ProjectDetail() {
   const classMap = Object.fromEntries((project?.classes || []).map(c => [c.id, c]))
 
   const [localAnnotations, setLocalAnnotations] = useState([])
-  const [selectedAnnId, setSelectedAnnId]       = useState(null)
+  const [selectedAnnIds, setSelectedAnnIds] = useState(new Set())
+  const isShiftDownRef = useRef(false)
   const [saving, setSaving]                     = useState(false)
   const [pendingSave, setPendingSave]            = useState(false)
   const [saveError, setSaveError]               = useState('')
   const saveTimerRef = useRef(null)
+
+  useEffect(() => {
+    const handleKeyDown = e => { if (e.key === 'Shift') isShiftDownRef.current = true }
+    const handleKeyUp   = e => { if (e.key === 'Shift') isShiftDownRef.current = false }
+    window.addEventListener('keydown', handleKeyDown)
+    window.addEventListener('keyup', handleKeyUp)
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown)
+      window.removeEventListener('keyup', handleKeyUp)
+    }
+  }, [])
 
   const localAnnotationsRef = useRef([])
   useEffect(() => { localAnnotationsRef.current = localAnnotations }, [localAnnotations])
@@ -102,7 +115,7 @@ export default function ProjectDetail() {
         _color: classMap[a.class_id]?.color || '#94a3b8',
       }));
       setLocalAnnotations(merged);
-      setSelectedAnnId(null);
+      setSelectedAnnIds(new Set());
     }
   }, [rawAnnotations, isFetching, activeScanId, classMap, loadedData]);
 
@@ -210,32 +223,31 @@ export default function ProjectDetail() {
   }, [isRulerActive, slideInfo])
 
   useEffect(() => {
-    const toolMap = {
-      m: 'select',
-      g: 'polygon',
-      r: 'rectangle',
-      e: 'ellipse',
-      p: 'point',
-      b: 'brush',
-    }
+    const toolMap = { m: 'select', g: 'polygon', r: 'rectangle', e: 'ellipse', p: 'point', b: 'brush' }
     function handler(ev) {
       if (['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement?.tagName)) return
       const k = ev.key.toLowerCase()
-      if (toolMap[k]) {
-        setActiveTool(prev => prev === toolMap[k] ? null : toolMap[k])
-        setIsRulerActive(false)
-        return
-      }
+      if (toolMap[k]) { setActiveTool(prev => prev === toolMap[k] ? null : toolMap[k]); setIsRulerActive(false); return }
       if (k === 'l') { setIsRulerActive(r => !r); setActiveTool(null) }
       if (k === 'a') setShowAdjust(s => !s)
       if (k === 'h') setShowAnnotations(s => !s)
       if (k === 'o') setFillAnnotations(s => !s)
-      if (ev.key === 'Escape') { setActiveTool(null); setIsRulerActive(false) }
-      if (ev.key === 'Delete' && selectedAnnId) handleDeleteAnnotation(selectedAnnId)
+      if (ev.key === 'Escape') { setActiveTool('select'); setIsRulerActive(false) }
+      
+      // Update Delete hotkey to use bulk delete
+      if (ev.key === 'Delete' && selectedAnnIds.size > 0) handleDeleteSelected()
     }
     document.addEventListener('keydown', handler)
     return () => document.removeEventListener('keydown', handler)
-  }, [selectedAnnId]) // eslint-disable-line
+  }, [selectedAnnIds])
+
+  function handleDeleteSelected() {
+    if (readOnly || selectedAnnIds.size === 0) return
+    const next = localAnnotationsRef.current.filter(a => !selectedAnnIds.has(a.id))
+    setLocalAnnotations(next)
+    setSelectedAnnIds(new Set())
+    triggerSave(next)
+  }
 
   const readOnly = project?.access === 'read'
 
@@ -304,45 +316,39 @@ export default function ProjectDetail() {
 
   function handleAnnotationCreated(annCreate) {
     const { _replaceId, ...rest } = annCreate
-
     const tempId = `temp_${Date.now()}_${Math.random().toString(36).slice(2)}`
     const newAnn = {
-      id:         tempId,
-      project_id: Number(projectId),
-      scan_id:    activeScanId,
-      ...rest,
-      _color:     classMap[rest.class_id]?.color || '#94a3b8',
-      created_at: new Date().toISOString(),
+      id: tempId, project_id: Number(projectId), scan_id: activeScanId, ...rest,
+      _color: classMap[rest.class_id]?.color || '#94a3b8', created_at: new Date().toISOString(),
     }
-
-    const base = _replaceId
-      ? localAnnotationsRef.current.filter(a => a.id !== _replaceId)
-      : localAnnotationsRef.current
-
+    const base = _replaceId ? localAnnotationsRef.current.filter(a => a.id !== _replaceId) : localAnnotationsRef.current
     const next = [...base, newAnn]
     setLocalAnnotations(next)
-    setSelectedAnnId(tempId)
+    setSelectedAnnIds(new Set([tempId])) // Auto-select new shape
     triggerSave(next)
   }
 
   function handleDeleteAnnotation(annId) {
-    const next = localAnnotationsRef.current.filter(a => a.id !== annId)
-    setLocalAnnotations(next)
-    setSelectedAnnId(null)
-    triggerSave(next)
+    if (selectedAnnIds.has(annId)) {
+      handleDeleteSelected() // If part of a group, delete the whole group
+    } else {
+      const next = localAnnotationsRef.current.filter(a => a.id !== annId)
+      setLocalAnnotations(next)
+      triggerSave(next)
+    }
   }
 
   function handleChangeClass(annId, classId, className) {
+    // If the changed annotation is in the selection set, apply class to ALL selected.
+    const targetIds = selectedAnnIds.has(annId) ? selectedAnnIds : new Set([annId])
     const next = localAnnotationsRef.current.map(a =>
-      a.id === annId
-        ? { ...a, class_id: classId, class_name: className,
-            _color: classMap[classId]?.color || '#94a3b8' }
+      targetIds.has(a.id)
+        ? { ...a, class_id: classId, class_name: className, _color: classMap[classId]?.color || '#94a3b8' }
         : a
     )
     setLocalAnnotations(next)
     triggerSave(next)
   }
-
   // FIX 3: Only delete when a brush/polygon explicitly returns empty points.
   // Rectangle and ellipse geometry has no `.points` field at all — the old guard
   // `!newGeometry.points` was always true for them, silently deleting every rect/ellipse
@@ -372,7 +378,11 @@ export default function ProjectDetail() {
     const next  = localAnnotationsRef.current.filter(a => !idSet.has(a.id))
     setLocalAnnotations(next)
     localAnnotationsRef.current = next
-    if (ids.includes(selectedAnnId)) setSelectedAnnId(null)
+    setSelectedAnnIds(prev => {
+      const nextSet = new Set(prev)
+      ids.forEach(id => nextSet.delete(id))
+      return nextSet
+    })
   }
 
   const filterStr  = `brightness(${brightness}%) contrast(${contrast}%) url(#sv-gamma)`
@@ -563,9 +573,24 @@ export default function ProjectDetail() {
               brushRadius={brushRadius}
               setBrushRadius={setBrushRadius}
               annotations={localAnnotations}
-              selectedAnnId={selectedAnnId}
+              selectedAnnIds={selectedAnnIds}
               onAnnotationClick={ann => {
-                setSelectedAnnId(ann?.id === selectedAnnId || ann?.id == null ? null : ann.id)
+                const isShift = isShiftDownRef.current;
+                setSelectedAnnIds(prev => {
+                  const next = new Set(prev);
+                  if (!ann) {
+                    if (!isShift) next.clear();
+                    return next;
+                  }
+                  if (isShift) {
+                    if (next.has(ann.id)) next.delete(ann.id);
+                    else next.add(ann.id);
+                  } else {
+                    next.clear();
+                    next.add(ann.id);
+                  }
+                  return next;
+                });
               }}
               onAnnotationCreated={handleAnnotationCreated}
               onAnnotationUpdated={handleAnnotationUpdated}
@@ -598,8 +623,20 @@ export default function ProjectDetail() {
           activeClass={activeClass}
           setActiveClass={setActiveClass}
           annotations={localAnnotations}
-          selectedAnnId={selectedAnnId}
-          onSelectAnnotation={setSelectedAnnId}
+          selectedAnnIds={selectedAnnIds}
+          onSelectAnnotation={(id, isShift) => {
+            setSelectedAnnIds(prev => {
+              const next = new Set(prev);
+              if (isShift) {
+                if (next.has(id)) next.delete(id);
+                else next.add(id);
+              } else {
+                next.clear();
+                next.add(id);
+              }
+              return next;
+            });
+          }}
           onDeleteAnnotation={handleDeleteAnnotation}
           onChangeClass={handleChangeClass}
           readOnly={readOnly}
