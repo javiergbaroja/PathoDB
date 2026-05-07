@@ -9,6 +9,8 @@ import AnnotationToolbar from './AnnotationToolbar'
 import ClassPanel from './ClassPanel'
 import SlideTray from './SlideTray'
 import ImportModal from './ImportModal'
+import RBush from 'rbush'
+import { getAnnotationBBox } from '../../lib/annotationMath'
 
 if (!document.getElementById('pd-styles')) {
   const s = document.createElement('style')
@@ -107,6 +109,24 @@ export default function ProjectDetail() {
 
   const localAnnotationsRef = useRef([])
   useEffect(() => { localAnnotationsRef.current = localAnnotations }, [localAnnotations])
+
+  const rtreeRef = useRef(null)
+
+  useEffect(() => {
+    const tree = new RBush();
+    const items = localAnnotations.map(ann => {
+      const bbox = getAnnotationBBox(ann);
+      return {
+        minX: bbox.x,
+        minY: bbox.y,
+        maxX: bbox.x + bbox.w,
+        maxY: bbox.y + bbox.h,
+        ann
+      };
+    });
+    tree.load(items);
+    rtreeRef.current = tree;
+  }, [localAnnotations]);
 
   const initializedScanRef = useRef(null);
   const [loadedData, setLoadedData] = useState(null);
@@ -714,6 +734,7 @@ export default function ProjectDetail() {
               tick={tick}
               showAnnotations={showAnnotations}
               fillAnnotations={fillAnnotations}
+              rtreeRef={rtreeRef}
             />
           )}
 

@@ -1,5 +1,5 @@
 // frontend/src/pages/ProjectDetail/AnnotationLayer.jsx
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useMemo } from 'react'
 import { elementToImage, imageToElement } from '../../hooks/useOSDViewer'
 import {
   toSVGPath, projectPoints, translateGeometry,
@@ -19,9 +19,10 @@ import BrushLimits from './BrushLimits'
 export default function AnnotationLayer({
   osdRef, activeTool, activeClass, brushRadius, setBrushRadius,
   annotations, selectedAnnIds, onAnnotationClick, onAnnotationCreated,
-  onAnnotationUpdated, readOnly, tick, showAnnotations=true, fillAnnotations=true
+  onAnnotationUpdated, readOnly, tick, showAnnotations=true, fillAnnotations=true, rtreeRef,
 }) {
   const svgRef = useRef(null)
+  const viewer = osdRef.current
   const [mouse, setMouse] = useState(null)
   const suppressClickRef  = useRef(false)
   const pendingDeselectRef = useRef(false)
@@ -34,8 +35,39 @@ export default function AnnotationLayer({
   const navOverride = isSpacePan || isMiddlePan
   const singleSelectedId = selectedAnnIds.size === 1 ? Array.from(selectedAnnIds)[0] : null;
   const toolColor = activeClass?.color || '#6ee7b7'
+  
+  const visibleAnns = useMemo(() => {
+    if (!rtreeRef?.current || !viewer?.viewport) return annotations;
+    try {
+      const bounds = viewer.viewport.getBounds(true);
+      const tl = viewer.viewport.viewportToImageCoordinates(bounds.getTopLeft());
+      const br = viewer.viewport.viewportToImageCoordinates(bounds.getBottomRight());
+
+      const w = br.x - tl.x;
+      const h = br.y - tl.y;
+      
+      // Add a 20% spatial buffer around the screen so panning doesn't visibly pop shapes in
+      const searchBox = {
+        minX: tl.x - w * 0.2,
+        minY: tl.y - h * 0.2,
+        maxX: br.x + w * 0.2,
+        maxY: br.y + h * 0.2,
+      };
+
+      const results = rtreeRef.current.search(searchBox);
+      const visibleIds = new Set(results.map(r => r.ann.id));
+      
+      // Safety: Always ensure selected annotations are "visible" to prevent active edit handles from glitching
+      selectedAnnIds.forEach(id => visibleIds.add(id));
+
+      return annotations.filter(a => visibleIds.has(a.id));
+    } catch(e) {
+      return annotations;
+    }
+  }, [annotations, selectedAnnIds, rtreeRef, viewer, tick]);
+  
   const select = useSelectTool({ 
-    osdRef, annotations, 
+    osdRef, annotations: visibleAnns, 
     selectedAnnId: singleSelectedId, 
     onAnnotationClick, onAnnotationUpdated, readOnly, suppressClickRef, pendingDeselectRef 
   })
@@ -58,7 +90,10 @@ export default function AnnotationLayer({
     }
   }
 
-  const brush  = useBrushTool({ osdRef, activeTool, brushRadius, annotations, selectedAnnId: singleSelectedId, readOnly, onEmit })
+  const brush = useBrushTool({ 
+    osdRef, activeTool, brushRadius, annotations: visibleAnns, 
+    selectedAnnId: singleSelectedId, readOnly, onEmit 
+  })
   const poly   = usePolygonTool({ osdRef, activeTool, readOnly, onEmit })
   const shape  = useShapeTool({ activeTool, onEmit })
 
@@ -85,6 +120,30 @@ export default function AnnotationLayer({
     window.addEventListener('mouseup', up)
     return () => window.removeEventListener('mouseup', up)
   }, [activeTool])
+
+  useEffect(() => {
+    if (!viewer) return;
+
+    const handleOsdDblClick = (e) => {
+      if (activeTool === 'polygon' || readOnly) return;
+
+      // When no tool is active, OSD catches the double click instead of the SVG.
+      if (!activeTool) {
+        const el = e.position; // OSD's event position is already relative to the viewer element!
+        
+        for (let i = visibleAnns.length - 1; i >= 0; i--) {
+          if (hitTestBody(viewer, visibleAnns[i], el)) {
+            if (onAnnotationClick) onAnnotationClick(visibleAnns[i]);
+            e.preventDefaultAction = true; // Stop OpenSeadragon from natively zooming
+            return;
+          }
+        }
+      }
+    };
+
+    viewer.addHandler('canvas-double-click', handleOsdDblClick);
+    return () => viewer.removeHandler('canvas-double-click', handleOsdDblClick);
+  }, [viewer, activeTool, readOnly, visibleAnns, onAnnotationClick]);
 
   function getEl(e) {
     const r = svgRef.current.getBoundingClientRect()
@@ -148,9 +207,52 @@ export default function AnnotationLayer({
   }
 
   function onDblClick(e) {
-    if (isSpacePanRef.current || isMiddlePanRef.current || !activeTool || readOnly) return
-    if (activeTool === 'polygon') poly.onDoubleClick(e)
+    if (isSpacePanRef.current || isMiddlePanRef.current || readOnly) return
+
+    if (activeTool === 'polygon') {
+      poly.onDoubleClick(e)
+      return
+    }
+
+    if (activeTool === 'select') {
+      const el = getEl(e)
+      for (let i = visibleAnns.length - 1; i >= 0; i--) {
+        if (hitTestBody(viewer, visibleAnns[i], el)) {
+          if (onAnnotationClick) onAnnotationClick(visibleAnns[i])
+          return
+        }
+      }
+
+      // If the loop finishes without returning, the user double-clicked empty space!
+      if (onAnnotationClick) onAnnotationClick(null);
+    }
   }
+
+  useEffect(() => {
+    if (!viewer) return;
+
+    const handleOsdDblClick = (e) => {
+      if (activeTool === 'polygon' || readOnly) return;
+
+      if (!activeTool) {
+        const el = e.position; 
+        
+        for (let i = visibleAnns.length - 1; i >= 0; i--) {
+          if (hitTestBody(viewer, visibleAnns[i], el)) {
+            if (onAnnotationClick) onAnnotationClick(visibleAnns[i]);
+            e.preventDefaultAction = true; 
+            return;
+          }
+        }
+
+        // NEW: If the loop finishes without returning, the user double-clicked empty space!
+        if (onAnnotationClick) onAnnotationClick(null);
+      }
+    };
+
+    viewer.addHandler('canvas-double-click', handleOsdDblClick);
+    return () => viewer.removeHandler('canvas-double-click', handleOsdDblClick);
+  }, [viewer, activeTool, readOnly, visibleAnns, onAnnotationClick]);
 
   function handleWheel(e) {
     if (e.altKey && activeTool === 'brush') {
@@ -185,7 +287,6 @@ export default function AnnotationLayer({
   }, [])
 
   // ── Derived render state ───────────────────────────────────────────────────
-  const viewer  = osdRef.current
   const livePos = mouseRef.current ?? mouse
   const curImg  = livePos ? elementToImage(viewer, livePos.x, livePos.y) : null
 
@@ -310,7 +411,7 @@ export default function AnnotationLayer({
       onClick={onClick}
       onDoubleClick={onDblClick}
     >
-      {showAnnotations && annotations.filter(a => !hiddenIds.has(a.id)).map(ann => (
+      {showAnnotations && visibleAnns.filter(a => !hiddenIds.has(a.id)).map(ann => (
         <AnnotationShape key={ann.id} viewer={viewer} ann={ann} selected={selectedAnnIds.has(ann.id)} fillAnnotations={fillAnnotations}/>
       ))}
 

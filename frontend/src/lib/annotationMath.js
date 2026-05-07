@@ -210,3 +210,31 @@ export function circlePoly(cx, cy, r, n = 32) {
 export function capsulePoly(x1, y1, x2, y2, r) {
   return strokeToPolygon([{ x: x1, y: y1 }, { x: x2, y: y2 }], r, 12)
 }
+
+
+export function getAnnotationBBox(ann) {
+  // If the backend already calculated it, use it
+  if (ann.bbox) return ann.bbox; 
+  
+  const g = ann.geometry;
+  if (!g) return { x: 0, y: 0, w: 0, h: 0 };
+
+  if (ann.annotation_type === 'point') return { x: g.x, y: g.y, w: 0, h: 0 };
+  if (ann.annotation_type === 'rectangle') return { x: g.x, y: g.y, w: g.width, h: g.height };
+  if (ann.annotation_type === 'ellipse') return { x: g.cx - g.rx, y: g.cy - g.ry, w: g.rx * 2, h: g.ry * 2 };
+  
+  if (ann.annotation_type === 'polygon' || ann.annotation_type === 'brush') {
+    const pts = Array.isArray(g.points[0]) ? g.points[0] : g.points;
+    if (!pts || pts.length === 0) return { x: 0, y: 0, w: 0, h: 0 };
+    
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    for (const p of pts) {
+      if (p.x < minX) minX = p.x;
+      if (p.y < minY) minY = p.y;
+      if (p.x > maxX) maxX = p.x;
+      if (p.y > maxY) maxY = p.y;
+    }
+    return { x: minX, y: minY, w: maxX - minX, h: maxY - minY };
+  }
+  return { x: 0, y: 0, w: 0, h: 0 };
+}
