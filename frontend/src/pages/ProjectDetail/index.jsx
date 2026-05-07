@@ -8,6 +8,7 @@ import AnnotationLayer from './AnnotationLayer'
 import AnnotationToolbar from './AnnotationToolbar'
 import ClassPanel from './ClassPanel'
 import SlideTray from './SlideTray'
+import ImportModal from './ImportModal'
 
 if (!document.getElementById('pd-styles')) {
   const s = document.createElement('style')
@@ -106,7 +107,6 @@ export default function ProjectDetail() {
 
   const localAnnotationsRef = useRef([])
   useEffect(() => { localAnnotationsRef.current = localAnnotations }, [localAnnotations])
-  
 
   const initializedScanRef = useRef(null);
   const [loadedData, setLoadedData] = useState(null);
@@ -142,6 +142,28 @@ export default function ProjectDetail() {
   const containerRef = useRef(null)
   const osdRef       = useRef(null)
   const [tick, setTick] = useState(0)
+  const [showImportModal, setShowImportModal] = useState(false)
+
+  const handleImportGeoJSON = async (file, mode) => {
+    // 1. Force flush any unsaved local drawings to avoid state collisions
+    if (!readOnly && activeScanId && localAnnotationsRef.current.length > 0) {
+      clearTimeout(saveTimerRef.current)
+      await api.bulkSaveAnnotations(Number(projectId), activeScanId, localAnnotationsRef.current)
+    }
+    
+    // 2. Upload file
+    const formData = new FormData()
+    formData.append('file', file)
+    formData.append('import_mode', mode)
+    
+    // If using barrel api export: api.importAnnotations(...)
+    // If not in barrel yet, use direct import.
+    await api.importAnnotations(projectId, activeScanId, formData)
+    
+    // 3. Resync interface completely
+    await refetchAnnotations()
+    queryClient.invalidateQueries({ queryKey: ['project-progress', projectId] })
+  }
 
   const handleOSDReady = useCallback(() => {
     const v = osdRef.current
@@ -572,6 +594,21 @@ export default function ProjectDetail() {
           </div>
         )}
 
+        {!readOnly && (
+          <button
+            onClick={() => setShowImportModal(true)}
+            style={{ display:'flex', alignItems:'center', gap:5, padding:'5px 12px',
+              borderRadius:6, background:'rgba(255,255,255,0.05)',
+              border:'1px solid rgba(255,255,255,0.15)', color:'rgba(255,255,255,0.8)',
+              cursor:'pointer', fontSize:11, fontFamily:'sans-serif' }}>
+            <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor">
+              <path d="M8 12a.5.5 0 00.5-.5V4.707l2.146 2.147a.5.5 0 00.708-.708l-3-3a.5.5 0 00-.708 0l-3 3a.5.5 0 10.708.708L7.5 4.707V11.5a.5.5 0 00.5.5z"/>
+              <path d="M1 14.5A1.5 1.5 0 002.5 16h11a1.5 1.5 0 001.5-1.5v-2a.5.5 0 00-1 0v2a.5.5 0 01-.5.5h-11a.5.5 0 01-.5-.5v-2a.5.5 0 00-1 0v2z"/>
+            </svg>
+            Import
+          </button>
+        )}
+
         <button
           onClick={() => window.open(`/api/projects/${projectId}/export`, '_blank')}
           style={{ display:'flex', alignItems:'center', gap:5, padding:'5px 12px',
@@ -738,6 +775,11 @@ export default function ProjectDetail() {
           annotatedScans={progress?.annotated_scans || 0}
         />
       </div>
+      <ImportModal
+        isOpen={showImportModal}
+        onClose={() => setShowImportModal(false)}
+        onImport={handleImportGeoJSON}
+      />
     </div>
   )
 }

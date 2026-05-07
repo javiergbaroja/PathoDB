@@ -49,3 +49,26 @@ export const deleteAnnotation  = (projectId, scanId, annId) => request('DELETE',
 
 export const bulkSaveAnnotations = (projectId, scanId, annotations) =>
   request('PUT', `/projects/${projectId}/scans/${scanId}/annotations`, { annotations })
+
+export async function importAnnotations(projectId, scanId, formData) {
+  const token = getToken()
+  const headers = {}
+  if (token) headers['Authorization'] = `Bearer ${token}`
+
+  const res = await fetch(`${BASE}/projects/${projectId}/scans/${scanId}/annotations/import`, {
+    method: 'POST',
+    headers,
+    body: formData,
+  })
+
+  if (res.status === 401) {
+    localStorage.removeItem('pathodb_token')
+    window.location.href = '/login'
+    return
+  }
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: res.statusText }))
+    throw new Error(err.detail || 'Import failed')
+  }
+  return res.json()
+}

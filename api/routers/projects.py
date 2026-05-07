@@ -637,3 +637,102 @@ def export_project(project_id: int, db: Session = Depends(get_db),
     payload = json.dumps({"type": "FeatureCollection", "features": features}, indent=2)
     return StreamingResponse(io.StringIO(payload), media_type="application/json",
         headers={"Content-Disposition": f'attachment; filename="{fname}_annotations.geojson"'})
+
+
+@router.post("/{project_id}/scans/{scan_id}/annotations/import", status_code=201)
+async def import_annotations(
+    project_id: int, scan_id: int,
+    file: UploadFile = File(...),
+    import_mode: str = Form("keep_all"),  # "keep_all" or "match_only"
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_active_user)
+):
+    proj = db.get(Project, project_id)
+    if not proj: raise HTTPException(404, "Project not found")
+    _check_access(proj, user, require_edit=True)
+
+    content = await file.read()
+    try:
+        data = json.loads(content)
+    except json.JSONDecodeError:
+        raise HTTPException(400, "Invalid JSON file")
+
+    if data.get("type") != "FeatureCollection":
+        raise HTTPException(400, "Must be a GeoJSON FeatureCollection")
+
+    # Map project classes (case-insensitive for robust matching from other software)
+    class_map = {c["name"].lower(): c for c in proj.classes}
+
+    imported_count = 0
+    features = data.get("features", [])
+
+    for feat in features:
+        geom = feat.get("geometry")
+        if not geom: continue
+        
+        # Extract Class Name (handles QuPath, standard GeoJSON, and PathoDB exports)
+        props = feat.get("properties", {})
+        class_name = props.get("name")
+        if not class_name and "classification" in props:
+            class_name = props["classification"].get("name")
+        if not class_name:
+            class_name = props.get("class_name")
+            
+        class_id = None
+        final_class_name = None
+        
+        if class_name:
+            matched = class_map.get(class_name.lower())
+            if matched:
+                class_id = matched["id"]
+                final_class_name = matched["name"]
+            else:
+                if import_mode == "match_only":
+                    continue
+                # keep_all -> Leave class_id empty, but preserve the string name as Unclassified
+                final_class_name = class_name
+        else:
+            if import_mode == "match_only":
+                continue
+
+        # Geometry Translation
+        g_type = geom.get("type")
+        coords = geom.get("coordinates")
+        if not coords: continue
+
+        geoms_to_insert = []
+        
+        if g_type == "Point":
+            geoms_to_insert.append(("point", {"x": coords[0], "y": coords[1]}))
+        elif g_type == "Polygon":
+            # standard polygons are list of rings: [ [ [x,y], ... ], [ [x,y], ... ] ]
+            rings = [[{"x": p[0], "y": p[1]} for p in ring] for ring in coords]
+            if len(rings) == 1:
+                geoms_to_insert.append(("polygon", {"points": rings[0]}))
+            else:
+                geoms_to_insert.append(("polygon", {"points": rings}))
+        elif g_type == "MultiPolygon":
+            # multipolygons: [ [ [ [x,y] ] ] ] -> break into individual PathoDB Polygons
+            for poly_coords in coords:
+                rings = [[{"x": p[0], "y": p[1]} for p in ring] for ring in poly_coords]
+                if len(rings) == 1:
+                    geoms_to_insert.append(("polygon", {"points": rings[0]}))
+                else:
+                    geoms_to_insert.append(("polygon", {"points": rings}))
+        else:
+            continue # LineStrings etc. are skipped
+
+        # Calculate bounding boxes and areas natively
+        for ann_type, g_data in geoms_to_insert:
+            bx, by, bw, bh = _bbox(ann_type, g_data)
+            db.add(Annotation(
+                project_id=project_id, scan_id=scan_id, created_by=user.id,
+                class_id=class_id, class_name=final_class_name,
+                annotation_type=ann_type, geometry=g_data,
+                bbox_x=bx, bbox_y=by, bbox_w=bw, bbox_h=bh,
+                area_px=_area(ann_type, g_data), notes=props.get("notes")
+            ))
+            imported_count += 1
+
+    db.commit()
+    return {"imported": imported_count}
