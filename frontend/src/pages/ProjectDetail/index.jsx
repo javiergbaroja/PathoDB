@@ -104,19 +104,9 @@ export default function ProjectDetail() {
     }
   }, [])
 
-  useEffect(() => {
-    const handleKeyDown = e => { if (e.key === 'Shift') isShiftDownRef.current = true }
-    const handleKeyUp   = e => { if (e.key === 'Shift') isShiftDownRef.current = false }
-    window.addEventListener('keydown', handleKeyDown)
-    window.addEventListener('keyup', handleKeyUp)
-    return () => {
-      window.removeEventListener('keydown', handleKeyDown)
-      window.removeEventListener('keyup', handleKeyUp)
-    }
-  }, [])
-
   const localAnnotationsRef = useRef([])
   useEffect(() => { localAnnotationsRef.current = localAnnotations }, [localAnnotations])
+  
 
   const initializedScanRef = useRef(null);
   const [loadedData, setLoadedData] = useState(null);
@@ -244,6 +234,25 @@ export default function ProjectDetail() {
     const toolMap = { m: 'select', g: 'polygon', r: 'rectangle', e: 'ellipse', p: 'point', b: 'brush' }
     function handler(ev) {
       if (['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement?.tagName)) return
+      
+      // NEW: Intercept Undo / Redo
+      const isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0;
+      const isCmdOrCtrl = isMac ? ev.metaKey : ev.ctrlKey;
+      
+      if (isCmdOrCtrl) {
+        if (ev.key.toLowerCase() === 'z') {
+          ev.preventDefault()
+          if (ev.shiftKey) handleRedo() // Ctrl+Shift+Z
+          else handleUndo()             // Ctrl+Z
+          return
+        }
+        if (ev.key.toLowerCase() === 'y') {
+          ev.preventDefault()
+          handleRedo()                  // Ctrl+Y
+          return
+        }
+      }
+
       const k = ev.key.toLowerCase()
       if (toolMap[k]) { setActiveTool(prev => prev === toolMap[k] ? null : toolMap[k]); setIsRulerActive(false); return }
       if (k === 'l') { setIsRulerActive(r => !r); setActiveTool(null) }
@@ -302,6 +311,37 @@ export default function ProjectDetail() {
     }, 800)
   }, [activeScanId, projectId, readOnly, queryClient])
 
+
+  const historyPastRef   = useRef([])
+  const historyFutureRef = useRef([])
+
+  const commitAnnotationChange = useCallback((nextAnnotations) => {
+    historyPastRef.current.push(localAnnotationsRef.current)
+    if (historyPastRef.current.length > 50) historyPastRef.current.shift()
+    historyFutureRef.current = []
+    setLocalAnnotations(nextAnnotations)
+    triggerSave(nextAnnotations)
+  }, [triggerSave])
+
+  const handleUndo = useCallback(() => {
+    if (readOnly || historyPastRef.current.length === 0) return
+    const previousState = historyPastRef.current.pop()
+    historyFutureRef.current.push(localAnnotationsRef.current)
+    setLocalAnnotations(previousState)
+    setSelectedAnnIds(new Set())
+    triggerSave(previousState)
+  }, [readOnly, triggerSave])
+
+  const handleRedo = useCallback(() => {
+    if (readOnly || historyFutureRef.current.length === 0) return
+    const nextState = historyFutureRef.current.pop()
+    historyPastRef.current.push(localAnnotationsRef.current)
+    setLocalAnnotations(nextState)
+    setSelectedAnnIds(new Set())
+    triggerSave(nextState)
+  }, [readOnly, triggerSave])
+  // -------------------------------------------
+
   const prevScanRef = useRef(null)
   useEffect(() => {
     const prev = prevScanRef.current
@@ -348,9 +388,8 @@ export default function ProjectDetail() {
     }
     const base = _replaceId ? localAnnotationsRef.current.filter(a => a.id !== _replaceId) : localAnnotationsRef.current
     const next = [...base, newAnn]
-    setLocalAnnotations(next)
+    commitAnnotationChange(next)
     setSelectedAnnIds(new Set([tempId])) // Auto-select new shape
-    triggerSave(next)
   }
 
   function handleDeleteAnnotation(annId) {
@@ -358,8 +397,7 @@ export default function ProjectDetail() {
       handleDeleteSelected() // If part of a group, delete the whole group
     } else {
       const next = localAnnotationsRef.current.filter(a => a.id !== annId)
-      setLocalAnnotations(next)
-      triggerSave(next)
+      commitAnnotationChange(next)
     }
   }
 
@@ -371,8 +409,7 @@ export default function ProjectDetail() {
         ? { ...a, class_id: classId, class_name: className, _color: classMap[classId]?.color || '#94a3b8' }
         : a
     )
-    setLocalAnnotations(next)
-    triggerSave(next)
+    commitAnnotationChange(next)
   }
   // FIX 3: Only delete when a brush/polygon explicitly returns empty points.
   // Rectangle and ellipse geometry has no `.points` field at all — the old guard
@@ -393,8 +430,7 @@ export default function ProjectDetail() {
     const next = localAnnotationsRef.current.map(a =>
       a.id === annId ? { ...a, geometry: newGeometry } : a
     )
-    setLocalAnnotations(next)
-    triggerSave(next)
+    commitAnnotationChange(next)
   }
 
   function handleAnnotationsDeleted(ids) {
