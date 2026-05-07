@@ -74,7 +74,7 @@ export default function AIAssistant() {
                 {msg.role === 'user' ? initials : 'AI'}
               </div>
               <div style={{
-                maxWidth: '75%', padding: '10px 14px', borderRadius: 10,
+                maxWidth: '75%', padding: '10px 14px',
                 fontSize: 13, lineHeight: 1.6,
                 background: msg.role === 'user' ? 'var(--navy)' : 'white',
                 color: msg.role === 'user' ? 'white' : 'var(--text-1)',
