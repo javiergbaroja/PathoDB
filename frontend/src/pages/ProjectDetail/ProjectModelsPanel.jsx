@@ -66,9 +66,19 @@ export default function ProjectModelsPanel({
   const { data: jobs = [] } = useQuery({
     queryKey:       ['jobs', scanId],
     queryFn:        () => api.getAnalysisJobs(scanId),
-    enabled:        !!scanId && !!activeJobId,
-    refetchInterval: activeJobId ? 5000 : false,
+    enabled:        !!scanId, // Always poll if the panel is open
+    refetchInterval: 5000,    // Keep polling to catch background completions
   })
+
+  // Automatically latch onto the latest running/queued job if we don't have one active
+  useEffect(() => {
+    if (!activeJobId && jobs.length > 0) {
+      const latestActive = jobs.find(j => j.status === 'running' || j.status === 'queued');
+      if (latestActive) {
+        setActiveJobId(latestActive.id);
+      }
+    }
+  }, [jobs, activeJobId]);
 
   const activeJob = activeJobId ? (jobs.find(j => j.id === activeJobId) ?? null) : null
 

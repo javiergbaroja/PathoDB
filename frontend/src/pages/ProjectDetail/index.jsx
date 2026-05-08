@@ -239,35 +239,47 @@ export default function ProjectDetail() {
   const handleAutoImport = useCallback(async (jobId, importMode) => {
     if (!activeScanId || readOnly) return 0
 
-    // 1. Flush pending local saves first to avoid race conditions
+    // 1. Flush pending local saves, BUT filter out the AI ROI so it is consumed
     clearTimeout(saveTimerRef.current)
     try {
+      const annotationsToSave = localAnnotationsRef.current.filter(
+        a => a.class_id !== AI_ROI_CLASS.id
+      )
       await api.bulkSaveAnnotations(
         Number(projectId),
         activeScanId,
-        localAnnotationsRef.current
+        annotationsToSave
       )
     } catch (e) {
       console.warn('[handleAutoImport] pre-flush failed, continuing anyway:', e)
     }
 
     // 2. Retrieve job result to get the overlay manifest
-    let overlays = []
+    let vectorOverlays = []
     try {
       const result = await api.getAnalysisResult(jobId)
-      overlays = result.overlays || []
+      
+      // Look directly at the 'files' dictionary. 
+      // If a file path ends in .geojson (e.g., download_file), queue it for import.
+      if (result.files) {
+        vectorOverlays = Object.keys(result.files)
+          .filter(key => {
+            const filePath = result.files[key]
+            return typeof filePath === 'string' && filePath.toLowerCase().endsWith('.geojson')
+          })
+          .map(key => ({ file_key: key, type: 'vector' }))
+      }
     } catch (e) {
       throw new Error(`Could not read analysis result: ${e.message}`)
     }
 
-    // 3. Filter to vector overlays (GeoJSON) only — skip raster tile layers
-    const vectorOverlays = overlays.filter(
-      o => o.type !== 'tiled_image' && o.type !== 'image'
-    )
-
     if (vectorOverlays.length === 0) {
-      // Nothing to import (e.g. pure segmentation mask model).
-      // Still refetch to be safe, then report 0.
+      await refetchAnnotations()
+      return 0
+    }
+
+    // 3. Filter to vector overlays (GeoJSON) only — skip raster tile layers
+    if (vectorOverlays.length === 0) {
       await refetchAnnotations()
       return 0
     }
@@ -275,35 +287,31 @@ export default function ProjectDetail() {
     let totalImported = 0
 
     for (const overlay of vectorOverlays) {
-      try {
-        // Fetch raw GeoJSON from the analysis job
-        const geojson = await api.getAnalysisOverlay(jobId, overlay.file_key)
+      // 1. Fetch the raw Blob directly to guarantee it matches manual import byte-for-byte
+      const blob = await api.getAnalysisOverlayBlob(jobId, overlay.file_key)
+      
+      // 2. Wrap it in a File object
+      const file = new File(
+        [blob],
+        `${overlay.file_key}.geojson`,
+        { type: 'application/json' }
+      )
 
-        // Wrap in a File so the existing import endpoint can receive it
-        const blob = new Blob([JSON.stringify(geojson)], { type: 'application/json' })
-        const file = new File(
-          [blob],
-          `${overlay.file_key}.geojson`,
-          { type: 'application/json' }
-        )
+      // 3. Append to FormData
+      const formData = new FormData()
+      formData.append('file', file)
+      formData.append('import_mode', importMode)
 
-        const formData = new FormData()
-        formData.append('file', file)
-        formData.append('import_mode', importMode)
-
-        const importResult = await api.importAnnotations(
-          projectId,
-          activeScanId,
-          formData
-        )
-        totalImported += importResult.imported || 0
-      } catch (e) {
-        console.error(`[handleAutoImport] overlay ${overlay.file_key} failed:`, e)
-        // Continue with remaining overlays rather than aborting
-      }
+      // 4. Send to backend
+      const importResult = await api.importAnnotations(
+        projectId,
+        activeScanId,
+        formData
+      )
+      totalImported += importResult.imported || 0
     }
 
-    // 4. Re-sync the annotation list from the DB (reflects the merge)
+    // 5. Re-sync the annotation list from the DB (reflects the merge)
     await refetchAnnotations()
     queryClient.invalidateQueries({ queryKey: ['project-progress', projectId] })
 

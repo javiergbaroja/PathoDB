@@ -1,3 +1,4 @@
+// frontend/src/pages/ProjectDetail/hooks/useAnnotationTools.js
 import { useState, useRef, useEffect } from 'react'
 import { elementToImage, imageToElement } from '../../../hooks/useOSDViewer'
 import {

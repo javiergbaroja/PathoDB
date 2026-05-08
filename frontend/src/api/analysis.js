@@ -51,3 +51,19 @@ export const downloadAnalysisFile = async (jobId, fileKey = 'download_file') => 
 }
 
 export const submitBatchAnalysis = (body) => request('POST', `/analysis/batch`, body)
+export const getAnalysisOverlayBlob = async (jobId, fileKey) => {
+  const token = getToken()
+  const headers = {}
+  if (token) headers['Authorization'] = `Bearer ${token}`
+
+  const res = await fetch(`${BASE}/analysis/jobs/${jobId}/download?file_key=${fileKey}`, {
+    method: 'GET',
+    headers,
+  })
+
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: res.statusText }))
+    throw new Error(err.detail || 'Failed to download overlay blob')
+  }
+  return await res.blob()
+}
