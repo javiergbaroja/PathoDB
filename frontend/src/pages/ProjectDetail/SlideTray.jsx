@@ -35,6 +35,7 @@ export default function SlideTray({ scans, activeScanId, onSelect, token, saving
   const [showFilters, setShowFilters] = useState(false)
   const [annotationFilter, setAnnotationFilter] = useState('all') // 'all', 'annotated', 'pending'
   const [selectedStains, setSelectedStains] = useState([])
+  const [searchQuery, setSearchQuery] = useState('')
 
   // --- Derived Data ---
   // 1. Extract unique stains for the checkbox list
@@ -44,7 +45,10 @@ export default function SlideTray({ scans, activeScanId, onSelect, token, saving
   }, [scans])
 
   // 2. Apply filters to the scans array
+  // 2. Apply filters to the scans array
   const filteredScans = useMemo(() => {
+    const lowerQuery = searchQuery.toLowerCase().trim();
+
     return scans.filter(scan => {
       const hasAnns = scan.annotation_count > 0
       const stain = scan.stain_name || 'Unknown stain'
@@ -56,9 +60,23 @@ export default function SlideTray({ scans, activeScanId, onSelect, token, saving
       // Check stain selection (if array is empty, show all)
       if (selectedStains.length > 0 && !selectedStains.includes(stain)) return false
 
+      // Check free text search
+      if (lowerQuery) {
+        const hierarchyStr = formatHierarchy(scan).toLowerCase();
+        
+        // Safely extract the filename from the file_path (handles both / and \ slashes)
+        const filePath = scan.file_path || '';
+        const basename = filePath.split(/[\\/]/).pop().toLowerCase();
+
+        // If neither the hierarchy nor the filename includes the search query, filter it out
+        if (!hierarchyStr.includes(lowerQuery) && !basename.includes(lowerQuery)) {
+          return false;
+        }
+      }
+
       return true
     })
-  }, [scans, annotationFilter, selectedStains])
+  }, [scans, annotationFilter, selectedStains, searchQuery]) // <-- Remember to add searchQuery to dependencies
 
   return (
     <div style={{
@@ -106,6 +124,20 @@ export default function SlideTray({ scans, activeScanId, onSelect, token, saving
           padding: '10px 12px', borderBottom: '1px solid rgba(255,255,255,0.05)',
           background: 'rgba(0,0,0,0.2)', flexShrink: 0, display: 'flex', flexDirection: 'column', gap: 10
         }}>
+          {/* Search Filter */}
+          <div>
+            <div style={{ fontSize: 9, color: 'rgba(255,255,255,0.4)', textTransform: 'uppercase', marginBottom: 4 }}>Search</div>
+            <input
+              type="text"
+              placeholder="Filename, probe, block..."
+              value={searchQuery}
+              onChange={e => setSearchQuery(e.target.value)}
+              style={{
+                width: '100%', background: 'rgba(255,255,255,0.05)', color: 'rgba(255,255,255,0.8)',
+                border: '1px solid rgba(255,255,255,0.1)', borderRadius: 4, padding: '4px 6px', fontSize: 10, outline: 'none'
+              }}
+            />
+          </div>
           {/* Status Filter */}
           <div>
             <div style={{ fontSize: 9, color: 'rgba(255,255,255,0.4)', textTransform: 'uppercase', marginBottom: 4 }}>Status</div>
