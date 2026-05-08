@@ -67,12 +67,37 @@ export function useSelectTool({ osdRef, annotations, selectedAnnId, onAnnotation
       }
     }
 
+    const hits = []
     for (let i = annotations.length - 1; i >= 0; i--) {
       const ann = annotations[i]
       if (hitTestBody(v, ann, el)) {
-        setDragState({ kind: 'pendingMove', annId: ann.id, startEl: el, startImg: readOnly ? null : img, origGeometry: ann.geometry, annotationType: ann.annotation_type })
-        return true
+        hits.push(ann)
       }
+    }
+
+    if (hits.length > 0) {
+      let targetAnn = hits[0] // Default to top-most annotation
+
+      // 2. Cycle Selection Logic (Ctrl or Cmd + Click)
+      if ((e.ctrlKey || e.metaKey) && hits.length > 1) {
+        // Find if one of the annotations under the cursor is already selected
+        const currentIndex = hits.findIndex(a => a.id === selectedAnnId)
+        
+        // If the current annotation is found, pick the next one. 
+        // If not found (-1), the math neatly resolves to 0 (top-most).
+        const nextIndex = (currentIndex + 1) % hits.length
+        targetAnn = hits[nextIndex]
+      }
+
+      setDragState({ 
+        kind: 'pendingMove', 
+        annId: targetAnn.id, 
+        startEl: el, 
+        startImg: readOnly ? null : img, 
+        origGeometry: targetAnn.geometry, 
+        annotationType: targetAnn.annotation_type 
+      })
+      return true
     }
 
     pendingDeselectRef.current = true

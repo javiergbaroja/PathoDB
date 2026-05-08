@@ -1,6 +1,7 @@
 // frontend/src/pages/Projects/CreateProjectModal.jsx
 import { useState, useRef } from 'react'
 import { api } from '../../api'
+import SlideTargetManager from '../../components/SlideTargetManager'
 
 const PRESET_COLORS = [
   '#ef4444','#f97316','#eab308','#22c55e',
@@ -160,11 +161,26 @@ function ClassEditor({ classes, setClasses }) {
 function SourceStep({ sourceType, setSourceType, cohortId, setCohortId, cohorts, fileLines, setFileLines }) {
   const fileRef = useRef(null)
 
-  async function handleFile(e) {
-    const f = e.target.files?.[0]
-    if (!f) return
-    const text = await f.text()
-    setFileLines(text.split('\n').filter(l => l.trim()))
+  async function handleCreate() {
+    setCreating(true)
+    setError('')
+    try {
+      // We now use the clean JSON payload for EVERYTHING. No more virtual text files!
+      const result = await api.createProject({
+        name: name.trim(),
+        description: description.trim() || undefined,
+        project_type: projectType,
+        classes,
+        source_type: 'custom_list',
+        // Extract the raw integers from the validated targets
+        scan_ids: filteredTargets.map(t => t.scan_id)
+      })
+      onCreated(result)
+    } catch (e) {
+      setError(e.message || 'Failed to create project')
+    } finally {
+      setCreating(false)
+    }
   }
 
   return (
@@ -240,29 +256,21 @@ const STEPS = ['Type', 'Classes', 'Source', 'Details']
 export default function CreateProjectModal({ onClose, onCreated, cohorts }) {
   const [step, setStep] = useState(0)
 
-  // Step 0 – type
   const [projectType, setProjectType] = useState(null)
-
-  // Step 1 – classes
   const [classes, setClasses] = useState([])
-
-  // Step 2 – source
-  const [sourceType, setSourceType] = useState('cohort')
-  const [cohortId, setCohortId]     = useState(null)
-  const [fileLines, setFileLines]   = useState([])
-  const fileRef = useRef(null)
-
-  // Step 3 – details
   const [name, setName]         = useState('')
   const [description, setDesc]  = useState('')
 
   const [creating, setCreating] = useState(false)
   const [error, setError]       = useState('')
 
+  // NEW: State to hold the final resolved and filtered array of targets
+  const [filteredTargets, setFilteredTargets] = useState([])
+
   function canNext() {
     if (step === 0) return !!projectType
-    if (step === 1) return true  // classes are optional
-    if (step === 2) return sourceType === 'cohort' ? !!cohortId : fileLines.length > 0
+    if (step === 1) return true
+    if (step === 2) return filteredTargets.length > 0 // MUST have valid targets
     if (step === 3) return name.trim().length > 0
     return false
   }
@@ -271,27 +279,20 @@ export default function CreateProjectModal({ onClose, onCreated, cohorts }) {
     setCreating(true)
     setError('')
     try {
-      let result
-      if (sourceType === 'cohort') {
-        result = await api.createProject({
-          name: name.trim(),
-          description: description.trim() || undefined,
-          project_type: projectType,
-          classes,
-          source_type: 'cohort',
-          cohort_id: cohortId,
-        })
-      } else {
-        // file import uses FormData
-        const fd = new FormData()
-        fd.append('name', name.trim())
-        fd.append('project_type', projectType)
-        fd.append('classes', JSON.stringify(classes))
-        if (description.trim()) fd.append('description', description.trim())
-        const blob = new Blob([fileLines.join('\n')], { type:'text/plain' })
-        fd.append('file', blob, 'slides.txt')
-        result = await api.createProjectFromFile(fd)
-      }
+      // Because we applied frontend filters, we MUST create this project via the file import endpoint.
+      // This bypasses the backend dynamic cohort logic and strictly imports ONLY the filtered subset.
+      const fd = new FormData()
+      fd.append('name', name.trim())
+      fd.append('project_type', projectType)
+      fd.append('classes', JSON.stringify(classes))
+      if (description.trim()) fd.append('description', description.trim())
+
+      // Compile the final list of valid paths into a virtual text file
+      const fileLines = filteredTargets.map(t => t.file_path)
+      const blob = new Blob([fileLines.join('\n')], { type:'text/plain' })
+      fd.append('file', blob, 'slides.txt')
+
+      const result = await api.createProjectFromFile(fd)
       onCreated(result)
     } catch (e) {
       setError(e.message || 'Failed to create project')
@@ -373,11 +374,9 @@ export default function CreateProjectModal({ onClose, onCreated, cohorts }) {
               <div style={{ fontWeight:600, fontSize:14, color:'var(--navy)', marginBottom:14 }}>
                 Select slide source
               </div>
-              <SourceStep
-                sourceType={sourceType} setSourceType={setSourceType}
-                cohortId={cohortId} setCohortId={setCohortId}
-                cohorts={cohorts}
-                fileLines={fileLines} setFileLines={setFileLines}
+              <SlideTargetManager 
+                 cohorts={cohorts} 
+                 onTargetsResolved={setFilteredTargets} 
               />
             </div>
           )}
@@ -385,28 +384,16 @@ export default function CreateProjectModal({ onClose, onCreated, cohorts }) {
           {/* Step 3 – details */}
           {step === 3 && (
             <div>
-              <div style={{ fontWeight:600, fontSize:14, color:'var(--navy)', marginBottom:14 }}>
-                Name your project
-              </div>
+              <div style={{ fontWeight:600, fontSize:14, color:'var(--navy)', marginBottom:14 }}>Name your project</div>
               <div style={{ marginBottom:14 }}>
                 <label style={lbl}>Project name *</label>
-                <input autoFocus value={name} onChange={e => setName(e.target.value)}
-                  placeholder="e.g. CRC Tumor Grading Q1 2025"
-                  style={inp} />
+                <input autoFocus value={name} onChange={e => setName(e.target.value)} placeholder="e.g. Cohort Name" style={inp} />
               </div>
-              <div style={{ marginBottom:14 }}>
-                <label style={lbl}>Description (optional)</label>
-                <textarea value={description} onChange={e => setDesc(e.target.value)}
-                  placeholder="Briefly describe the annotation goals…"
-                  rows={3}
-                  style={{ ...inp, resize:'vertical' }} />
-              </div>
-
               {/* Summary */}
               <div style={{ background:'var(--navy-05)', borderRadius:8, padding:'12px 14px', fontSize:12, color:'var(--text-2)', display:'flex', flexDirection:'column', gap:5 }}>
                 <SumLine label="Type"    value={projectType === 'cell_detection' ? '🔬 Cell detection' : '🗺️ Region annotation'} />
                 <SumLine label="Classes" value={classes.length > 0 ? classes.map(c=>c.name).join(', ') : 'None defined'} />
-                <SumLine label="Source"  value={sourceType === 'cohort' ? `Cohort #${cohortId}` : `${fileLines.length} slides from file`} />
+                <SumLine label="Source"  value={`${filteredTargets.length} fully filtered slides`} />
               </div>
             </div>
           )}

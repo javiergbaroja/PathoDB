@@ -1,9 +1,9 @@
 // frontend/src/pages/ProjectDetail/ClassPanel.jsx
 
-import { useState } from 'react'
+import { useState, memo } from 'react'
 import ProjectModelsPanel, { AI_ROI_CLASS } from './ProjectModelsPanel'
 
-export default function ClassPanel({
+export default memo(function ClassPanel({
   classes,
   activeClass,
   setActiveClass,
@@ -136,7 +136,7 @@ export default function ClassPanel({
       </div>
     </div>
   )
-}
+})
 
 // ── Classes tab ────────────────────────────────────────────────────────────────
 function ClassTab({ classes, activeClass, setActiveClass, annotations, onSelectAllOfClass, readOnly, aiRoiAnnotations, onSetAiClass }) {
@@ -148,7 +148,8 @@ function ClassTab({ classes, activeClass, setActiveClass, annotations, onSelectA
     { key: 'B', label: 'Brush' },
     { key: '⇧+Click', label: 'Multi-select' },
     { key: 'Alt+Click', label: 'Select all of class' },
-    { key: '⌫', label: 'Delete selected' },
+    { key: 'CTRL+Click', label: 'Select overlapping annotation' },
+    { key: 'Del', label: 'Delete selected' },
     { key: 'Esc', label: 'Deselect / Back' },
   ]
 

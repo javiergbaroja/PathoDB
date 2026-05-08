@@ -22,7 +22,7 @@ from sqlalchemy import func
 from ..database import get_db
 from ..models import (
     User, Project, ProjectScan, ProjectShare, Annotation,
-    Scan, Block, Probe, Submission, Cohort,
+    Scan, Block, Probe, Submission, Cohort, Stain, Patient
 )
 from ..auth import get_current_active_user
 
@@ -41,8 +41,11 @@ class ProjectCreate(BaseModel):
     description:  Optional[str] = None
     project_type: Literal["cell_detection", "region_annotation"]
     classes:      List[ClassDef] = []
-    source_type:  Literal["cohort", "file_import"]
+    # Added "custom_list" to the source types
+    source_type:  Literal["cohort", "file_import", "custom_list"]
     cohort_id:    Optional[int] = None
+    # Add a direct list of scan IDs
+    scan_ids:     Optional[List[int]] = None
 
 class ProjectUpdate(BaseModel):
     name:        Optional[str] = None
@@ -192,34 +195,117 @@ def _serialize(project: Project, user_id: int, db: Session) -> dict:
 
 def _resolve_cohort_scans(cohort_id: int, db: Session) -> List[int]:
     from ..schemas import CohortFilter
-    from .cohorts import _apply_filters, _format_results
+    from .cohorts import _apply_filters, _resolve_b_number_exact
+    
     cohort = db.get(Cohort, cohort_id)
     if not cohort:
         return []
+        
     try:
         f = CohortFilter(**cohort.filter_json)
-        f.return_level = "scan"
-        rows = _apply_filters(db, f).all()
-        results = _format_results(rows, "scan", db, f)
-        return list({r["scan_id"] for r in results if r.get("scan_id")})
-    except Exception:
-        return []
+        valid_block_ids = set()
 
+        # 1. Gather all valid Block IDs (Handles both List-mode and Filter-mode)
+        if getattr(f, 'is_list_query', False) and getattr(f, 'ids', None):
+            ids = list(set(i.strip() for i in f.ids if i.strip()))
+            for id_str in ids:
+                if f.id_type == "patient_code":
+                    patient = db.query(Patient).filter(Patient.patient_code == id_str).first()
+                    if not patient: continue
+                    for sub in patient.submissions:
+                        for probe in sub.probes:
+                            for block in probe.blocks:
+                                valid_block_ids.add(block.id)
+                else: # b_number
+                    matched = _resolve_b_number_exact(id_str, db)
+                    if not matched: continue
+                    
+                    if f.b_scope == "all":
+                        seen_patient_ids = set()
+                        for patient, _ in matched:
+                            if patient.id not in seen_patient_ids:
+                                seen_patient_ids.add(patient.id)
+                                for sub in patient.submissions:
+                                    for probe in sub.probes:
+                                        for block in probe.blocks:
+                                            valid_block_ids.add(block.id)
+                    else:
+                        for _, sub in matched:
+                            for probe in sub.probes:
+                                for block in probe.blocks:
+                                    valid_block_ids.add(block.id)
+        else:
+            # Filter-mode: Use with_entities to fetch ONLY the Block.id integer!
+            # This completely avoids loading full ORM objects into RAM.
+            q = _apply_filters(db, f)
+            block_ids = q.with_entities(Block.id).all()
+            valid_block_ids = {row[0] for row in block_ids}
+
+        if not valid_block_ids:
+            return []
+
+        # 2. Bulk query all Scan IDs for these blocks
+        scan_query = db.query(Scan.id).filter(Scan.block_id.in_(valid_block_ids))
+        
+        # 3. Re-apply scan-specific filters if they exist in the cohort
+        if f.stain_names or f.stain_categories:
+            scan_query = scan_query.join(Stain, Scan.stain_id == Stain.id)
+            if f.stain_names:
+                scan_query = scan_query.filter(Stain.stain_name.in_(f.stain_names))
+            if f.stain_categories:
+                scan_query = scan_query.filter(Stain.stain_category.in_(f.stain_categories))
+        if getattr(f, 'file_formats', None):
+            scan_query = scan_query.filter(Scan.file_format.in_([x.upper() for x in f.file_formats]))
+        if getattr(f, 'magnification_min', None):
+            scan_query = scan_query.filter(Scan.magnification >= f.magnification_min)
+        if getattr(f, 'magnification_max', None):
+            scan_query = scan_query.filter(Scan.magnification <= f.magnification_max)
+            
+        return list(set(row[0] for row in scan_query.all()))
+
+    except Exception as e:
+        import logging
+        logging.error(f"Failed to resolve cohort scans: {e}")
+        return []
+    
 
 def _resolve_file_import(lines: List[str], db: Session) -> List[int]:
-    ids, seen = [], set()
-    for raw in lines:
-        line = raw.strip()
-        if not line:
-            continue
-        scan = db.query(Scan).filter(Scan.file_path == line).first()
-        if not scan:
+    clean_lines = [line.strip() for line in lines if line.strip()]
+    if not clean_lines:
+        return []
+
+    path_to_id = {}
+    chunk_size = 2000
+    
+    # 1. Bulk Exact Match (Instantly resolves UI-generated cohorts in milliseconds)
+    for i in range(0, len(clean_lines), chunk_size):
+        chunk = clean_lines[i:i + chunk_size]
+        # Query up to 2,000 paths at once
+        scans = db.query(Scan.id, Scan.file_path).filter(Scan.file_path.in_(chunk)).all()
+        for sid, fpath in scans:
+            path_to_id[fpath] = sid
+
+    # 2. Fallback for manual .txt uploads with missing paths
+    # Because the UI sends exact file_paths, 'missing_lines' will be EMPTY for cohort creations
+    # and this slow loop will be completely skipped!
+    missing_lines = [line for line in clean_lines if line not in path_to_id]
+    if missing_lines:
+        for line in missing_lines:
             base = os.path.basename(line)
-            scan = db.query(Scan).filter(Scan.file_path.ilike(f"%{base}%")).first()
-        if scan and scan.id not in seen:
-            seen.add(scan.id)
-            ids.append(scan.id)
-    return ids
+            scan = db.query(Scan.id).filter(Scan.file_path.ilike(f"%{base}%")).first()
+            if scan:
+                path_to_id[line] = scan[0]
+
+    # 3. Reconstruct the ordered list of IDs, dropping duplicates
+    final_ids = []
+    seen = set()
+    for line in clean_lines:
+        sid = path_to_id.get(line)
+        if sid and sid not in seen:
+            seen.add(sid)
+            final_ids.append(sid)
+            
+    return final_ids
 
 
 # ─── Project CRUD ─────────────────────────────────────────────────────────────
@@ -238,19 +324,28 @@ def list_projects(db: Session = Depends(get_db), user: User = Depends(get_curren
 @router.post("", status_code=201)
 def create_project(req: ProjectCreate, db: Session = Depends(get_db),
                    user: User = Depends(get_current_active_user)):
-    if req.source_type == "cohort" and not req.cohort_id:
-        raise HTTPException(422, "cohort_id required for cohort source")
-
+    
     proj = Project(owner_id=user.id, name=req.name, description=req.description,
                    project_type=req.project_type, classes=[c.model_dump() for c in req.classes],
                    source_type=req.source_type, cohort_id=req.cohort_id)
-    db.add(proj); db.flush()
+    db.add(proj)
+    db.flush()
 
+    final_scan_ids = []
     if req.source_type == "cohort" and req.cohort_id:
-        for i, sid in enumerate(_resolve_cohort_scans(req.cohort_id, db)):
-            db.add(ProjectScan(project_id=proj.id, scan_id=sid, sort_order=i))
+        final_scan_ids = _resolve_cohort_scans(req.cohort_id, db)
+    elif req.source_type == "custom_list" and req.scan_ids:
+        # We already have the exact IDs from the frontend SlideTargetManager!
+        final_scan_ids = req.scan_ids
 
-    db.commit(); db.refresh(proj)
+    if final_scan_ids:
+        # Ultra-fast raw SQL bulk insert. Bypasses ORM memory bloat entirely!
+        mappings = [{"project_id": proj.id, "scan_id": sid, "sort_order": i} 
+                    for i, sid in enumerate(final_scan_ids)]
+        db.bulk_insert_mappings(ProjectScan, mappings)
+
+    db.commit()
+    db.refresh(proj)
     return _serialize(proj, user.id, db)
 
 
@@ -280,8 +375,13 @@ async def create_project_from_file(
     db.add(proj); db.flush()
 
     scan_ids = _resolve_file_import(lines, db)
-    for i, sid in enumerate(scan_ids):
-        db.add(ProjectScan(project_id=proj.id, scan_id=sid, sort_order=i))
+    
+    project_scans = [
+        ProjectScan(project_id=proj.id, scan_id=sid, sort_order=i)
+        for i, sid in enumerate(scan_ids)
+    ]
+    if project_scans:
+        db.bulk_save_objects(project_scans)
 
     db.commit(); db.refresh(proj)
     result = _serialize(proj, user.id, db)

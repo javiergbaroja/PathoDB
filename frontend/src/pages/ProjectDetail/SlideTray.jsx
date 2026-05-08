@@ -1,5 +1,5 @@
-// frontend/src/pages/ProjectDetail/SlideTray.jsx
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useRef, memo } from 'react'
+import { useVirtualizer } from '@tanstack/react-virtual'
 
 function formatHierarchy(scan) {
   const sub = scan.lis_submission_id || '';
@@ -7,45 +7,34 @@ function formatHierarchy(scan) {
   const blk = scan.block_label || '';
 
   const parts = [];
-
-  // Check if the probe itself is a full B-number (e.g., "B2014.456" or "B2018.333/003")
   const isFullBNumber = /^B\d{4}/i.test(prb);
 
   if (isFullBNumber) {
-    // Eras 2 & 3: The probe inherently contains the year/case. 
-    // We completely ignore the submission (which might be a range like B2012.222-225).
     parts.push(prb);
   } else {
-    // Era 1 (Pre-2011): Probe is usually "1" or Roman numerals. 
-    // We need the submission to know the case (e.g., B2001.111).
     if (sub) parts.push(sub);
-    
-    // Ignore the ETL's dummy "1" probe, but keep valid numerals (I, II, etc.)
     if (prb && prb !== '1') parts.push(prb);
   }
 
-  // Append the exact Block label
   if (blk) parts.push(blk);
 
   return parts.join(' › ') || '—';
 }
 
-export default function SlideTray({ scans, activeScanId, onSelect, token, saving }) {
+// 1. Wrap the entire component in React.memo to block parent re-renders during panning/zooming
+const SlideTray = memo(function SlideTray({ scans, activeScanId, onSelect, token, saving }) {
   // --- Filter State ---
   const [showFilters, setShowFilters] = useState(false)
-  const [annotationFilter, setAnnotationFilter] = useState('all') // 'all', 'annotated', 'pending'
+  const [annotationFilter, setAnnotationFilter] = useState('all') 
   const [selectedStains, setSelectedStains] = useState([])
-  const [searchQuery, setSearchQuery] = useState('')
+  const [searchQuery, setSearchQuery] = useState('') 
 
   // --- Derived Data ---
-  // 1. Extract unique stains for the checkbox list
   const uniqueStains = useMemo(() => {
     const stains = new Set(scans.map(s => s.stain_name || 'Unknown stain'))
     return Array.from(stains).sort()
   }, [scans])
 
-  // 2. Apply filters to the scans array
-  // 2. Apply filters to the scans array
   const filteredScans = useMemo(() => {
     const lowerQuery = searchQuery.toLowerCase().trim();
 
@@ -53,22 +42,15 @@ export default function SlideTray({ scans, activeScanId, onSelect, token, saving
       const hasAnns = scan.annotation_count > 0
       const stain = scan.stain_name || 'Unknown stain'
 
-      // Check annotation status
       if (annotationFilter === 'annotated' && !hasAnns) return false
       if (annotationFilter === 'pending' && hasAnns) return false
-
-      // Check stain selection (if array is empty, show all)
       if (selectedStains.length > 0 && !selectedStains.includes(stain)) return false
 
-      // Check free text search
       if (lowerQuery) {
         const hierarchyStr = formatHierarchy(scan).toLowerCase();
-        
-        // Safely extract the filename from the file_path (handles both / and \ slashes)
         const filePath = scan.file_path || '';
         const basename = filePath.split(/[\\/]/).pop().toLowerCase();
 
-        // If neither the hierarchy nor the filename includes the search query, filter it out
         if (!hierarchyStr.includes(lowerQuery) && !basename.includes(lowerQuery)) {
           return false;
         }
@@ -76,7 +58,19 @@ export default function SlideTray({ scans, activeScanId, onSelect, token, saving
 
       return true
     })
-  }, [scans, annotationFilter, selectedStains, searchQuery]) // <-- Remember to add searchQuery to dependencies
+  }, [scans, annotationFilter, selectedStains, searchQuery]) 
+
+  // --- Virtualization Setup ---
+  // 2. Create a ref for the scrollable container
+  const parentRef = useRef(null)
+
+  // 3. Initialize the virtualizer
+  const rowVirtualizer = useVirtualizer({
+    count: filteredScans.length,
+    getScrollElement: () => parentRef.current,
+    estimateSize: () => 140, // Rough height estimate of a single slide card
+    overscan: 5,             // Render 5 extra items off-screen to prevent flickering
+  })
 
   return (
     <div style={{
@@ -100,7 +94,6 @@ export default function SlideTray({ scans, activeScanId, onSelect, token, saving
           </span>
         </div>
         
-        {/* Toggle Filters Button */}
         <button 
           onClick={() => setShowFilters(s => !s)}
           style={{
@@ -124,7 +117,6 @@ export default function SlideTray({ scans, activeScanId, onSelect, token, saving
           padding: '10px 12px', borderBottom: '1px solid rgba(255,255,255,0.05)',
           background: 'rgba(0,0,0,0.2)', flexShrink: 0, display: 'flex', flexDirection: 'column', gap: 10
         }}>
-          {/* Search Filter */}
           <div>
             <div style={{ fontSize: 9, color: 'rgba(255,255,255,0.4)', textTransform: 'uppercase', marginBottom: 4 }}>Search</div>
             <input
@@ -138,7 +130,7 @@ export default function SlideTray({ scans, activeScanId, onSelect, token, saving
               }}
             />
           </div>
-          {/* Status Filter */}
+
           <div>
             <div style={{ fontSize: 9, color: 'rgba(255,255,255,0.4)', textTransform: 'uppercase', marginBottom: 4 }}>Status</div>
             <select
@@ -149,14 +141,12 @@ export default function SlideTray({ scans, activeScanId, onSelect, token, saving
                 border: '1px solid rgba(255,255,255,0.1)', borderRadius: 4, padding: '3px 4px', fontSize: 10, outline: 'none'
               }}
             >
-              {/* Added explicit dark backgrounds to the options */}
               <option value="all" style={{ background: '#111827', color: '#fff' }}>All Slides</option>
               <option value="annotated" style={{ background: '#111827', color: '#fff' }}>Annotated Only</option>
               <option value="pending" style={{ background: '#111827', color: '#fff' }}>Pending Only</option>
             </select>
           </div>
 
-          {/* Stains Filter */}
           {uniqueStains.length > 0 && (
             <div>
               <div style={{ fontSize: 9, color: 'rgba(255,255,255,0.4)', textTransform: 'uppercase', marginBottom: 4 }}>Stains</div>
@@ -187,88 +177,99 @@ export default function SlideTray({ scans, activeScanId, onSelect, token, saving
         <LegendItem color="rgba(255,255,255,0.2)" label="Pending" />
       </div>
 
-      {/* Scroll area */}
-      <div style={{ flex: 1, overflowY: 'auto' }}>
+      {/* 4. Virtualized Scroll Area */}
+      <div ref={parentRef} style={{ flex: 1, overflowY: 'auto', position: 'relative' }}>
         {filteredScans.length === 0 ? (
           <div style={{ padding: 20, textAlign: 'center', fontSize: 11, color: 'rgba(255,255,255,0.3)' }}>
             No slides match your filters.
           </div>
         ) : (
-          filteredScans.map((scan, idx) => {
-            const isActive   = scan.scan_id === activeScanId
-            const hasAnns    = scan.annotation_count > 0
+          <div
+            style={{
+              height: `${rowVirtualizer.getTotalSize()}px`,
+              width: '100%',
+              position: 'relative',
+            }}
+          >
+            {rowVirtualizer.getVirtualItems().map((virtualRow) => {
+              const idx = virtualRow.index
+              const scan = filteredScans[idx]
+              const isActive = scan.scan_id === activeScanId
+              const hasAnns = scan.annotation_count > 0
 
-            return (
-              <div
-                key={scan.scan_id}
-                onClick={() => onSelect(scan.scan_id)}
-                style={{
-                  display: 'flex', flexDirection: 'column', gap: 0,
-                  padding: '0', cursor: 'pointer',
-                  borderBottom: '1px solid rgba(255,255,255,0.04)',
-                  background: isActive ? 'rgba(27,153,139,0.12)' : 'transparent',
-                  borderLeft: `3px solid ${isActive ? '#1b998b' : 'transparent'}`,
-                  transition: 'all 0.12s',
-                }}
-              >
-                {/* Thumbnail */}
-                <div style={{ height: 90, background: '#0d1623', position: 'relative', overflow: 'hidden' }}>
-                  <img
-                    src={`/api/slides/${scan.scan_id}/thumbnail?width=200&token=${token}`}
-                    alt={scan.stain_name || 'Slide'}
-                    loading="lazy"
-                    style={{ width: '100%', height: '100%', objectFit: 'contain' }}
-                    onError={e => { e.target.style.display = 'none' }}
-                  />
-                  {/* Annotation dot */}
-                  <div style={{
-                    position: 'absolute', top: 5, right: 5,
-                    width: 10, height: 10, borderRadius: '50%',
-                    background: hasAnns ? '#1b998b' : 'rgba(255,255,255,0.2)',
-                    border: '1.5px solid rgba(0,0,0,0.4)',
-                  }} />
-                  {/* Index badge */}
-                  <div style={{
-                    position: 'absolute', top: 5, left: 5,
-                    fontSize: 9, fontFamily: 'monospace',
-                    background: 'rgba(0,0,0,0.65)', color: 'rgba(255,255,255,0.6)',
-                    padding: '1px 4px', borderRadius: 3,
-                  }}>
-                    {idx + 1}
-                  </div>
-                </div>
-
-                {/* Meta */}
-                <div style={{ padding: '5px 8px' }}>
-                  {/* Line 1: Stain Name */}
-                  <div style={{ fontSize: 10, fontWeight: 600, color: isActive ? '#6ee7b7' : 'rgba(255,255,255,0.65)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                    {scan.stain_name || 'Unknown stain'}
-                  </div>
-                  
-                  {/* Line 2: Smart Hierarchy (Era-aware) */}
-                  <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.45)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontFamily: 'monospace', marginTop: 2 }}>
-                    {formatHierarchy(scan)}
-                  </div>
-
-                  {/* Line 3: Topography (Anatomy) */}
-                  {scan.topo_description && (
-                    <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.3)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginTop: 1, fontStyle: 'italic' }}>
-                      {scan.topo_description}
+              return (
+                <div
+                  key={virtualRow.key}
+                  data-index={virtualRow.index}
+                  ref={rowVirtualizer.measureElement}
+                  onClick={() => onSelect(scan.scan_id)}
+                  style={{
+                    position: 'absolute',
+                    top: 0,
+                    left: 0,
+                    width: '100%',
+                    transform: `translateY(${virtualRow.start}px)`,
+                    display: 'flex', flexDirection: 'column', gap: 0,
+                    padding: '0', cursor: 'pointer',
+                    borderBottom: '1px solid rgba(255,255,255,0.04)',
+                    background: isActive ? 'rgba(27,153,139,0.12)' : 'transparent',
+                    borderLeft: `3px solid ${isActive ? '#1b998b' : 'transparent'}`,
+                    // We only transition colors here, NOT transforms, to avoid jitter while scrolling
+                    transition: 'background 0.12s, border 0.12s',
+                  }}
+                >
+                  {/* Thumbnail */}
+                  <div style={{ height: 90, background: '#0d1623', position: 'relative', overflow: 'hidden' }}>
+                    <img
+                      src={`/api/slides/${scan.scan_id}/thumbnail?width=200&token=${token}`}
+                      alt={scan.stain_name || 'Slide'}
+                      loading="lazy"
+                      style={{ width: '100%', height: '100%', objectFit: 'contain' }}
+                      onError={e => { e.target.style.display = 'none' }}
+                    />
+                    <div style={{
+                      position: 'absolute', top: 5, right: 5,
+                      width: 10, height: 10, borderRadius: '50%',
+                      background: hasAnns ? '#1b998b' : 'rgba(255,255,255,0.2)',
+                      border: '1.5px solid rgba(0,0,0,0.4)',
+                    }} />
+                    <div style={{
+                      position: 'absolute', top: 5, left: 5,
+                      fontSize: 9, fontFamily: 'monospace',
+                      background: 'rgba(0,0,0,0.65)', color: 'rgba(255,255,255,0.6)',
+                      padding: '1px 4px', borderRadius: 3,
+                    }}>
+                      {idx + 1}
                     </div>
-                  )}
+                  </div>
 
-                  {/* Line 4: Annotation Status */}
-                  <div style={{ fontSize: 10, color: hasAnns ? '#1b998b' : 'rgba(255,255,255,0.2)', marginTop: 4 }}>
-                    {hasAnns ? `${scan.annotation_count} annotation${scan.annotation_count !== 1 ? 's' : ''}` : 'No annotations'}
+                  {/* Meta */}
+                  <div style={{ padding: '5px 8px' }}>
+                    <div style={{ fontSize: 10, fontWeight: 600, color: isActive ? '#6ee7b7' : 'rgba(255,255,255,0.65)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {scan.stain_name || 'Unknown stain'}
+                    </div>
+                    
+                    <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.45)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontFamily: 'monospace', marginTop: 2 }}>
+                      {formatHierarchy(scan)}
+                    </div>
+
+                    {scan.topo_description && (
+                      <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.3)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginTop: 1, fontStyle: 'italic' }}>
+                        {scan.topo_description}
+                      </div>
+                    )}
+
+                    <div style={{ fontSize: 10, color: hasAnns ? '#1b998b' : 'rgba(255,255,255,0.2)', marginTop: 4 }}>
+                      {hasAnns ? `${scan.annotation_count} annotation${scan.annotation_count !== 1 ? 's' : ''}` : 'No annotations'}
+                    </div>
                   </div>
                 </div>
-              </div>
-            )
-          })
+              )
+            })}
+          </div>
         )}
       </div>
 
-      {/* Save indicator */}
       {saving && (
         <div style={{
           padding: '8px 12px', borderTop: '1px solid rgba(255,255,255,0.05)',
@@ -281,7 +282,9 @@ export default function SlideTray({ scans, activeScanId, onSelect, token, saving
       )}
     </div>
   )
-}
+})
+
+export default SlideTray;
 
 function LegendItem({ color, label }) {
   return (
