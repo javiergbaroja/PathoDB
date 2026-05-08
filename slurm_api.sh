@@ -4,10 +4,10 @@
 #SBATCH --job-name="pathodb_api"
 #SBATCH --output="/storage/research/igmp_dp_workspace/garciabaroja_javier/PW_reports/database/pathodb/logs/pathodb_api_%j.out"
 #SBATCH --time=2:00:00
-#SBATCH --mem-per-cpu=50G
+#SBATCH --mem-per-cpu=10G
 #SBATCH --account=gratis
 #SBATCH --partition=cpu-invest
-#SBATCH --cpus-per-task=24
+#SBATCH --cpus-per-task=12
 #SBATCH --qos=job_cpu_preemptable
 
 
