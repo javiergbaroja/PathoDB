@@ -31,8 +31,8 @@ export default function ProjectModelsPanel({
   readOnly          = false,
 }) {
   const [selectedModelId, setSelectedModelId] = useState(null)
-  const [scope,           setScope]           = useState('whole_slide')
-  const [importMode,      setImportMode]      = useState('keep_all')
+  const [scope, setScope] = useState(aiRoiAnnotations.length > 0 ? 'roi' : 'whole_slide')
+  const [importMode,      setImportMode]      = useState({})
   const [modelParams,     setModelParams]     = useState({})
   const [activeJobId,     setActiveJobId]     = useState(null)
   // phase: null | 'submitting' | 'queued' | 'running' | 'importing' | 'done' | 'failed'
@@ -42,6 +42,15 @@ export default function ProjectModelsPanel({
 
   // Prevent double-importing the same job (React StrictMode / fast re-renders)
   const handledJobsRef = useRef(new Set())
+
+  // Auto-switch to ROI scope the moment the user draws their very first ROI
+  const prevRoiCount = useRef(aiRoiAnnotations.length)
+  useEffect(() => {
+    if (aiRoiAnnotations.length > 0 && prevRoiCount.current === 0) {
+      setScope('roi')
+    }
+    prevRoiCount.current = aiRoiAnnotations.length
+  }, [aiRoiAnnotations.length])
 
   const selectedModel = catalog.find(m => m.id === selectedModelId) ?? null
 
@@ -188,9 +197,9 @@ export default function ProjectModelsPanel({
           onChange={e => setSelectedModelId(e.target.value || null)}
           style={selectSty}
         >
-          <option value=''>Select a model…</option>
+          <option value='' style={{ background: '#111827', color: '#fff' }}>Select a model…</option>
           {catalog.map(m => (
-            <option key={m.id} value={m.id}>{m.name}</option>
+            <option key={m.id} value={m.id} style={{ background: '#111827', color: '#fff' }}>{m.name}</option>
           ))}
         </select>
         {selectedModel && <ModelMeta model={selectedModel} />}
