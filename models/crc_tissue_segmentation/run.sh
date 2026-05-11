@@ -20,7 +20,7 @@
 #SBATCH --nodes=1
 #SBATCH --cpus-per-task=7
 #SBATCH --partition=gpu-invest
-#SBATCH --gres=gpu:a100:1
+#SBATCH --gres=gpu:rtx4090:1
 #SBATCH --job-name=crc_tis_seg
 #SBATCH --qos=job_gpu_preemptable
 
@@ -54,7 +54,7 @@ module load Anaconda3
 module load CUDA/11.8.0
 module load GCCcore/10.3.0
 
-source activate metassist
+source activate "/storage/research/igmp_slide_workspace/GRP Zlobec/Javier/conda_envs/metassist"
 
 # ── Run inference ─────────────────────────────────────────────────────────────
 # get absolute folder for this bash script.

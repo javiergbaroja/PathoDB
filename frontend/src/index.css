@@ -1,6 +1,13 @@
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
+/* ============================================================
+   DESIGN TOKENS
+   Single source of truth for all visual decisions.
+   All colors, spacing, typography, and effects live here.
+   ============================================================ */
+
 :root {
+  /* ── Brand colors ────────────────────────────────────────── */
   --navy:        #001464;
   --navy-80:     #1a2d7a;
   --navy-60:     #3a4d9a;
@@ -8,30 +15,119 @@
   --navy-20:     #cdd3ea;
   --navy-10:     #e6eaf5;
   --navy-05:     #f0f3fa;
+
   --crimson:     #E6002E;
   --crimson-h:   #c4001f;
   --crimson-10:  #fde8ec;
+
   --white:       #ffffff;
-  --text-1:      #001464;
-  --text-2:      #4b5b7a;
-  --text-3:      #8b96ae;
-  --border:      #d4dae8;
-  --border-l:    #eaeef6;
+
+  /* ── Semantic accent colors (teal = PathoDB primary action) ── */
+  --teal:        #1b998b;
+  --teal-h:      #157a6e;   /* hover */
+  --teal-20:     #d0f0ed;
+  --teal-10:     #e8f7f6;
+  --teal-light:  #6ee7b7;   /* text on dark bg */
+
+  /* ── Semantic state colors ──────────────────────────────── */
   --success:     #0a6e3a;
   --success-bg:  #e6f4ec;
+  --success-dot: #1b998b;   /* used for annotation dot, scanned indicator, same as --teal */
+
   --warning:     #7a4f00;
   --warning-bg:  #fef3e2;
+  --warning-dot: #e0a106;
+
   --danger:      #E6002E;
   --danger-bg:   #fde8ec;
+
+  --info:        #1a2d7a;
+  --info-bg:     #e6eaf5;
+
+  /* ── Neutral text ───────────────────────────────────────── */
+  --text-1:      #001464;   /* primary, headings, equal to --navy */
+  --text-2:      #4b5b7a;   /* secondary, body */
+  --text-3:      #8b96ae;   /* tertiary, labels, hints */
+  --text-inv:    #ffffff;   /* text on dark backgrounds */
+
+  /* ── Borders ────────────────────────────────────────────── */
+  --border:      #d4dae8;
+  --border-l:    #eaeef6;   /* light, for subtle separators */
+  --border-f:    #001464;   /* focus ring, equal to --navy */
+
+  /* ── Typography ─────────────────────────────────────────── */
   --font-serif:  'Libre Baskerville', Georgia, serif;
   --font-sans:   'Source Sans 3', system-ui, sans-serif;
   --font-mono:   'IBM Plex Mono', 'Courier New', monospace;
-  --radius-s:    4px;
-  --radius-m:    8px;
-  --radius-l:    12px;
+
+  --text-xs:     10px;
+  --text-sm:     11px;
+  --text-base:   13px;
+  --text-md:     14px;
+  --text-lg:     16px;
+  --text-xl:     18px;
+  --text-2xl:    22px;
+
+  /* ── Spacing scale ──────────────────────────────────────── */
+  --space-1:     4px;
+  --space-2:     8px;
+  --space-3:     12px;
+  --space-4:     16px;
+  --space-5:     20px;
+  --space-6:     24px;
+  --space-8:     32px;
+
+  /* ── Border radius ──────────────────────────────────────── */
+  --radius-sm:   4px;
+  --radius-md:   6px;
+  --radius-lg:   8px;
+  --radius-xl:   10px;
+  --radius-2xl:  12px;
+  --radius-full: 9999px;
+
+  /* ── Shadows ────────────────────────────────────────────── */
   --shadow-s:    0 1px 3px rgba(0,20,100,0.08);
   --shadow-m:    0 2px 8px rgba(0,20,100,0.10);
+  --shadow-l:    0 8px 24px rgba(0,20,100,0.14);
+  --shadow-xl:   0 12px 40px rgba(0,20,100,0.18);
+
+  /* ── Z-index scale ──────────────────────────────────────── */
+  --z-base:      1;
+  --z-dropdown:  100;
+  --z-sticky:    200;
+  --z-overlay:   300;
+  --z-modal:     400;
+  --z-toast:     500;
+
+  /* ── Transitions ────────────────────────────────────────── */
+  --transition-fast:   all 0.12s ease;
+  --transition-base:   all 0.15s ease;
+  --transition-slow:   all 0.25s ease;
+
+  /* ── Focus ring ─────────────────────────────────────────── */
+  --focus-ring: 0 0 0 2px var(--teal-20);
+
+  /* ── Dark surface (viewer chrome) ──────────────────────── */
+  --surface-dark:       #111827;
+  --surface-dark-2:     #0a0f1e;
+  --surface-dark-card:  rgba(2,5,18,0.98);
+  --border-dark:        rgba(255,255,255,0.07);
+  --text-dark-1:        rgba(255,255,255,0.82);
+  --text-dark-2:        rgba(255,255,255,0.55);
+  --text-dark-3:        rgba(255,255,255,0.35);
+
+  /* ── Viewer action colors (kept as vars for dark theme) ─── */
+  --viewer-teal:        #1b998b;
+  --viewer-teal-light:  #6ee7b7;
+  --viewer-gold:        #ffd700;
+  --viewer-gold-bg:     rgba(255,215,0,0.12);
+  --viewer-red:         #ff8099;
+  --viewer-amber:       #fbbf24;
 }
+
+/* ============================================================
+   RESET & BASE
+   ============================================================ */
 
 html, body, #root {
   height: 100%;
@@ -43,16 +139,165 @@ html, body, #root {
 }
 
 a { color: inherit; text-decoration: none; }
-
 button { font-family: var(--font-sans); cursor: pointer; }
 
 input, select, textarea {
   font-family: var(--font-sans);
-  font-size: 13.5px;
+  font-size: var(--text-base);
   color: var(--text-1);
 }
+
+/* ============================================================
+   SCROLLBARS
+   ============================================================ */
 
 ::-webkit-scrollbar { width: 6px; height: 6px; }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: var(--navy-20); border-radius: 3px; }
 ::-webkit-scrollbar-thumb:hover { background: var(--navy-40); }
+
+/* ============================================================
+   GLOBAL ANIMATIONS
+   ============================================================ */
+
+@keyframes spin    { to { transform: rotate(360deg); } }
+@keyframes fadeIn  { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+@keyframes pulse   { 0%,100% { opacity:1; } 50% { opacity: 0.4; } }
+@keyframes blink   { 0%,100% { opacity:1; } 50% { opacity: 0; } }
+
+/* ============================================================
+   SHARED COMPONENT CLASSES
+   These complement the React component library.
+   ============================================================ */
+
+/* ── Form primitives ──────────────────────────────────────── */
+
+.pd-label {
+  display: block;
+  font-size: var(--text-xs);
+  font-weight: 600;
+  color: var(--text-3);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  margin-bottom: var(--space-1);
+}
+
+.pd-input {
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  font-size: var(--text-base);
+  font-family: var(--font-sans);
+  color: var(--text-1);
+  background: var(--white);
+  outline: none;
+  transition: var(--transition-fast);
+}
+
+.pd-input:focus {
+  border-color: var(--teal);
+  box-shadow: var(--focus-ring);
+}
+
+.pd-select {
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  font-size: var(--text-base);
+  font-family: var(--font-sans);
+  color: var(--text-1);
+  background: var(--white);
+  outline: none;
+  cursor: pointer;
+  transition: var(--transition-fast);
+}
+
+.pd-select:focus {
+  border-color: var(--teal);
+  box-shadow: var(--focus-ring);
+}
+
+/* ── Table primitives ─────────────────────────────────────── */
+
+.pd-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--text-base);
+}
+
+.pd-th {
+  padding: 10px 14px;
+  text-align: left;
+  font-size: var(--text-xs);
+  font-weight: 600;
+  color: var(--text-3);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  border-bottom: 1px solid var(--border-l);
+  background: var(--navy-05);
+  white-space: nowrap;
+}
+
+.pd-td {
+  padding: 11px 14px;
+  border-bottom: 1px solid var(--border-l);
+  color: var(--text-2);
+  vertical-align: middle;
+}
+
+.pd-tr {
+  cursor: pointer;
+  transition: background var(--transition-fast);
+}
+
+.pd-tr:hover { background: var(--navy-05); }
+
+/* ── Utility: truncate ────────────────────────────────────── */
+
+.pd-truncate {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ── Viewer-specific overrides ────────────────────────────── */
+
+@keyframes sv-spin { to { transform: rotate(360deg); } }
+.osd-scalebar canvas { width:auto!important;height:auto!important;max-width:none!important;max-height:none!important; }
+.osd-scalebar { transition: width 0.1s linear; }
+
+/* Viewer toolbar buttons */
+.sv-tool-btn {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  background: rgba(255,255,255,0.05);
+  border: 1px solid var(--border-dark);
+  border-radius: var(--radius-md);
+  color: var(--text-dark-2);
+  padding: 4px 10px;
+  cursor: pointer;
+  font-size: var(--text-xs);
+  font-family: var(--font-sans);
+  transition: var(--transition-base);
+}
+
+.sv-tool-btn:hover {
+  background: rgba(255,255,255,0.10);
+  border-color: rgba(255,255,255,0.25);
+}
+
+.sv-tool-btn.active {
+  background: rgba(27,153,139,0.20);
+  border-color: var(--viewer-teal);
+  color: var(--viewer-teal-light);
+}
+
+/* Filmstrip scan chip */
+.sv-scan-chip { transition: border-color var(--transition-base), background var(--transition-base); }
+.sv-scan-chip:hover:not(.sv-active-l):not(.sv-active-r) {
+  border-color: rgba(255,255,255,0.35) !important;
+  background: rgba(255,255,255,0.06) !important;
+}

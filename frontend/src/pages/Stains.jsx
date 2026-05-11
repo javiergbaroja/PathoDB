@@ -1,9 +1,69 @@
 import { useState, useEffect } from 'react'
 import Layout from '../components/Layout'
-import { Badge, Btn, Panel, ErrorMsg, SpinnerPage, IdCell } from '../components/ui'
+import {
+  Badge, Btn, Table, Th, Td, Tr, IdCell,
+  ErrorMsg, SpinnerPage, Modal, FormLabel, FormInput, FormSelect,
+  FormField,
+} from '../components/ui'
 import { api } from '../api'
 
 const CATEGORIES = ['HE', 'IHC', 'special_stain', 'FISH', 'other']
+
+// ── Edit modal ────────────────────────────────────────────────────────────────
+
+function EditModal({ stain, onSave, onClose }) {
+  const [form, setForm] = useState({
+    stain_name:     stain.stain_name,
+    stain_category: stain.stain_category,
+    aliases:        stain.aliases?.join(', ') || '',
+  })
+  const [saving, setSaving] = useState(false)
+
+  async function handleSave() {
+    setSaving(true)
+    await onSave(stain.id, {
+      stain_name:     form.stain_name,
+      stain_category: form.stain_category,
+      aliases:        form.aliases.split(',').map(a => a.trim()).filter(Boolean),
+    })
+    setSaving(false)
+  }
+
+  return (
+    <Modal isOpen onClose={onClose} title="Edit stain" width={420}>
+      <Modal.Body>
+        <FormField label="Stain name">
+          <FormInput
+            value={form.stain_name}
+            onChange={e => setForm(f => ({ ...f, stain_name: e.target.value }))}
+          />
+        </FormField>
+        <FormField label="Aliases (comma separated)">
+          <FormInput
+            value={form.aliases}
+            onChange={e => setForm(f => ({ ...f, aliases: e.target.value }))}
+          />
+        </FormField>
+        <FormField label="Category">
+          <FormSelect
+            value={form.stain_category}
+            onChange={e => setForm(f => ({ ...f, stain_category: e.target.value }))}
+          >
+            {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+          </FormSelect>
+        </FormField>
+      </Modal.Body>
+      <Modal.Footer>
+        <Btn variant="ghost" onClick={onClose}>Cancel</Btn>
+        <Btn variant="primary" onClick={handleSave} disabled={saving}>
+          {saving ? 'Saving…' : 'Save'}
+        </Btn>
+      </Modal.Footer>
+    </Modal>
+  )
+}
+
+// ── Main page ─────────────────────────────────────────────────────────────────
 
 export default function Stains() {
   const [stains, setStains]   = useState([])
@@ -26,7 +86,7 @@ export default function Stains() {
     }
   }
 
-  useEffect(() => { load() }, [filter])
+  useEffect(() => { load() }, [filter]) // eslint-disable-line
 
   async function saveStain(id, data) {
     await api.updateStain(id, data)
@@ -36,29 +96,48 @@ export default function Stains() {
 
   const needsReview = stains.filter(s => s.needs_review)
 
-  const actions = (
-    <>
-      {needsReview.length > 0 && (
-        <span style={{ fontSize: 12, background: 'var(--warning-bg)', color: 'var(--warning)', padding: '5px 10px', borderRadius: 6, fontWeight: 500 }}>
-          {needsReview.length} stain{needsReview.length !== 1 ? 's' : ''} need review
-        </span>
-      )}
-    </>
+  const actions = needsReview.length > 0 && (
+    <span style={{
+      fontSize: 12,
+      background: 'var(--warning-bg)',
+      color: 'var(--warning)',
+      padding: '5px 10px',
+      borderRadius: 'var(--radius-md)',
+      fontWeight: 500,
+    }}>
+      {needsReview.length} stain{needsReview.length !== 1 ? 's' : ''} need review
+    </span>
   )
+
+  const selStyle = {
+    padding: '7px 10px',
+    border: '1px solid var(--border)',
+    borderRadius: 'var(--radius-md)',
+    fontSize: 'var(--text-base)',
+    background: 'var(--white)',
+    outline: 'none',
+  }
 
   return (
     <Layout title="Stains" actions={actions}>
-      <div style={{ height: '100%', overflowY: 'auto', padding: '20px 24px' }}>
-        <ErrorMsg message={error} />
+      <div style={{ height: '100%', overflowY: 'auto', padding: 'var(--space-5) var(--space-6)' }}>
+        <ErrorMsg message={error} onDismiss={() => setError('')} />
 
-        <div style={{ display: 'flex', gap: 10, marginBottom: 16, alignItems: 'center' }}>
-          <select style={selStyle} value={filter.category}
-            onChange={e => setFilter(f => ({ ...f, category: e.target.value }))}>
+        {/* Filters */}
+        <div style={{ display: 'flex', gap: 10, marginBottom: 'var(--space-4)', alignItems: 'center' }}>
+          <select
+            style={selStyle}
+            value={filter.category}
+            onChange={e => setFilter(f => ({ ...f, category: e.target.value }))}
+          >
             <option value="">All categories</option>
             {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
           </select>
-          <select style={selStyle} value={filter.needs_review}
-            onChange={e => setFilter(f => ({ ...f, needs_review: e.target.value }))}>
+          <select
+            style={selStyle}
+            value={filter.needs_review}
+            onChange={e => setFilter(f => ({ ...f, needs_review: e.target.value }))}
+          >
             <option value="">All</option>
             <option value="true">Needs review</option>
             <option value="false">Reviewed</option>
@@ -66,103 +145,64 @@ export default function Stains() {
         </div>
 
         {loading ? <SpinnerPage /> : (
-          <div style={{ background: 'white', border: '1px solid var(--border-l)', borderRadius: 8, overflow: 'hidden' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
-              <thead>
-                <tr style={{ background: 'var(--navy-05)' }}>
-                  {['Stain name', 'Category', 'Aliases', 'Scans', 'Status', ''].map(h => (
-                    <th key={h} style={thStyle}>{h}</th>
-                  ))}
+          <Table>
+            <thead>
+              <tr>
+                <Th>Stain name</Th>
+                <Th>Category</Th>
+                <Th>Aliases</Th>
+                <Th>Scans</Th>
+                <Th>Status</Th>
+                <Th />
+              </tr>
+            </thead>
+            <tbody>
+              {stains.map(s => (
+                <Tr key={s.id} style={{ background: s.needs_review ? 'var(--warning-bg)' : 'var(--white)' }}>
+                  <Td><IdCell>{s.stain_name}</IdCell></Td>
+                  <Td>
+                    <Badge variant={s.stain_category === 'HE' ? 'navy' : 'muted'}>
+                      {s.stain_category}
+                    </Badge>
+                  </Td>
+                  <Td mono style={{ color: 'var(--text-3)', fontSize: 'var(--text-sm)' }}>
+                    {s.aliases?.join(', ') || '—'}
+                  </Td>
+                  <Td>
+                    <span style={{
+                      fontFamily: 'var(--font-mono)',
+                      fontSize: 13,
+                      color: s.scan_count > 0 ? 'var(--navy)' : 'var(--text-3)',
+                      fontWeight: s.scan_count > 0 ? 600 : 400,
+                    }}>
+                      {s.scan_count.toLocaleString()}
+                    </span>
+                  </Td>
+                  <Td>
+                    {s.needs_review
+                      ? <Badge variant="warning">Needs review</Badge>
+                      : <Badge variant="green">OK</Badge>}
+                  </Td>
+                  <Td style={{ textAlign: 'right' }}>
+                    <Btn variant="ghost" small onClick={() => setEditing(s)}>Edit</Btn>
+                  </Td>
+                </Tr>
+              ))}
+              {stains.length === 0 && (
+                <tr>
+                  <td colSpan={6} style={{ padding: 24, textAlign: 'center', color: 'var(--text-3)' }}>
+                    No stains found
+                  </td>
                 </tr>
-              </thead>
-              <tbody>
-                {stains.map(s => (
-                  <tr key={s.id} style={{ background: s.needs_review ? 'var(--warning-bg)' : 'white' }}>
-                    <td style={tdStyle}><IdCell>{s.stain_name}</IdCell></td>
-                    <td style={tdStyle}>
-                      <Badge variant={s.stain_category === 'HE' ? 'navy' : 'muted'}>{s.stain_category}</Badge>
-                    </td>
-                    <td style={{ ...tdStyle, color: 'var(--text-3)', fontFamily: 'var(--font-mono)', fontSize: 11 }}>
-                      {s.aliases?.join(', ') || '—'}
-                    </td>
-                    <td style={tdStyle}>
-                      <span style={{ fontFamily: 'var(--font-mono)', fontSize: 13, color: s.scan_count > 0 ? 'var(--navy)' : 'var(--text-3)', fontWeight: s.scan_count > 0 ? 600 : 400 }}>
-                        {s.scan_count.toLocaleString()}
-                      </span>
-                    </td>
-                    <td style={tdStyle}>
-                      {s.needs_review
-                        ? <Badge variant="warning">Needs review</Badge>
-                        : <Badge variant="green">OK</Badge>
-                      }
-                    </td>
-                    <td style={{ ...tdStyle, textAlign: 'right' }}>
-                      <Btn variant="ghost" small onClick={() => setEditing(s)}>Edit</Btn>
-                    </td>
-                  </tr>
-                ))}
-                {stains.length === 0 && (
-                  <tr><td colSpan={6} style={{ padding: 24, textAlign: 'center', color: 'var(--text-3)' }}>No stains found</td></tr>
-                )}
-              </tbody>
-            </table>
-          </div>
+              )}
+            </tbody>
+          </Table>
         )}
 
-        {editing && <EditModal stain={editing} onSave={saveStain} onClose={() => setEditing(null)} />}
+        {editing && (
+          <EditModal stain={editing} onSave={saveStain} onClose={() => setEditing(null)} />
+        )}
       </div>
     </Layout>
   )
 }
-
-function EditModal({ stain, onSave, onClose }) {
-  const [form, setForm]   = useState({
-    stain_name:     stain.stain_name,
-    stain_category: stain.stain_category,
-    aliases:        stain.aliases?.join(', ') || '',
-  })
-  const [saving, setSaving] = useState(false)
-
-  async function handleSave() {
-    setSaving(true)
-    await onSave(stain.id, {
-      stain_name:     form.stain_name,
-      stain_category: form.stain_category,
-      aliases:        form.aliases.split(',').map(a => a.trim()).filter(Boolean),
-    })
-    setSaving(false)
-  }
-
-  return (
-    <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(0,20,100,0.3)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 100 }}>
-      <div onClick={e => e.stopPropagation()} style={{ background: 'white', borderRadius: 12, padding: 24, width: 420, boxShadow: '0 8px 32px rgba(0,20,100,0.18)' }}>
-        <h3 style={{ fontFamily: 'var(--font-serif)', fontSize: 18, marginBottom: 20, color: 'var(--navy)' }}>Edit stain</h3>
-        {[
-          { label: 'Stain name',                key: 'stain_name' },
-          { label: 'Aliases (comma separated)', key: 'aliases' },
-        ].map(({ label, key }) => (
-          <div key={key} style={{ marginBottom: 14 }}>
-            <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 5 }}>{label}</label>
-            <input type="text" style={{ width: '100%', padding: '7px 10px', border: '1px solid var(--border)', borderRadius: 6, fontSize: 13, outline: 'none' }}
-              value={form[key]} onChange={e => setForm(f => ({ ...f, [key]: e.target.value }))} />
-          </div>
-        ))}
-        <div style={{ marginBottom: 20 }}>
-          <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: 5 }}>Category</label>
-          <select style={{ width: '100%', padding: '7px 10px', border: '1px solid var(--border)', borderRadius: 6, fontSize: 13, outline: 'none' }}
-            value={form.stain_category} onChange={e => setForm(f => ({ ...f, stain_category: e.target.value }))}>
-            {['HE','IHC','special_stain','FISH','other'].map(c => <option key={c} value={c}>{c}</option>)}
-          </select>
-        </div>
-        <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-          <Btn variant="ghost" onClick={onClose}>Cancel</Btn>
-          <Btn variant="primary" onClick={handleSave} disabled={saving}>{saving ? 'Saving…' : 'Save'}</Btn>
-        </div>
-      </div>
-    </div>
-  )
-}
-
-const thStyle  = { padding: '10px 14px', textAlign: 'left', fontSize: 11, fontWeight: 600, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.06em', borderBottom: '1px solid var(--border-l)' }
-const tdStyle  = { padding: '10px 14px', borderBottom: '1px solid var(--border-l)', verticalAlign: 'middle' }
-const selStyle = { padding: '7px 10px', border: '1px solid var(--border)', borderRadius: 6, fontSize: 13, background: 'white', outline: 'none' }

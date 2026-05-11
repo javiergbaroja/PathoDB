@@ -1,18 +1,11 @@
 // frontend/src/pages/PatientDetail/SummaryPanel.jsx
-
 import { useState, useRef, useEffect } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { request } from '../../api/client' 
+import { request } from '../../api/client'
 import { getSummarizeHealth, streamPatientSummary } from '../../api/summarize'
+import { Spinner, Btn } from '../../components/ui'
 
-// ── Visual constants ───────────────────────────────────────────────────────────
-const PANEL_BG     = 'white'
-const ACCENT       = 'var(--navy)'
-const BORDER       = 'var(--border-l)'
-const TEXT_BODY    = 'var(--text-1)'
-const TEXT_MUTED   = 'var(--text-3)'
-
-// ── Sub-components ─────────────────────────────────────────────────────────────
+// ── Sparkle icon ──────────────────────────────────────────────────────────────
 
 function SparkleIcon() {
   return (
@@ -22,8 +15,8 @@ function SparkleIcon() {
   )
 }
 
+// Blinking cursor for streaming
 function Cursor() {
-  // Blinking cursor shown while streaming
   return (
     <span style={{
       display: 'inline-block',
@@ -32,69 +25,51 @@ function Cursor() {
       background: 'var(--navy)',
       marginLeft: 2,
       verticalAlign: 'text-bottom',
-      animation: 'sp-blink 0.9s step-end infinite',
+      animation: 'blink 0.9s step-end infinite',
     }} />
   )
 }
 
-// Inject cursor blink animation once
-if (typeof document !== 'undefined' && !document.getElementById('sp-styles')) {
+// Inject blink keyframe once
+if (typeof document !== 'undefined' && !document.getElementById('sp-blink-style')) {
   const s = document.createElement('style')
-  s.id = 'sp-styles'
-  s.textContent = `@keyframes sp-blink { 0%,100%{opacity:1} 50%{opacity:0} }`
+  s.id = 'sp-blink-style'
+  s.textContent = `@keyframes blink { 0%,100%{opacity:1} 50%{opacity:0} }`
   document.head.appendChild(s)
 }
 
-// ── Main component ─────────────────────────────────────────────────────────────
+// ── Main component ────────────────────────────────────────────────────────────
 
 export default function SummaryPanel({ patientId }) {
-  const [status, setStatus]   = useState('idle')
+  const [status,   setStatus]   = useState('idle')
   // idle | checking | streaming | done | error | offline
-  const [text, setText]       = useState('')
+  const [text,     setText]     = useState('')
   const [errorMsg, setErrorMsg] = useState('')
-  const [open, setOpen]       = useState(true)
+  const [open,     setOpen]     = useState(true)
 
-  // Keep a ref to the abort controller so we can cancel on unmount
-  const abortRef = useRef(null)
+  const abortRef    = useRef(null)
   const queryClient = useQueryClient()
 
-  const fetchSummary = async (patientId) => {
-    // 1. Use the standard request utility to bypass any broken 'api' wrappers
-    // 2. Add ?_t=Date.now() to bust the browser cache and force a true network call
-    const res = await request('GET', `/summarize/patient/${patientId}/summary?_t=${Date.now()}`)
-    
-    // Safely return the payload regardless of how `request` unwraps it
+  async function fetchSummary(id) {
+    const res = await request('GET', `/summarize/patient/${id}/summary?_t=${Date.now()}`)
     return res?.data !== undefined ? res.data : res
   }
 
-  // ─────────────────────────────────────────────────────────────
-  // React Query: persisted DB summary
-  // ─────────────────────────────────────────────────────────────
- const { data, isLoading } = useQuery({
-    // Cast to String to prevent integer/string mismatches from URL params
-    queryKey: ['patient-summary', String(patientId)], 
-    queryFn: () => fetchSummary(patientId),
-    enabled: !!patientId,
+  const { data, isLoading } = useQuery({
+    queryKey: ['patient-summary', String(patientId)],
+    queryFn:  () => fetchSummary(patientId),
+    enabled:  !!patientId,
   })
 
-  // ─────────────────────────────────────────────────────────────
-  // Hydrate local state (keeps original streaming UX)
-  // ─────────────────────────────────────────────────────────────
   useEffect(() => {
     if (data?.summary_text) {
       setText(data.summary_text)
       setStatus('done')
     }
-    console.log('SummaryPanel DB Fetch —', { isLoading, data })
-  }, [data, isLoading])
+  }, [data])
 
-  // ─────────────────────────────────────────────────────────────
-  // Streaming generation
-  // ─────────────────────────────────────────────────────────────
   async function handleGenerate() {
-    // ADD THIS: Safely cancel any existing stream before starting a new one
-    abortRef.current?.abort() 
-    
+    abortRef.current?.abort()
     setStatus('checking')
     setText('')
     setErrorMsg('')
@@ -103,10 +78,7 @@ export default function SummaryPanel({ patientId }) {
       const health = await getSummarizeHealth()
       if (!health.model_available) {
         setStatus('offline')
-        setErrorMsg(
-          `Model "${health.model}" is not pulled on the Ollama host. ` +
-          `Run: ollama pull ${health.model}`
-        )
+        setErrorMsg(`Model "${health.model}" is not pulled on the Ollama host. Run: ollama pull ${health.model}`)
         return
       }
     } catch (err) {
@@ -119,56 +91,59 @@ export default function SummaryPanel({ patientId }) {
 
     abortRef.current = streamPatientSummary(
       patientId,
-      // onToken
-      (token) => setText(prev => prev + token),
-
+      token  => setText(prev => prev + token),
       async () => {
         setStatus('done')
-        await queryClient.invalidateQueries({
-          queryKey: ['patient-summary', String(patientId)]
-        })
+        await queryClient.invalidateQueries({ queryKey: ['patient-summary', String(patientId)] })
       },
-
-      (msg) => {
-        setStatus('error')
-        setErrorMsg(msg)
-      },
+      msg => { setStatus('error'); setErrorMsg(msg) },
     )
   }
 
-  function handleCancel() {
-    abortRef.current?.abort()
-    setStatus('done')
-  }
-
-  function handleReset() {
-    abortRef.current?.abort()
-    setStatus('idle')
-    setText('')
-    setErrorMsg('')
-  }
+  function handleCancel() { abortRef.current?.abort(); setStatus('done') }
+  function handleReset()  { abortRef.current?.abort(); setStatus('idle'); setText(''); setErrorMsg('') }
 
   const isStreaming = status === 'streaming'
   const isDone      = status === 'done'
   const isError     = status === 'error' || status === 'offline'
   const hasText     = text.length > 0
 
+  // ── Status badge ────────────────────────────────────────────────────────
+  function StatusChip() {
+    if (isStreaming) return (
+      <span style={{ fontSize: 10, padding: '2px 8px', borderRadius: 'var(--radius-full)', background: 'var(--navy-10)', color: 'var(--navy)', fontWeight: 500 }}>
+        Generating…
+      </span>
+    )
+    if (isDone && hasText) return (
+      <span style={{ fontSize: 10, padding: '2px 8px', borderRadius: 'var(--radius-full)', background: 'var(--success-bg)', color: 'var(--success)', fontWeight: 500 }}>
+        Ready
+      </span>
+    )
+    if (isError) return (
+      <span style={{ fontSize: 10, padding: '2px 8px', borderRadius: 'var(--radius-full)', background: 'var(--crimson-10)', color: 'var(--crimson)', fontWeight: 500 }}>
+        Offline
+      </span>
+    )
+    return null
+  }
+
   return (
     <div style={{
-      border: `1px solid ${BORDER}`,
-      borderRadius: 8,
-      background: PANEL_BG,
+      border: '1px solid var(--border-l)',
+      borderRadius: 'var(--radius-lg)',
+      background: 'var(--white)',
       overflow: 'hidden',
-      marginBottom: 16,
+      marginBottom: 'var(--space-4)',
     }}>
-
-      {/* ── Header row ── */}
+      {/* Header */}
       <div
         onClick={() => setOpen(o => !o)}
         style={{
           display: 'flex', alignItems: 'center', gap: 8,
-          padding: '10px 14px', cursor: 'pointer',
-          borderBottom: open ? `1px solid ${BORDER}` : 'none',
+          padding: '10px 14px',
+          cursor: 'pointer',
+          borderBottom: open ? '1px solid var(--border-l)' : 'none',
           background: 'var(--navy-05)',
           userSelect: 'none',
         }}
@@ -177,98 +152,58 @@ export default function SummaryPanel({ patientId }) {
           <SparkleIcon />
         </span>
         <span style={{
-          fontSize: 11, fontWeight: 600, color: TEXT_MUTED,
+          fontSize: 'var(--text-sm)', fontWeight: 600, color: 'var(--text-3)',
           textTransform: 'uppercase', letterSpacing: '0.07em', flex: 1,
         }}>
           AI History Summary
         </span>
-
-        {/* Status badge */}
-        {isStreaming && (
-          <span style={{
-            fontSize: 10, padding: '2px 8px', borderRadius: 20,
-            background: 'var(--navy-10)', color: 'var(--navy)', fontWeight: 500,
-          }}>
-            Generating…
-          </span>
-        )}
-        {isDone && hasText && (
-          <span style={{
-            fontSize: 10, padding: '2px 8px', borderRadius: 20,
-            background: 'var(--success-bg)', color: 'var(--success)', fontWeight: 500,
-          }}>
-            Ready
-          </span>
-        )}
-        {isError && (
-          <span style={{
-            fontSize: 10, padding: '2px 8px', borderRadius: 20,
-            background: 'var(--crimson-10)', color: 'var(--crimson)', fontWeight: 500,
-          }}>
-            Offline
-          </span>
-        )}
-
-        <span style={{ fontSize: 11, color: TEXT_MUTED }}>
+        <StatusChip />
+        <span style={{ fontSize: 'var(--text-sm)', color: 'var(--text-3)' }}>
           {open ? '▾' : '▸'}
         </span>
       </div>
 
-      {/* ── Body ── */}
+      {/* Body */}
       {open && (
-        <div style={{ padding: '14px 16px' }}>
+        <div style={{ padding: 'var(--space-3) 16px 14px' }}>
 
-          {/* Idle state — show generate button */}
+          {/* Idle */}
           {status === 'idle' && (
             <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-              <p style={{ flex: 1, fontSize: 12, color: TEXT_MUTED, lineHeight: 1.5, margin: 0 }}>
-                Generate a concise narrative of this patient's pathology history
-                using a locally-hosted language model. No data leaves the server.
+              <p style={{ flex: 1, fontSize: 12, color: 'var(--text-3)', lineHeight: 1.5, margin: 0 }}>
+                Generate a concise narrative of this patient's pathology history using a locally-hosted language model. No data leaves the server.
               </p>
-              <button onClick={handleGenerate} style={btnStyle('primary')}>
+              <Btn variant="ghost" small onClick={handleGenerate}>
                 <SparkleIcon /> Generate
-              </button>
+              </Btn>
             </div>
           )}
 
-          {/* Checking state */}
+          {/* Checking */}
           {status === 'checking' && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: TEXT_MUTED, fontSize: 13 }}>
-              <MiniSpinner /> Checking LLM service…
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: 'var(--text-3)', fontSize: 13 }}>
+              <Spinner size={14} /> Checking LLM service…
             </div>
           )}
 
-
-          {/* Loading DB */}
+          {/* Loading DB summary */}
           {isLoading && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: TEXT_MUTED, fontSize: 13 }}>
-              <MiniSpinner /> Loading saved summary…
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: 'var(--text-3)', fontSize: 13 }}>
+              <Spinner size={14} /> Loading saved summary…
             </div>
           )}
 
-          {/* Streaming / done state — show accumulated text */}
+          {/* Streaming / done — show text */}
           {(isStreaming || isDone) && hasText && (
             <div>
-              <p style={{
-                fontSize: 13, lineHeight: 1.75, color: TEXT_BODY,
-                margin: '0 0 12px',
-                whiteSpace: 'pre-wrap',
-              }}>
+              <p style={{ fontSize: 13, lineHeight: 1.75, color: 'var(--text-1)', margin: '0 0 12px', whiteSpace: 'pre-wrap' }}>
                 {text}
                 {isStreaming && <Cursor />}
               </p>
-              <div style={{ display: 'flex', gap: 8 }}>
-                {isStreaming && (
-                  <button onClick={handleCancel} style={btnStyle('ghost')}>
-                    Stop
-                  </button>
-                )}
-                {isDone && (
-                  <button onClick={handleGenerate} style={btnStyle('ghost')}>
-                    Regenerate
-                  </button>
-                )}
-                <span style={{ fontSize: 11, color: TEXT_MUTED, alignSelf: 'center' }}>
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                {isStreaming && <Btn variant="ghost" small onClick={handleCancel}>Stop</Btn>}
+                {isDone      && <Btn variant="ghost" small onClick={handleGenerate}>Regenerate</Btn>}
+                <span style={{ fontSize: 'var(--text-sm)', color: 'var(--text-3)' }}>
                   Local model · data never leaves server
                 </span>
               </div>
@@ -277,71 +212,35 @@ export default function SummaryPanel({ patientId }) {
 
           {/* Streaming started but no text yet */}
           {isStreaming && !hasText && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: TEXT_MUTED, fontSize: 13 }}>
-              <MiniSpinner /> Loading model and generating…
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: 'var(--text-3)', fontSize: 13 }}>
+              <Spinner size={14} /> Loading model and generating…
             </div>
           )}
 
-          {/* Error / offline state */}
+          {/* Error / offline */}
           {isError && (
             <div>
               <div style={{
                 background: 'var(--warning-bg)',
                 border: '1px solid #e8c84a',
-                borderRadius: 6, padding: '10px 12px',
-                fontSize: 12, color: 'var(--warning)',
-                marginBottom: 10, lineHeight: 1.5,
+                borderRadius: 'var(--radius-md)',
+                padding: '10px 12px',
+                fontSize: 12,
+                color: 'var(--warning)',
+                marginBottom: 10,
+                lineHeight: 1.5,
               }}>
                 <strong>LLM service unavailable</strong>
                 {errorMsg && <div style={{ marginTop: 4, opacity: 0.85 }}>{errorMsg}</div>}
               </div>
-              <div style={{ fontSize: 11, color: TEXT_MUTED, marginBottom: 10, lineHeight: 1.5 }}>
+              <div style={{ fontSize: 'var(--text-sm)', color: 'var(--text-3)', marginBottom: 10, lineHeight: 1.5 }}>
                 To enable this feature, start Ollama on the HPC node with sufficient CPU resources.
-                See the deployment guide for SLURM setup instructions.
               </div>
-              <button onClick={handleReset} style={btnStyle('ghost')}>
-                Try again
-              </button>
+              <Btn variant="ghost" small onClick={handleReset}>Try again</Btn>
             </div>
           )}
         </div>
       )}
     </div>
   )
-}
-
-// ── Helper components ──────────────────────────────────────────────────────────
-
-function MiniSpinner() {
-  return (
-    <div style={{
-      width: 14, height: 14, borderRadius: '50%',
-      border: '2px solid var(--navy-20)',
-      borderTopColor: 'var(--navy)',
-      animation: 'spin 0.7s linear infinite',
-      flexShrink: 0,
-    }} />
-  )
-}
-
-// ── Styles ─────────────────────────────────────────────────────────────────────
-
-function btnStyle(variant) {
-  const base = {
-    display: 'inline-flex', alignItems: 'center', gap: 5,
-    padding: '6px 12px', borderRadius: 6,
-    fontSize: 12, fontFamily: 'var(--font-sans)',
-    fontWeight: 500, cursor: 'pointer',
-    border: 'none', transition: 'all 0.15s',
-    whiteSpace: 'nowrap',
-  }
-  if (variant === 'primary') return {
-    ...base,
-    background: 'var(--navy)', color: 'white',
-  }
-  return {
-    ...base,
-    background: 'transparent', color: 'var(--text-2)',
-    border: '1px solid var(--border)',
-  }
 }
