@@ -737,7 +737,7 @@ def download_job_file(
 
 class BatchAnalysisRequest(BaseModel):
     model_id: str
-    output_directory: str
+    output_directory: Optional[str] = None
     scan_ids: List[int]
     params: dict = {}
 
@@ -754,14 +754,41 @@ def submit_batch_job(
     if not model:
         raise HTTPException(status_code=422, detail=f"Model '{req.model_id}' not found.")
 
+    # 1. SECURITY VALIDATION: Ensure user has permission to ingest into this project
+    project_id = req.params.get("project_id")
+    if project_id:
+        from ..models import Project, ProjectShare # Ensure imported
+        project = db.get(Project, int(project_id))
+        
+        if not project:
+            raise HTTPException(status_code=404, detail="Target project not found.")
+            
+        # User must be the owner, an admin, or have 'edit' access via a share
+        if project.owner_id != user.id and user.role != "admin":
+            share = db.query(ProjectShare).filter_by(
+                project_id=project.id, 
+                shared_with_user_id=user.id, 
+                access_level="edit"
+            ).first()
+            if not share:
+                raise HTTPException(status_code=403, detail="Not authorized to auto-ingest into this project.")
+
+    # 2. CONTEXT & DIRECTORY ROUTING
     req.params["is_batch"] = True
-    req.params["output_directory"] = req.output_directory
+    
+    # Treat empty string "" (from UI) and None exactly the same
+    is_auto_ingest = not bool(req.output_directory) 
+
+    if not is_auto_ingest:
+        req.params["output_directory"] = req.output_directory
+    else:
+        req.params["auto_ingest"] = True 
     
     job = AnalysisJob(
         scan_id=req.scan_ids[0],
         model_id=req.model_id,
         status="queued",
-        scope="whole_slide", # Bypasses the DB constraint
+        scope="whole_slide", 
         params_json=req.params,
         submitted_by=user.id,
     )
@@ -769,20 +796,22 @@ def submit_batch_job(
     db.commit()
     db.refresh(job)
 
-    # 1. API Tracking Directory (Metadata)
+    # API Tracking Directory (Metadata)
     result_dir = _job_result_dir(job.id)
     result_dir.mkdir(parents=True, exist_ok=True)
 
-    # 2. User Custom Directory (Heavy Overlays)
-    custom_out_dir = Path(req.output_directory) / f"batch_job_{job.id}"
-    try:
-        custom_out_dir.mkdir(parents=True, exist_ok=True)
-    except Exception as e:
-        job.status = "failed"
-        job.error_message = f"Failed to create output directory: {e}"
-        job.updated_at = datetime.now(timezone.utc)
-        db.commit()
-        raise HTTPException(status_code=500, detail=f"Invalid output directory: {e}")
+    if not is_auto_ingest:
+        custom_out_dir = Path(req.output_directory) / f"batch_job_{job.id}"
+        try:
+            custom_out_dir.mkdir(parents=True, exist_ok=True)
+        except Exception as e:
+            job.status = "failed"
+            job.error_message = f"Failed to create output directory: {e}"
+            db.commit()
+            raise HTTPException(status_code=500, detail=f"Invalid output directory: {e}")
+    else:
+        # Keep everything in the internal tracking directory for UI jobs
+        custom_out_dir = result_dir
 
     model_script = _models_dir() / req.model_id / "run_batch.sh"
     if not model_script.exists():
@@ -794,34 +823,53 @@ def submit_batch_job(
     scans = db.query(Scan).filter(Scan.id.in_(req.scan_ids)).all()
     target_files = [{"scan_id": s.id, "file_path": s.file_path} for s in scans]
 
-    # Write context to the API Tracking Directory
+    # 3. WRITE THE CONTEXT FILE (Watcher needs this to map classes & get project_id!)
     context_file = result_dir / "batch_context.json"
-    
     context_data = {
         "job_id": job.id,
-        "result_dir": str(result_dir),         # For progress/results
-        "output_dir": str(custom_out_dir),     # For GeoJSONs
-        "params": req.params,
+        "result_dir": str(result_dir),         
+        "output_dir": str(custom_out_dir),     
+        "params": req.params,                  
         "targets": target_files
     }
     context_file.write_text(json.dumps(context_data), encoding="utf-8")
 
-    # Log file also goes to the tracking directory
+    # 4. SUBMIT GPU MODEL INFERENCE JOB
     log_file = result_dir / "slurm_%j.out"
-    sbatch_cmd = [
+    sbatch_cmd_gpu = [
         "sbatch", "--parsable",
         f"--job-name=pathodb_batch_{req.model_id}_{job.id}",
         f"--output={log_file}", "--export=NONE",
-        str(model_script), str(context_file)
+        str(model_script), 
+        str(context_file)
     ]
 
     try:
-        result = subprocess.run(sbatch_cmd, capture_output=True, text=True, timeout=15)
+        # Launch GPU script
+        result = subprocess.run(sbatch_cmd_gpu, capture_output=True, text=True, timeout=15)
         if result.returncode != 0:
-            err = result.stderr.strip() or "sbatch returned non-zero exit code"
-            raise Exception(err)
+            raise Exception(result.stderr.strip() or "sbatch returned non-zero exit code")
 
         job.slurm_job_id = int(result.stdout.strip().split(";")[0])
+        
+        # 5. CONDITIONALLY SUBMIT CPU WATCHER JOB
+        if is_auto_ingest:
+            # Note: Adjust this path depending on exactly where you saved run_watcher.sh!
+            watcher_sh = Path(__file__).resolve().parents[2] / "workers" / "run_watcher.sh"
+            watcher_log = result_dir / "watcher_%j.out"
+            
+            # Watcher takes 2 arguments: The Directory to watch, and the Context file (for class mappings)
+            sbatch_cmd_cpu = [
+                "sbatch", "--parsable",
+                f"--job-name=pathodb_watcher_{job.id}",
+                f"--output={watcher_log}",
+                str(watcher_sh),
+                str(custom_out_dir),  
+                str(context_file)     
+            ]
+            subprocess.run(sbatch_cmd_cpu, capture_output=True, text=True, timeout=15)
+            log.info(f"Auto-ingest requested. Submitted CPU Watcher job for analysis job {job.id}")
+
         job.updated_at = datetime.now(timezone.utc)
         db.commit()
 

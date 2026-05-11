@@ -32,6 +32,7 @@
     "category": "Segmentation",
     "supports_batch": true,
     "stain_compatibility": ["HE"],
+    "classes": ["Fat", "Normal Mucosa", "Lymphoid tissue", "Stroma", "Mucous", "Tumor", "Muscle/vessel", "Nerve", "Blood"],
     "estimated_minutes": 8,
     "result_type": "segmentation",
     "params": [

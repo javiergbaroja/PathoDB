@@ -7,11 +7,12 @@ import { Btn, SpinnerPage, ErrorMsg } from '../../components/ui'
 import { api } from '../../api'
 import CreateProjectModal from './CreateProjectModal'
 import ShareModal from './ShareModal'
+import BatchAIModal from '../ProjectDetail/BatchAIModal'
 
 const token = () => localStorage.getItem('pathodb_token')
 
 // ─── Project card ─────────────────────────────────────────────────────────────
-function ProjectCard({ project, onOpen, onShare, onDelete, isOwner }) {
+function ProjectCard({ project, onOpen, onShare, onDelete, isOwner, onBatchAI }) {
   const [imgError, setImgError] = useState(false)
   const pct = project.scan_count > 0
     ? Math.round((project.annotated_scans / project.scan_count) * 100)
@@ -115,9 +116,14 @@ function ProjectCard({ project, onOpen, onShare, onDelete, isOwner }) {
       </div>
 
       {/* Footer actions */}
-      <div onClick={e => e.stopPropagation()} style={{ padding:'10px 14px', borderTop:'1px solid var(--border-l)', display:'flex', gap:6, alignItems:'center' }}>
-        <Btn variant="primary" small onClick={() => onOpen(project.id)}>
-          Open ↗
+      <div onClick={e => e.stopPropagation()} style={{ padding:'10px 14px', borderTop:'1px solid var(--border-l)', display:'flex', gap:6, alignItems:'center', flexWrap: 'wrap' }}>
+        
+        <Btn variant="ghost" small onClick={() => onOpen(project.id)}>
+          Open
+        </Btn>
+
+        <Btn variant="ghost" small onClick={(e) => { e.stopPropagation(); onBatchAI(); }}>
+          🪄 Batch AI
         </Btn>
 
         {project.annotation_count > 0 && (
@@ -137,14 +143,9 @@ function ProjectCard({ project, onOpen, onShare, onDelete, isOwner }) {
         <div style={{ flex:1 }} />
 
         {isOwner && (
-          <button
-            onClick={() => onDelete(project)}
-            style={{ background:'none', border:'none', cursor:'pointer', color:'var(--text-3)', fontSize:11, fontFamily:'var(--font-sans)', padding:'3px 6px', borderRadius:4 }}
-            onMouseEnter={e => e.currentTarget.style.color = 'var(--crimson)'}
-            onMouseLeave={e => e.currentTarget.style.color = 'var(--text-3)'}
-          >
+          <Btn variant="ghost" small onClick={() => onDelete(project)} style={{ color: 'var(--crimson)' }}>
             Delete
-          </button>
+          </Btn>
         )}
       </div>
     </div>
@@ -153,6 +154,7 @@ function ProjectCard({ project, onOpen, onShare, onDelete, isOwner }) {
 
 // ─── Main page ────────────────────────────────────────────────────────────────
 export default function Projects() {
+  const [aiTargetProjectId, setAiTargetProjectId] = useState(null)
   const navigate     = useNavigate()
   const queryClient  = useQueryClient()
   const [showCreate, setShowCreate]   = useState(false)
@@ -199,6 +201,7 @@ export default function Projects() {
 
   const ownedProjects  = projects.filter(p => p.owner_id === myUserId)
   const sharedProjects = projects.filter(p => p.owner_id !== myUserId)
+  const targetProject = projects.find(p => p.id === aiTargetProjectId)
 
   return (
     <Layout title="Projects" actions={actions}>
@@ -216,7 +219,9 @@ export default function Projects() {
                   <ProjectCard key={p.id} project={p} isOwner={true}
                     onOpen={id => navigate(`/projects/${id}`)}
                     onShare={setShareTarget}
-                    onDelete={setDeleteTarget} />
+                    onDelete={setDeleteTarget}
+                    onBatchAI={() => setAiTargetProjectId(p.id)} 
+                  />
                 ))}
               </Section>
             )}
@@ -228,13 +233,17 @@ export default function Projects() {
                   <ProjectCard key={p.id} project={p} isOwner={false}
                     onOpen={id => navigate(`/projects/${id}`)}
                     onShare={() => {}}
-                    onDelete={() => {}} />
+                    onDelete={() => {}}
+                    onBatchAI={() => setAiTargetProjectId(p.id)} 
+                  />
                 ))}
               </Section>
             )}
           </>
         )}
       </div>
+
+      {/* --- MODALS --- */}
 
       {showCreate && (
         <CreateProjectModal
@@ -276,6 +285,14 @@ export default function Projects() {
           </div>
         </div>
       )}
+
+      {/* NEW: Batch AI Modal */}
+      <BatchAIModal 
+        isOpen={!!aiTargetProjectId}
+        projectId={aiTargetProjectId}
+        projectClasses={targetProject?.classes || []} // <--- Added this line
+        onClose={() => setAiTargetProjectId(null)}
+      />
     </Layout>
   )
 }

@@ -11,6 +11,7 @@ import ClassPanel from './ClassPanel'
 import SlideTray from './SlideTray'
 import ImportModal from './ImportModal'
 import { AI_ROI_CLASS } from './ProjectModelsPanel'                   // ← NEW
+import BatchAIModal from './BatchAIModal'
 import RBush from 'rbush'
 import { getAnnotationBBox } from '../../lib/annotationMath'
 
@@ -39,6 +40,7 @@ function ensureGammaFilter() {
 
 export default function ProjectDetail() {
   const { projectId } = useParams()
+  const [showBatchAIModal, setShowBatchAIModal] = useState(false)
   const navigate      = useNavigate()
   const token         = localStorage.getItem('pathodb_token')
   const queryClient   = useQueryClient()
@@ -670,6 +672,19 @@ export default function ProjectDetail() {
         )}
 
         {!readOnly && (
+          <button 
+            onClick={() => setShowBatchAIModal(true)}
+            style={{ display:'flex', alignItems:'center', gap:5, padding:'5px 12px', 
+              background: 'rgba(167,139,250,0.15)', color: '#a78bfa', 
+              border: '1px solid rgba(167,139,250,0.3)', borderRadius: 6, 
+              fontSize: 11, fontWeight: 600, cursor: 'pointer', fontFamily:'sans-serif' }}
+          >
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
+            Batch AI
+          </button>
+        )}
+
+        {!readOnly && (
           <button onClick={() => setShowImportModal(true)}
             style={{ display:'flex', alignItems:'center', gap:5, padding:'5px 12px',
               borderRadius:6, background:'rgba(255,255,255,0.05)',
@@ -681,7 +696,7 @@ export default function ProjectDetail() {
             </svg>
             Import
           </button>
-        )}
+        )}        
 
         <button onClick={() => window.open(`/api/projects/${projectId}/export`, '_blank')}
           style={{ display:'flex', alignItems:'center', gap:5, padding:'5px 12px',
@@ -858,6 +873,13 @@ export default function ProjectDetail() {
         isOpen={showImportModal}
         onClose={() => setShowImportModal(false)}
         onImport={handleImportGeoJSON}
+      />
+      <BatchAIModal 
+        isOpen={showBatchAIModal} 
+        onClose={() => setShowBatchAIModal(false)} 
+        projectId={Number(projectId)}
+        projectClasses={project?.classes || []} // <--- Pass classes directly
+        projectScans={projectScans}             // <--- Pass scans directly
       />
     </div>
   )
