@@ -120,7 +120,7 @@ echo "Ollama running on $(hostname):11434 (PID $OLLAMA_PID)"
 # ── Start API server ──────────────────────────────────────────────────────────
 echo ""
 echo "Starting FastAPI server..."
-uvicorn api.main:app \
+python3 -m uvicorn api.main:app \
     --host 0.0.0.0 \
     --port "$API_PORT" \
     --workers 2 \

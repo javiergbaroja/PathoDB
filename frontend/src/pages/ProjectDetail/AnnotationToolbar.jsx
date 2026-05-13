@@ -1,20 +1,12 @@
 // frontend/src/pages/ProjectDetail/AnnotationToolbar.jsx
-//
-// Changes vs previous version:
-//  FIX 2 — Select tool added as the first tool in the list, shortcut M,
-//           with a standard arrow/pointer icon. Matches QuPath's "Move" tool
-//           which also serves as the annotation selector.
-
-import { useViewerStore } from '../../store/viewerStore'
+import { SliderRow, Divider } from '../../components/ui'
 
 const TOOLS = [
-  // FIX 2: Select tool — first in the list, just like QuPath's toolbar.
   {
     id: 'select',
     label: 'Select (move)',
     shortcut: 'M',
     icon: (
-      // Arrow/pointer cursor icon
       <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor">
         <path d="M14.082 2.182a.5.5 0 01.103.557L8.528 15.467a.5.5 0 01-.917-.007L5.57 10.694.803 8.652a.5.5 0 01-.006-.916l12.728-5.657a.5.5 0 01.556.103z"/>
       </svg>
@@ -85,13 +77,10 @@ export default function AnnotationToolbar({
   brushRadius,
   setBrushRadius,
   readOnly,
-  // image adjustment
   brightness, contrast, gamma,
   setBrightness, setContrast, setGamma, resetAdjustments,
   showAdjust, setShowAdjust,
-  // ruler
   isRulerActive, setIsRulerActive,
-  // annotation visibility
   showAnnotations, setShowAnnotations,
   fillAnnotations, setFillAnnotations,
 }) {
@@ -105,15 +94,14 @@ export default function AnnotationToolbar({
     <div style={{
       display: 'flex', flexDirection: 'column', gap: 4,
       padding: '10px 8px',
-      background: 'rgba(3,8,25,0.97)',
-      borderRight: '1px solid rgba(255,255,255,0.07)',
+      background: 'var(--surface-dark-card)',
+      borderRight: '1px solid var(--border-dark)',
       alignItems: 'center',
       zIndex: 20,
     }}>
 
       {/* Annotation + select tools */}
       {TOOLS.map(t => {
-        // Select tool is always enabled even in readOnly (for navigation).
         const disabled = readOnly && t.id !== 'select'
         return (
           <ToolBtn
@@ -122,15 +110,17 @@ export default function AnnotationToolbar({
             disabled={disabled}
             title={`${t.label} (${t.shortcut})`}
             onClick={() => toggleTool(t.id)}
-            accentColor={t.id === 'select' ? '#6ee7b7' : '#ffd700'}
+            accentColor={t.id === 'select' ? 'var(--viewer-teal-light)' : 'var(--viewer-gold)'}
           >
             {t.icon}
           </ToolBtn>
         )
       })}
 
-      <Divider />
+      {/* Use shared Divider from ui/index.jsx */}
+      <Divider style={{ width: 24, margin: '4px 0' }} />
 
+      {/* Toggle Visibility */}
       <ToolBtn
         active={!showAnnotations}
         title="Toggle Visibility (H)"
@@ -149,7 +139,7 @@ export default function AnnotationToolbar({
 
       {/* Toggle Fill */}
       <ToolBtn
-        active={!fillAnnotations} 
+        active={!fillAnnotations}
         title="Toggle Fill (O)"
         onClick={() => setFillAnnotations(s => !s)}
       >
@@ -178,7 +168,7 @@ export default function AnnotationToolbar({
         </svg>
       </ToolBtn>
 
-      {/* Image adjust */}
+      {/* Image adjust — uses shared SliderRow from ui/index.jsx */}
       <div style={{ position: 'relative' }}>
         <ToolBtn
           active={showAdjust}
@@ -192,45 +182,53 @@ export default function AnnotationToolbar({
         {showAdjust && (
           <div style={{
             position: 'absolute', left: 'calc(100% + 8px)', top: 0, zIndex: 300,
-            background: 'rgba(3,8,25,0.98)',
-            border: '1px solid rgba(255,255,255,0.14)',
-            borderRadius: 8, padding: '12px 14px', width: 200,
+            background: 'var(--surface-dark-card)',
+            border: '1px solid var(--border-dark)',
+            borderRadius: 'var(--radius-lg)', padding: '12px 14px', width: 200,
           }}>
-            <Slider label="Brightness" value={brightness} min={50} max={200} step={1} unit="%" onChange={setBrightness} />
-            <Slider label="Contrast"   value={contrast}   min={50} max={200} step={1} unit="%" onChange={setContrast} />
-            <Slider label="Gamma"      value={gamma}      min={0.2} max={3.0} step={0.05} format={v => v.toFixed(2)} onChange={setGamma} />
-            <button onClick={resetAdjustments}
-              style={{ marginTop: 6, width: '100%', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 4, color: 'rgba(255,255,255,0.45)', fontSize: 11, padding: '4px 0', cursor: 'pointer' }}>
+            {/* Shared SliderRow — override accent color for dark theme via inline style on the input */}
+            <SliderRow label="Brightness" value={brightness} min={50}  max={200} step={1}    unit="%" onChange={setBrightness} />
+            <SliderRow label="Contrast"   value={contrast}   min={50}  max={200} step={1}    unit="%" onChange={setContrast} />
+            <SliderRow label="Gamma"      value={gamma}      min={0.2} max={3.0} step={0.05} format={v => v.toFixed(2)} onChange={setGamma} />
+            <button
+              onClick={resetAdjustments}
+              style={{ marginTop: 6, width: '100%', background: 'rgba(255,255,255,0.05)', border: '1px solid var(--border-dark)', borderRadius: 'var(--radius-sm)', color: 'var(--text-dark-3)', fontSize: 11, padding: '4px 0', cursor: 'pointer' }}
+            >
               Reset
             </button>
           </div>
         )}
       </div>
 
-      {/* Brush radius (only when brush is active) */}
+      {/* Brush radius — only when brush is active */}
       {activeTool === 'brush' && (
         <>
-          <Divider />
+          <Divider style={{ width: 24, margin: '4px 0' }} />
           <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}>
-            <span style={{ fontSize: 9, color: 'rgba(255,255,255,0.4)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+            <span style={{ fontSize: 9, color: 'var(--text-dark-3)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
               Size
             </span>
-            <input type="range" min={10} max={500} step={5} value={brushRadius}
+            <input
+              type="range" min={10} max={500} step={5} value={brushRadius}
               onChange={e => setBrushRadius(Number(e.target.value))}
-              style={{ writingMode: 'vertical-lr', direction: 'rtl', height: 80, accentColor: '#ffd700' }} />
-            <span style={{ fontSize: 9, fontFamily: 'monospace', color: 'rgba(255,255,255,0.55)' }}>
+              style={{ writingMode: 'vertical-lr', direction: 'rtl', height: 80, accentColor: 'var(--viewer-gold)' }}
+            />
+            <span style={{ fontSize: 9, fontFamily: 'var(--font-mono)', color: 'var(--text-dark-2)' }}>
               {brushRadius}px
             </span>
           </div>
         </>
       )}
 
-      {/* Shortcut legend at the bottom */}
-      <Divider />
+      {/* Shortcut legend */}
+      <Divider style={{ width: 24, margin: '4px 0' }} />
       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3 }}>
         {TOOLS.map(t => (
-          <div key={t.id} title={`${t.label} (${t.shortcut})`}
-            style={{ fontSize: 9, fontFamily: 'monospace', color: 'rgba(255,255,255,0.22)', userSelect: 'none' }}>
+          <div
+            key={t.id}
+            title={`${t.label} (${t.shortcut})`}
+            style={{ fontSize: 9, fontFamily: 'var(--font-mono)', color: 'var(--text-dark-3)', userSelect: 'none' }}
+          >
             {t.shortcut}
           </div>
         ))}
@@ -239,9 +237,8 @@ export default function AnnotationToolbar({
   )
 }
 
-// ── Sub-components ─────────────────────────────────────────────────────────────
-
-function ToolBtn({ active, disabled, title, onClick, children, accentColor = '#1b998b' }) {
+// ── ToolBtn — viewer-specific dark toggle; not in the shared UI library ────────
+function ToolBtn({ active, disabled, title, onClick, children, accentColor = 'var(--viewer-teal-light)' }) {
   const activeStyle = active
     ? { background: `${accentColor}2e`, borderColor: accentColor, color: accentColor }
     : {}
@@ -254,33 +251,16 @@ function ToolBtn({ active, disabled, title, onClick, children, accentColor = '#1
         width: 34, height: 34,
         display: 'flex', alignItems: 'center', justifyContent: 'center',
         background: 'rgba(255,255,255,0.04)',
-        border: '1px solid rgba(255,255,255,0.1)',
-        borderRadius: 6, cursor: disabled ? 'not-allowed' : 'pointer',
-        color: 'rgba(255,255,255,0.6)', opacity: disabled ? 0.35 : 1,
-        transition: 'all 0.15s',
+        border: '1px solid var(--border-dark)',
+        borderRadius: 'var(--radius-md)',
+        cursor: disabled ? 'not-allowed' : 'pointer',
+        color: 'var(--text-dark-2)',
+        opacity: disabled ? 0.35 : 1,
+        transition: 'var(--transition-base)',
         ...activeStyle,
       }}
     >
       {children}
     </button>
-  )
-}
-
-function Divider() {
-  return <div style={{ width: 24, height: 1, background: 'rgba(255,255,255,0.07)', margin: '4px 0' }} />
-}
-
-function Slider({ label, value, min, max, step, unit = '', format, onChange }) {
-  const display = format ? format(value) : value
-  return (
-    <div style={{ marginBottom: 10 }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
-        <span style={{ fontSize: 11, color: 'rgba(255,255,255,0.45)' }}>{label}</span>
-        <span style={{ fontSize: 11, fontFamily: 'monospace', color: 'rgba(255,255,255,0.65)' }}>{display}{unit}</span>
-      </div>
-      <input type="range" min={min} max={max} step={step} value={value}
-        onChange={e => onChange(parseFloat(e.target.value))}
-        style={{ width: '100%', accentColor: '#1b998b', cursor: 'pointer' }} />
-    </div>
   )
 }
