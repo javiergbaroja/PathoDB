@@ -4,6 +4,7 @@ import {
   Btn, Panel, ErrorMsg, SpinnerPage,
   Table, Th, Td, Tr,
   FormLabel, FormInput, FormSelect, FormField,
+  SegmentedControl, MultiSelect // <-- ADD THESE
 } from '../components/ui'
 import { api } from '../api'
 
@@ -22,99 +23,6 @@ const EMPTY_FILTER = {
   has_scan:                null,
   block_info_search:       '',
   return_level:            'block',
-}
-
-// ── Multi-select autocomplete ─────────────────────────────────────────────────
-
-function MultiSelect({ label, field, selected, onChange, placeholder }) {
-  const [query,       setQuery]       = useState('')
-  const [suggestions, setSuggestions] = useState([])
-  const [show,        setShow]        = useState(false)
-  const wrapperRef = useRef(null)
-
-  useEffect(() => {
-    function handler(e) {
-      if (wrapperRef.current && !wrapperRef.current.contains(e.target)) setShow(false)
-    }
-    document.addEventListener('mousedown', handler)
-    return () => document.removeEventListener('mousedown', handler)
-  }, [])
-
-  async function fetchSuggestions(val) {
-    setQuery(val)
-    if (val.length > 0) {
-      try {
-        const res = await api.lookup(field, val)
-        setSuggestions(res.filter(item => !selected?.includes(item)))
-        setShow(true)
-      } catch {}
-    } else {
-      setSuggestions([])
-      setShow(false)
-    }
-  }
-
-  function add(item) {
-    if (!selected?.includes(item)) onChange([...(selected || []), item])
-  }
-  function remove(item) { onChange(selected.filter(i => i !== item)) }
-
-  return (
-    <div ref={wrapperRef} style={{ position: 'relative', marginBottom: 12 }}>
-      <FormLabel>{label}</FormLabel>
-      <div style={{
-        display: 'flex', flexWrap: 'wrap', gap: 6, padding: '4px 8px',
-        border: '1px solid var(--border)', borderRadius: 'var(--radius-md)',
-        background: 'var(--white)', minHeight: 38,
-      }}>
-        {selected?.map(item => (
-          <span key={item} style={{
-            background: 'var(--navy-10)', color: 'var(--navy)',
-            padding: '2px 8px', borderRadius: 'var(--radius-sm)',
-            fontSize: 12, display: 'flex', alignItems: 'center', gap: 6,
-          }}>
-            {item}
-            <b style={{ cursor: 'pointer', opacity: 0.5 }} onClick={() => remove(item)}>×</b>
-          </span>
-        ))}
-        <input
-          style={{ border: 'none', outline: 'none', flex: 1, fontSize: 13, minWidth: 100 }}
-          placeholder={selected?.length ? '' : placeholder}
-          value={query}
-          onChange={e => fetchSuggestions(e.target.value)}
-          onFocus={() => query && setShow(true)}
-        />
-        {query && (
-          <button
-            onClick={() => { setQuery(''); setShow(false) }}
-            style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-3)', fontSize: 14 }}
-          >×</button>
-        )}
-      </div>
-
-      {show && suggestions.length > 0 && (
-        <div style={{
-          position: 'absolute', top: '100%', left: 0, right: 0,
-          zIndex: 'var(--z-dropdown)',
-          background: 'var(--white)', border: '1px solid var(--border)',
-          borderRadius: 'var(--radius-md)', boxShadow: 'var(--shadow-m)',
-          marginTop: 4, maxHeight: 200, overflowY: 'auto',
-        }}>
-          {suggestions.map(s => (
-            <div
-              key={s}
-              onClick={() => add(s)}
-              style={{ padding: '8px 12px', fontSize: 13, cursor: 'pointer', borderBottom: '1px solid var(--border-l)' }}
-              onMouseEnter={e => e.target.style.background = 'var(--navy-05)'}
-              onMouseLeave={e => e.target.style.background = 'transparent'}
-            >
-              {s}
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-  )
 }
 
 // ── Scan-level results table ──────────────────────────────────────────────────
@@ -189,31 +97,6 @@ function GenericResultsTable({ rows }) {
           Showing {LIMIT} of {rows.length} — export for full results
         </div>
       )}
-    </div>
-  )
-}
-
-// ── Mode toggle ───────────────────────────────────────────────────────────────
-
-function SegmentedControl({ options, value, onChange }) {
-  return (
-    <div style={{ display: 'flex', border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)', overflow: 'hidden', width: 'fit-content' }}>
-      {options.map(([val, label]) => (
-        <button
-          key={val}
-          onClick={() => onChange(val)}
-          style={{
-            padding: '8px 20px', fontSize: 13,
-            fontFamily: 'var(--font-sans)',
-            fontWeight: value === val ? 600 : 400,
-            background: value === val ? 'var(--navy)' : 'var(--white)',
-            color:      value === val ? 'var(--white)' : 'var(--text-2)',
-            border: 'none', cursor: 'pointer', transition: 'var(--transition-base)',
-          }}
-        >
-          {label}
-        </button>
-      ))}
     </div>
   )
 }
@@ -378,16 +261,19 @@ export default function Cohorts() {
                   <MultiSelect label="Topology Description" field="topo_description"
                     selected={filter.topo_description_search}
                     onChange={val => setF('topo_description_search', val)}
+                    loadOptions={(val) => api.lookup('topo_description', val)}
                     placeholder="Type to search (e.g. 'Colon', 'Lung')…" />
                   <MultiSelect label="Stain Name" field="stain_name"
                     selected={filter.stain_names}
                     onChange={val => setF('stain_names', val)}
+                    loadOptions={(val) => api.lookup('stain_name', val)}
                     placeholder="Type to search (e.g. 'H&E', 'CD3')…" />
                 </div>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20, marginTop: 10 }}>
                   <MultiSelect label="SNOMED Code" field="snomed_topo_code"
                     selected={filter.snomed_topo_codes}
                     onChange={val => setF('snomed_topo_codes', val)}
+                    loadOptions={(val) => api.lookup('snomed_topo_code', val)}
                     placeholder="Type to search (e.g. 'T59600')…" />
                   <FormField label="Return level">
                     <FormSelect value={filter.return_level} onChange={e => setF('return_level', e.target.value)}>

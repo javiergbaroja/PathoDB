@@ -1,5 +1,5 @@
 // frontend/src/pages/ProjectDetail/AnnotationToolbar.jsx
-import { SliderRow, Divider } from '../../components/ui'
+import { SliderRow, Divider, ToolBtn } from '../../components/ui'
 
 const TOOLS = [
   {
@@ -234,33 +234,5 @@ export default function AnnotationToolbar({
         ))}
       </div>
     </div>
-  )
-}
-
-// ── ToolBtn — viewer-specific dark toggle; not in the shared UI library ────────
-function ToolBtn({ active, disabled, title, onClick, children, accentColor = 'var(--viewer-teal-light)' }) {
-  const activeStyle = active
-    ? { background: `${accentColor}2e`, borderColor: accentColor, color: accentColor }
-    : {}
-  return (
-    <button
-      title={title}
-      disabled={disabled}
-      onClick={onClick}
-      style={{
-        width: 34, height: 34,
-        display: 'flex', alignItems: 'center', justifyContent: 'center',
-        background: 'rgba(255,255,255,0.04)',
-        border: '1px solid var(--border-dark)',
-        borderRadius: 'var(--radius-md)',
-        cursor: disabled ? 'not-allowed' : 'pointer',
-        color: 'var(--text-dark-2)',
-        opacity: disabled ? 0.35 : 1,
-        transition: 'var(--transition-base)',
-        ...activeStyle,
-      }}
-    >
-      {children}
-    </button>
   )
 }

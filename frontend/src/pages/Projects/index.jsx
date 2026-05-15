@@ -3,7 +3,7 @@ import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import Layout from '../../components/Layout'
-import { Btn, SpinnerPage, ErrorMsg } from '../../components/ui'
+import { Btn, SpinnerPage, ErrorMsg, ConfirmDialog, EmptyState } from '../../components/ui'
 import { api } from '../../api'
 import CreateProjectModal from './CreateProjectModal'
 import ShareModal from './ShareModal'
@@ -37,7 +37,7 @@ function ProjectCard({ project, onOpen, onShare, onDelete, isOwner, onBatchAI, o
       onMouseLeave={e => { e.currentTarget.style.boxShadow = 'var(--shadow-s)'; e.currentTarget.style.transform = 'translateY(0)' }}
     >
       {/* Thumbnail */}
-      <div style={{ height:140, background:'#0d1623', position:'relative', overflow:'hidden', flexShrink:0 }}>
+      <div style={{ height: 140, background: 'var(--surface-dark-2)', position: 'relative', overflow: 'hidden', flexShrink: 0 }}>
         {project.first_scan_id && !imgError ? (
           <img
             src={`/api/slides/${project.first_scan_id}/thumbnail?width=400&token=${token()}`}
@@ -94,10 +94,10 @@ function ProjectCard({ project, onOpen, onShare, onDelete, isOwner, onBatchAI, o
 
         {/* Progress bar */}
         <div>
-          <div style={{ height:4, background:'var(--navy-10)', borderRadius:2, overflow:'hidden' }}>
-            <div style={{ height:'100%', width:`${pct}%`, background:'#1b998b', borderRadius:2, transition:'width 0.3s' }} />
+          <div style={{ height: 4, background: 'var(--navy-10)', borderRadius: 2, overflow: 'hidden' }}>
+            <div style={{ height: '100%', width: `${pct}%`, background: 'var(--teal)', borderRadius: 2, transition: 'width 0.3s' }} />
           </div>
-          <div style={{ fontSize:10, color:'var(--text-3)', marginTop:3 }}>{pct}% complete</div>
+          <div style={{ fontSize: 10, color: 'var(--text-3)', marginTop: 3 }}>{pct}% complete</div>
         </div>
 
         {/* Classes */}
@@ -212,11 +212,25 @@ export default function Projects() {
 
   return (
     <Layout title="Projects" actions={actions}>
-      <div style={{ height:'100%', overflowY:'auto', padding:'20px 24px' }}>
+      <div style={{ height: '100%', overflowY: 'auto', padding: '20px 24px' }}>
         <ErrorMsg message={error} />
 
         {isLoading ? <SpinnerPage /> : projects.length === 0 ? (
-          <EmptyState onCreate={() => setShowCreate(true)} />
+          <EmptyState 
+            icon={
+              <svg width="28" height="28" viewBox="0 0 16 16" fill="currentColor">
+                <path d="M2 2a2 2 0 012-2h8a2 2 0 012 2v12a2 2 0 01-2 2H4a2 2 0 01-2-2V2zm2 0v12h8V2H4zm1 2h2a.5.5 0 010 1H5a.5.5 0 010-1zm0 2h6a.5.5 0 010 1H5a.5.5 0 010-1zm0 2h6a.5.5 0 010 1H5a.5.5 0 010-1zm0 2h4a.5.5 0 010 1H5a.5.5 0 010-1z"/>
+              </svg>
+            }
+            title="No projects yet"
+            description="Create your first annotation project from a saved cohort or a list of slide paths."
+            action={
+              <Btn variant="primary" onClick={() => setShowCreate(true)}>
+                <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor" style={{ marginRight: 6 }}><path d="M8 2a.5.5 0 01.5.5v5h5a.5.5 0 010 1h-5v5a.5.5 0 01-1 0v-5h-5a.5.5 0 010-1h5v-5A.5.5 0 018 2z"/></svg>
+                Create first project
+              </Btn>
+            }
+          />
         ) : (
           <>
             {/* Owned projects */}
@@ -259,7 +273,7 @@ export default function Projects() {
           cohorts={cohorts}
           onClose={() => setShowCreate(false)}
           onCreated={p => {
-            queryClient.invalidateQueries({ queryKey:['projects'] })
+            queryClient.invalidateQueries({ queryKey: ['projects'] })
             setShowCreate(false)
             navigate(`/projects/${p.id}`)
           }}
@@ -277,28 +291,21 @@ export default function Projects() {
         />
       )}
 
-      {/* Delete confirm */}
-      {deleteTarget && (
-        <div onClick={() => setDeleteTarget(null)} style={{ position:'fixed',inset:0,background:'rgba(0,20,100,0.35)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:200 }}>
-          <div onClick={e=>e.stopPropagation()} style={{ background:'white',borderRadius:12,padding:'24px 28px',width:380,boxShadow:'0 12px 40px rgba(0,20,100,0.18)' }}>
-            <div style={{ fontFamily:'var(--font-serif)',fontSize:18,color:'var(--navy)',marginBottom:8 }}>Delete project?</div>
-            <div style={{ fontSize:13,color:'var(--text-2)',marginBottom:20,lineHeight:1.6 }}>
-              This will permanently delete <strong>"{deleteTarget.name}"</strong> and all its annotations. This cannot be undone.
-            </div>
-            <div style={{ display:'flex',gap:8,justifyContent:'flex-end' }}>
-              <Btn variant="ghost" onClick={() => setDeleteTarget(null)}>Cancel</Btn>
-              <Btn variant="danger" disabled={deleting} onClick={() => handleDelete(deleteTarget)}>
-                {deleting ? 'Deleting…' : 'Delete permanently'}
-              </Btn>
-            </div>
-          </div>
-        </div>
-      )}
+      {/* Delete confirm using the shared primitive */}
+      <ConfirmDialog 
+        isOpen={!!deleteTarget}
+        onClose={() => setDeleteTarget(null)}
+        onConfirm={() => handleDelete(deleteTarget)}
+        title="Delete project?"
+        message={`This will permanently delete "${deleteTarget?.name}" and all its annotations. This cannot be undone.`}
+        confirmLabel="Delete permanently"
+        loading={deleting}
+      />
 
       <BatchAIModal 
         isOpen={!!aiTargetProjectId}
         projectId={aiTargetProjectId}
-        projectClasses={targetProject?.classes || []} // <--- Added this line
+        projectClasses={targetProject?.classes || []}
         onClose={() => setAiTargetProjectId(null)}
       />
       
@@ -321,28 +328,6 @@ function Section({ title, count, children }) {
       <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill,minmax(280px,1fr))', gap:16 }}>
         {children}
       </div>
-    </div>
-  )
-}
-
-function EmptyState({ onCreate }) {
-  return (
-    <div style={{ display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', height:400, gap:16 }}>
-      <div style={{ width:64, height:64, borderRadius:16, background:'var(--navy-10)', display:'flex', alignItems:'center', justifyContent:'center' }}>
-        <svg width="28" height="28" viewBox="0 0 16 16" fill="var(--navy-40)">
-          <path d="M2 2a2 2 0 012-2h8a2 2 0 012 2v12a2 2 0 01-2 2H4a2 2 0 01-2-2V2zm2 0v12h8V2H4zm1 2h2a.5.5 0 010 1H5a.5.5 0 010-1zm0 2h6a.5.5 0 010 1H5a.5.5 0 010-1zm0 2h6a.5.5 0 010 1H5a.5.5 0 010-1zm0 2h4a.5.5 0 010 1H5a.5.5 0 010-1z"/>
-        </svg>
-      </div>
-      <div style={{ textAlign:'center' }}>
-        <div style={{ fontFamily:'var(--font-serif)', fontSize:20, color:'var(--navy)', marginBottom:6 }}>No projects yet</div>
-        <div style={{ fontSize:13, color:'var(--text-3)', maxWidth:320, lineHeight:1.6 }}>
-          Create your first annotation project from a saved cohort or a list of slide paths.
-        </div>
-      </div>
-      <Btn variant="primary" onClick={onCreate}>
-        <svg width="12" height="12" viewBox="0 0 16 16" fill="white"><path d="M8 2a.5.5 0 01.5.5v5h5a.5.5 0 010 1h-5v5a.5.5 0 01-1 0v-5h-5a.5.5 0 010-1h5v-5A.5.5 0 018 2z"/></svg>
-        Create first project
-      </Btn>
     </div>
   )
 }

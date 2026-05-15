@@ -4,13 +4,13 @@ export default function ClinicalPanel({ displayInfo, compareMode, hasRight, pane
   const hasMacro = !!displayInfo.report_macro
   const hasMicro = !!displayInfo.report_microscopy
   return (
-    <div style={{ width: 296, flexShrink: 0, background: 'rgba(2,5,18,0.98)', borderLeft: '1px solid rgba(255,255,255,0.07)', overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>
-      <div style={{ padding: '9px 14px', borderBottom: '1px solid rgba(255,255,255,0.05)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0 }}>
-        <span style={{ fontSize: 9, color: 'rgba(255,255,255,0.50)', textTransform: 'uppercase', letterSpacing: '0.1em', fontWeight: 600 }}>Clinical information</span>
+    <div style={{ width: 296, flexShrink: 0, background: 'var(--surface-dark-card)', borderLeft: '1px solid var(--border-dark)', overflowY: 'auto', display: 'flex', flexDirection: 'column' }}>
+      <div style={{ padding: '9px 14px', borderBottom: '1px solid var(--border-dark)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0 }}>
+        <span style={{ fontSize: 9, color: 'var(--text-dark-2)', textTransform: 'uppercase', letterSpacing: '0.1em', fontWeight: 600 }}>Clinical information</span>
         {compareMode && hasRight && (
           <div style={{ display: 'flex', gap: 4 }}>
             {['left', 'right'].map(side => (
-              <button key={side} onClick={() => setPanelSide(side)} style={{ padding: '2px 8px', fontSize: 10, fontWeight: 600, background: panelSide === side ? 'rgba(27,153,139,0.2)' : 'rgba(255,255,255,0.04)', border: `1px solid ${panelSide === side ? '#1b998b' : 'rgba(255,255,255,0.1)'}`, borderRadius: 4, color: panelSide === side ? '#6ee7b7' : 'rgba(255,255,255,0.35)', cursor: 'pointer' }}>
+              <button key={side} onClick={() => setPanelSide(side)} style={{ padding: '2px 8px', fontSize: 10, fontWeight: 600, background: panelSide === side ? 'rgba(27,153,139,0.2)' : 'rgba(255,255,255,0.04)', border: `1px solid ${panelSide === side ? 'var(--viewer-teal)' : 'var(--border-dark)'}`, borderRadius: 4, color: panelSide === side ? 'var(--viewer-teal-light)' : 'var(--text-dark-3)', cursor: 'pointer' }}>
                 {side === 'left' ? 'L' : 'R'}
               </button>
             ))}
@@ -27,7 +27,7 @@ export default function ClinicalPanel({ displayInfo, compareMode, hasRight, pane
       <PanelSection label="Submission">
         <PanelRow label="ID"         value={displayInfo.lis_submission_id} mono />
         <PanelRow label="Report date" value={displayInfo.report_date} />
-        <PanelRow label="Malignancy" value={displayInfo.malignancy_flag === true ? 'Yes' : displayInfo.malignancy_flag === false ? 'No' : null} accent={displayInfo.malignancy_flag ? '#ff8099' : null} />
+        <PanelRow label="Malignancy" value={displayInfo.malignancy_flag === true ? 'Yes' : displayInfo.malignancy_flag === false ? 'No' : null} accent="var(--viewer-red)" />
       </PanelSection>
 
       <PanelSection label="Probe">
@@ -55,8 +55,8 @@ export default function ClinicalPanel({ displayInfo, compareMode, hasRight, pane
       </PanelSection>
 
       {(hasMacro || hasMicro) && (
-        <div style={{ borderTop: '1px solid rgba(255,255,255,0.05)' }}>
-          <button onClick={() => setReportOpen(o => !o)} style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 14px', background: 'none', border: 'none', cursor: 'pointer', color: 'rgba(255,255,255,0.55)', fontFamily: 'sans-serif' }}>
+        <div style={{ borderTop: '1px solid var(--border-dark)' }}>
+          <button onClick={() => setReportOpen(o => !o)} style={{ width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 14px', background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-dark-2)', fontFamily: 'var(--font-sans)' }}>
             <span style={{ fontSize: 9, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.1em' }}>
               Reports {hasMacro && hasMicro ? '(macro + micro)' : hasMacro ? '(macro)' : '(micro)'}
             </span>
@@ -76,8 +76,8 @@ export default function ClinicalPanel({ displayInfo, compareMode, hasRight, pane
 
 function PanelSection({ label, children }) {
   return (
-    <div style={{ padding: '9px 14px', borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
-      <div style={{ fontSize: 9, color: 'rgba(255,255,255,0.45)', textTransform: 'uppercase', letterSpacing: '0.1em', fontWeight: 600, marginBottom: 6 }}>{label}</div>
+    <div style={{ padding: '9px 14px', borderBottom: '1px solid var(--border-dark)' }}>
+      <div style={{ fontSize: 9, color: 'var(--text-dark-3)', textTransform: 'uppercase', letterSpacing: '0.1em', fontWeight: 600, marginBottom: 6 }}>{label}</div>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>{children}</div>
     </div>
   )
@@ -87,8 +87,8 @@ function PanelRow({ label, value, mono, accent }) {
   if (value === null || value === undefined || value === '') return null
   return (
     <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
-      <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.50)', minWidth: 72, flexShrink: 0 }}>{label}</span>
-      <span style={{ fontSize: 12, color: accent || 'rgba(255,255,255,0.72)', fontFamily: mono ? 'monospace' : 'sans-serif', wordBreak: 'break-word', lineHeight: 1.4 }}>{value}</span>
+      <span style={{ fontSize: 10, color: 'var(--text-dark-2)', minWidth: 72, flexShrink: 0 }}>{label}</span>
+      <span style={{ fontSize: 12, color: accent || 'var(--text-dark-1)', fontFamily: mono ? 'var(--font-mono)' : 'var(--font-sans)', wordBreak: 'break-word', lineHeight: 1.4 }}>{value}</span>
     </div>
   )
 }
@@ -96,8 +96,8 @@ function PanelRow({ label, value, mono, accent }) {
 function ReportBlock({ label, text }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-      <div style={{ fontSize: 9, color: 'rgba(255,255,255,0.50)', textTransform: 'uppercase', letterSpacing: '0.08em', fontWeight: 600 }}>{label}</div>
-      <div style={{ fontSize: 11.5, color: text ? 'rgba(255,255,255,0.62)' : 'rgba(255,255,255,0.18)', lineHeight: 1.65, whiteSpace: 'pre-wrap', background: 'rgba(255,255,255,0.03)', borderRadius: 5, padding: '7px 9px', fontStyle: text ? 'normal' : 'italic' }}>
+      <div style={{ fontSize: 9, color: 'var(--text-dark-3)', textTransform: 'uppercase', letterSpacing: '0.08em', fontWeight: 600 }}>{label}</div>
+      <div style={{ fontSize: 11.5, color: text ? 'var(--text-dark-1)' : 'var(--text-dark-3)', lineHeight: 1.65, whiteSpace: 'pre-wrap', background: 'rgba(255,255,255,0.03)', borderRadius: 5, padding: '7px 9px', fontStyle: text ? 'normal' : 'italic' }}>
         {text || 'Not available'}
       </div>
     </div>

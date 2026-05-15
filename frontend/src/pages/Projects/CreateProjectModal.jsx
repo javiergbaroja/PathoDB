@@ -1,7 +1,7 @@
 // frontend/src/pages/Projects/CreateProjectModal.jsx
 import { useState, useRef } from 'react'
 import { api } from '../../api'
-import { Btn, FormLabel, FormInput, FormField } from '../../components/ui'
+import { Modal, Btn, FormLabel, FormInput, FormField } from '../../components/ui'
 import SlideTargetManager from '../../components/SlideTargetManager'
 import { PATHOLOGY_PALETTE } from '../../constants/stains' 
 
@@ -214,137 +214,122 @@ export default function CreateProjectModal({ onClose, onCreated, cohorts }) {
   }
 
   return (
-    <div onClick={onClose} style={{
-      position:'fixed', inset:0, background:'rgba(0,20,100,0.35)',
-      display:'flex', alignItems:'center', justifyContent:'center', zIndex:'var(--z-modal)',
-      backdropFilter:'blur(2px)',
-    }}>
-      <div onClick={e => e.stopPropagation()} style={{
-        background:'var(--white)', borderRadius:'var(--radius-2xl)', width:580,
-        maxHeight:'90vh', overflow:'hidden', display:'flex', flexDirection:'column',
-        boxShadow:'var(--shadow-xl)',
-      }}>
-        {/* Header */}
-        <div style={{ padding:'24px 28px 20px', borderBottom:'1px solid var(--border-l)', flexShrink:0 }}>
-          <div style={{ fontFamily:'var(--font-serif)', fontSize:22, color:'var(--navy)', marginBottom:4 }}>
-            New project
+    <Modal 
+      isOpen={true} 
+      onClose={onClose} 
+      title="New project" 
+      subtitle="Create an annotation project from a cohort or a slide list." 
+      width={580}
+    >
+      <Modal.Body style={{ padding: '24px 28px' }}>
+        <Steps current={step} steps={STEPS} />
+
+        {/* Step 0 – type */}
+        {step === 0 && (
+          <div>
+            <div style={{ fontWeight: 600, fontSize: 14, color: 'var(--navy)', marginBottom: 14 }}>
+              What type of project is this?
+            </div>
+            <div style={{ display: 'flex', gap: 12 }}>
+              <TypeCard
+                selected={projectType === 'cell_detection'}
+                onClick={() => setProjectType('cell_detection')}
+                icon="🔬"
+                title="Cell detection"
+                description="Place point annotations on individual cells or nuclei. Exports as CSV with coordinates and class."
+              />
+              <TypeCard
+                selected={projectType === 'region_annotation'}
+                onClick={() => setProjectType('region_annotation')}
+                icon="🗺️"
+                title="Region annotation"
+                description="Draw polygons, rectangles, ellipses or brush strokes over tissue regions. Exports as QuPath-compatible GeoJSON."
+              />
+            </div>
           </div>
-          <div style={{ fontSize:12, color:'var(--text-3)' }}>
-            Create an annotation project from a cohort or a slide list.
-          </div>
-        </div>
+        )}
 
-        {/* Body */}
-        <div style={{ flex:1, overflowY:'auto', padding:'24px 28px' }}>
-          <Steps current={step} steps={STEPS} />
-
-          {/* Step 0 – type */}
-          {step === 0 && (
-            <div>
-              <div style={{ fontWeight:600, fontSize:14, color:'var(--navy)', marginBottom:14 }}>
-                What type of project is this?
-              </div>
-              <div style={{ display:'flex', gap:12 }}>
-                <TypeCard
-                  selected={projectType === 'cell_detection'}
-                  onClick={() => setProjectType('cell_detection')}
-                  icon="🔬"
-                  title="Cell detection"
-                  description="Place point annotations on individual cells or nuclei. Exports as CSV with coordinates and class."
-                />
-                <TypeCard
-                  selected={projectType === 'region_annotation'}
-                  onClick={() => setProjectType('region_annotation')}
-                  icon="🗺️"
-                  title="Region annotation"
-                  description="Draw polygons, rectangles, ellipses or brush strokes over tissue regions. Exports as QuPath-compatible GeoJSON."
-                />
-              </div>
+        {/* Step 1 – classes */}
+        {step === 1 && (
+          <div>
+            <div style={{ fontWeight: 600, fontSize: 14, color: 'var(--navy)', marginBottom: 4 }}>
+              Define annotation classes
             </div>
-          )}
-
-          {/* Step 1 – classes */}
-          {step === 1 && (
-            <div>
-              <div style={{ fontWeight:600, fontSize:14, color:'var(--navy)', marginBottom:4 }}>
-                Define annotation classes
-              </div>
-              <div style={{ fontSize:12, color:'var(--text-3)', marginBottom:16 }}>
-                Classes can be edited later. Each annotation will be assigned exactly one class.
-              </div>
-              <ClassEditor classes={classes} setClasses={setClasses} />
-              {classes.length === 0 && (
-                <div style={{ marginTop:12, padding:'10px 12px', borderRadius:'var(--radius-md)', background:'var(--warning-bg)', border:'1px solid #e8c84a', fontSize:12, color:'var(--warning)' }}>
-                  You can proceed without classes and add them later, but you won't be able to assign labels while annotating.
-                </div>
-              )}
+            <div style={{ fontSize: 12, color: 'var(--text-3)', marginBottom: 16 }}>
+              Classes can be edited later. Each annotation will be assigned exactly one class.
             </div>
-          )}
-
-          {/* Step 2 – source */}
-          {step === 2 && (
-            <SourceStep
-              cohorts={cohorts}
-              filteredTargets={filteredTargets}
-              onTargetsResolved={setFilteredTargets}
-            />
-          )}
-
-          {/* Step 3 – details */}
-          {step === 3 && (
-            <div>
-              <div style={{ fontWeight:600, fontSize:14, color:'var(--navy)', marginBottom:14 }}>Name your project</div>
-              <FormField label="Project name *" style={{ marginBottom:14 }}>
-                <FormInput
-                  autoFocus
-                  value={name}
-                  onChange={e => setName(e.target.value)}
-                  placeholder="e.g. Cohort Name"
-                />
-              </FormField>
-              <FormField label="Description (optional)" style={{ marginBottom:14 }}>
-                <FormInput
-                  value={description}
-                  onChange={e => setDesc(e.target.value)}
-                  placeholder="Optional description…"
-                />
-              </FormField>
-              {/* Summary */}
-              <div style={{ background:'var(--navy-05)', borderRadius:'var(--radius-lg)', padding:'12px 14px', fontSize:12, color:'var(--text-2)', display:'flex', flexDirection:'column', gap:5 }}>
-                <SumLine label="Type"    value={projectType === 'cell_detection' ? '🔬 Cell detection' : '🗺️ Region annotation'} />
-                <SumLine label="Classes" value={classes.length > 0 ? classes.map(c => c.name).join(', ') : 'None defined'} />
-                <SumLine label="Source"  value={`${filteredTargets.length} fully filtered slides`} />
+            <ClassEditor classes={classes} setClasses={setClasses} />
+            {classes.length === 0 && (
+              <div style={{ marginTop: 12, padding: '10px 12px', borderRadius: 'var(--radius-md)', background: 'var(--warning-bg)', border: '1px solid #e8c84a', fontSize: 12, color: 'var(--warning)' }}>
+                You can proceed without classes and add them later, but you won't be able to assign labels while annotating.
               </div>
-            </div>
-          )}
-
-          {error && (
-            <div style={{ marginTop:12, padding:'10px 12px', borderRadius:'var(--radius-md)', background:'var(--crimson-10)', border:'1px solid var(--crimson)', fontSize:12, color:'var(--crimson)' }}>
-              {error}
-            </div>
-          )}
-        </div>
-
-        {/* Footer */}
-        <div style={{ padding:'16px 28px', borderTop:'1px solid var(--border-l)', display:'flex', justifyContent:'space-between', flexShrink:0 }}>
-          <Btn variant="ghost" onClick={onClose}>Cancel</Btn>
-          <div style={{ display:'flex', gap:8 }}>
-            {step > 0 && (
-              <Btn variant="ghost" onClick={() => setStep(s => s - 1)}>← Back</Btn>
-            )}
-            {step < STEPS.length - 1 ? (
-              <Btn variant="primary" onClick={() => setStep(s => s + 1)} disabled={!canNext()}>
-                Next →
-              </Btn>
-            ) : (
-              <Btn variant="primary" onClick={handleCreate} disabled={!canNext() || creating}>
-                {creating ? 'Creating…' : 'Create project'}
-              </Btn>
             )}
           </div>
+        )}
+
+        {/* Step 2 – source */}
+        {step === 2 && (
+          <SourceStep
+            cohorts={cohorts}
+            filteredTargets={filteredTargets}
+            onTargetsResolved={setFilteredTargets}
+          />
+        )}
+
+        {/* Step 3 – details */}
+        {step === 3 && (
+          <div>
+            <div style={{ fontWeight: 600, fontSize: 14, color: 'var(--navy)', marginBottom: 14 }}>Name your project</div>
+            <FormField label="Project name *" style={{ marginBottom: 14 }}>
+              <FormInput
+                autoFocus
+                value={name}
+                onChange={e => setName(e.target.value)}
+                placeholder="e.g. Cohort Name"
+              />
+            </FormField>
+            <FormField label="Description (optional)" style={{ marginBottom: 14 }}>
+              <FormInput
+                value={description}
+                onChange={e => setDesc(e.target.value)}
+                placeholder="Optional description…"
+              />
+            </FormField>
+            {/* Summary */}
+            <div style={{ background: 'var(--navy-05)', borderRadius: 'var(--radius-lg)', padding: '12px 14px', fontSize: 12, color: 'var(--text-2)', display: 'flex', flexDirection: 'column', gap: 5 }}>
+              <SumLine label="Type"    value={projectType === 'cell_detection' ? '🔬 Cell detection' : '🗺️ Region annotation'} />
+              <SumLine label="Classes" value={classes.length > 0 ? classes.map(c => c.name).join(', ') : 'None defined'} />
+              <SumLine label="Source"  value={`${filteredTargets.length} fully filtered slides`} />
+            </div>
+          </div>
+        )}
+
+        {error && (
+          <div style={{ marginTop: 12, padding: '10px 12px', borderRadius: 'var(--radius-md)', background: 'var(--crimson-10)', border: '1px solid var(--crimson)', fontSize: 12, color: 'var(--crimson)' }}>
+            {error}
+          </div>
+        )}
+      </Modal.Body>
+
+      {/* Footer */}
+      <Modal.Footer>
+        <Btn variant="ghost" onClick={onClose}>Cancel</Btn>
+        <div style={{ display: 'flex', gap: 8 }}>
+          {step > 0 && (
+            <Btn variant="ghost" onClick={() => setStep(s => s - 1)}>← Back</Btn>
+          )}
+          {step < STEPS.length - 1 ? (
+            <Btn variant="primary" onClick={() => setStep(s => s + 1)} disabled={!canNext()}>
+              Next →
+            </Btn>
+          ) : (
+            <Btn variant="primary" onClick={handleCreate} disabled={!canNext() || creating}>
+              {creating ? 'Creating…' : 'Create project'}
+            </Btn>
+          )}
         </div>
-      </div>
-    </div>
+      </Modal.Footer>
+    </Modal>
   )
 }
 

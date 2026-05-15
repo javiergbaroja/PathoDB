@@ -70,15 +70,15 @@ export default memo(function ClassPanel({
         ].map(([val, lbl]) => (
           <button key={val} onClick={() => setTab(val)} style={{
             flex: 1, padding: '7px 0', fontSize: 11,
-            fontFamily: 'sans-serif', cursor: 'pointer', border: 'none',
+            fontFamily: 'var(--font-sans)', cursor: 'pointer', border: 'none',
             background: tab === val
-              ? (val === 'ai' ? 'rgba(167,139,250,0.1)' : 'rgba(27,153,139,0.12)')
-              : 'transparent',
+              ? (val === 'ai' ? 'rgba(139,92,246,0.15)' : 'rgba(27,153,139,0.12)')
+              : 'transparent', 
             color: tab === val
-              ? (val === 'ai' ? '#a78bfa' : '#6ee7b7')
-              : 'rgba(255,255,255,0.4)',
+              ? (val === 'ai' ? 'var(--purple-40)' : 'var(--viewer-teal-light)')
+              : 'var(--text-dark-3)',
             borderBottom: tab === val
-              ? `2px solid ${val === 'ai' ? '#a78bfa' : '#1b998b'}`
+              ? `2px solid ${val === 'ai' ? 'var(--purple-40)' : 'var(--viewer-teal)'}`
               : '2px solid transparent',
             position: 'relative',
           }}>

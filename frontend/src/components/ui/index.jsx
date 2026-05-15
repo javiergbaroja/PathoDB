@@ -852,3 +852,154 @@ export function CircularProgress({ progress = 0, size = 24, strokeWidth = 3, col
     </div>
   )
 }
+
+// ============================================================
+// SEGMENTED CONTROL
+// ============================================================
+export function SegmentedControl({ options, value, onChange }) {
+  return (
+    <div style={{ display: 'flex', border: '1px solid var(--border)', borderRadius: 'var(--radius-lg)', overflow: 'hidden', width: 'fit-content' }}>
+      {options.map(([val, label]) => (
+        <button
+          key={val}
+          type="button"
+          onClick={() => onChange(val)}
+          style={{
+            padding: '8px 20px', fontSize: 13,
+            fontFamily: 'var(--font-sans)',
+            fontWeight: value === val ? 600 : 400,
+            background: value === val ? 'var(--navy)' : 'var(--white)',
+            color:      value === val ? 'var(--white)' : 'var(--text-2)',
+            border: 'none', cursor: 'pointer', transition: 'var(--transition-base)',
+          }}
+        >
+          {label}
+        </button>
+      ))}
+    </div>
+  )
+}
+
+// ============================================================
+// MULTI-SELECT AUTOCOMPLETE
+// ============================================================
+export function MultiSelect({ label, selected, onChange, placeholder, loadOptions }) {
+  const [query,       setQuery]       = React.useState('')
+  const [suggestions, setSuggestions] = React.useState([])
+  const [show,        setShow]        = React.useState(false)
+  const wrapperRef = React.useRef(null)
+
+  React.useEffect(() => {
+    function handler(e) {
+      if (wrapperRef.current && !wrapperRef.current.contains(e.target)) setShow(false)
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [])
+
+  async function fetchSuggestions(val) {
+    setQuery(val)
+    if (val.length > 0) {
+      try {
+        const res = await loadOptions(val)
+        setSuggestions(res.filter(item => !selected?.includes(item)))
+        setShow(true)
+      } catch {}
+    } else {
+      setSuggestions([])
+      setShow(false)
+    }
+  }
+
+  function add(item) {
+    if (!selected?.includes(item)) onChange([...(selected || []), item])
+  }
+  function remove(item) { onChange(selected.filter(i => i !== item)) }
+
+  return (
+    <div ref={wrapperRef} style={{ position: 'relative', marginBottom: 12 }}>
+      {label && <FormLabel>{label}</FormLabel>}
+      <div style={{
+        display: 'flex', flexWrap: 'wrap', gap: 6, padding: '4px 8px',
+        border: '1px solid var(--border)', borderRadius: 'var(--radius-md)',
+        background: 'var(--white)', minHeight: 38,
+      }}>
+        {selected?.map(item => (
+          <span key={item} style={{
+            background: 'var(--navy-10)', color: 'var(--navy)',
+            padding: '2px 8px', borderRadius: 'var(--radius-sm)',
+            fontSize: 12, display: 'flex', alignItems: 'center', gap: 6,
+          }}>
+            {item}
+            <b style={{ cursor: 'pointer', opacity: 0.5 }} onClick={() => remove(item)}>×</b>
+          </span>
+        ))}
+        <input
+          style={{ border: 'none', outline: 'none', flex: 1, fontSize: 13, minWidth: 100, background: 'transparent' }}
+          placeholder={selected?.length ? '' : placeholder}
+          value={query}
+          onChange={e => fetchSuggestions(e.target.value)}
+          onFocus={() => query && setShow(true)}
+        />
+        {query && (
+          <button
+            onClick={() => { setQuery(''); setShow(false) }}
+            style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-3)', fontSize: 14 }}
+          >×</button>
+        )}
+      </div>
+
+      {show && suggestions.length > 0 && (
+        <div style={{
+          position: 'absolute', top: '100%', left: 0, right: 0,
+          zIndex: 'var(--z-dropdown)',
+          background: 'var(--white)', border: '1px solid var(--border)',
+          borderRadius: 'var(--radius-md)', boxShadow: 'var(--shadow-m)',
+          marginTop: 4, maxHeight: 200, overflowY: 'auto',
+        }}>
+          {suggestions.map(s => (
+            <div
+              key={s}
+              onClick={() => add(s)}
+              style={{ padding: '8px 12px', fontSize: 13, cursor: 'pointer', borderBottom: '1px solid var(--border-l)' }}
+              onMouseEnter={e => e.target.style.background = 'var(--navy-05)'}
+              onMouseLeave={e => e.target.style.background = 'transparent'}
+            >
+              {s}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ============================================================
+// VIEWER TOOL BUTTON (Dark Mode specific)
+// ============================================================
+export function ToolBtn({ active, disabled, title, onClick, children, accentColor = 'var(--viewer-teal-light)' }) {
+  const activeStyle = active
+    ? { background: `${accentColor}2e`, borderColor: accentColor, color: accentColor }
+    : {}
+  return (
+    <button
+      title={title}
+      disabled={disabled}
+      onClick={onClick}
+      style={{
+        width: 34, height: 34,
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        background: 'rgba(255,255,255,0.04)',
+        border: '1px solid var(--border-dark)',
+        borderRadius: 'var(--radius-md)',
+        cursor: disabled ? 'not-allowed' : 'pointer',
+        color: 'var(--text-dark-2)',
+        opacity: disabled ? 0.35 : 1,
+        transition: 'var(--transition-base)',
+        ...activeStyle,
+      }}
+    >
+      {children}
+    </button>
+  )
+}
