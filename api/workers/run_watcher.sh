@@ -22,17 +22,21 @@ echo "Watch Dir  : $WATCH_DIR"
 echo "Context    : $CONTEXT_FILE"
 echo ""
 
-# 1. Load required modules
-module load Anaconda3
-module load PostgreSQL
+# 1. Clear default system modules
+module purge
 
-# 2. Ensure PostgreSQL binaries are in PATH
+# 2. Load Anaconda and initialize bash hook
+module load Anaconda3
+eval "$(conda shell.bash hook)"
+
+# 3. Activate the conda environment properly
+conda activate "/storage/research/igmp_slide_workspace/GRP Zlobec/Javier/conda_envs/langchain"
+
+# 4. Load PostgreSQL binaries
+module load PostgreSQL
 export PATH="/software.9/software/PostgreSQL/16.4-GCCcore-13.3.0/bin:$PATH"
 
-# 3. Activate conda environment
-source activate langchain
-
-# 4. Load environment variables from .env
+# 5. Load environment variables from .env
 ENV_FILE="/storage/research/igmp_dp_workspace/garciabaroja_javier/PW_reports/database/pathodb/.env"
 if [ ! -f "$ENV_FILE" ]; then
     echo "ERROR: .env not found at $ENV_FILE"
@@ -40,11 +44,14 @@ if [ ! -f "$ENV_FILE" ]; then
 fi
 export $(grep -v '^#' "$ENV_FILE" | xargs)
 
-# 5. Run the python ingestion script
-# Adjust this path if your api folder is located somewhere else!
-WATCHER_PY="/storage/research/igmp_dp_workspace/garciabaroja_javier/PW_reports/database/pathodb/api/workers/ingest_watcher.py"
 
+# Before calling python, extract db_host from the context file
+DB_HOST="$(jq -r '.db_host // "localhost"' "${CONTEXT_FILE}")"
+export POSTGRES_HOST="${DB_HOST}"
+
+echo "Connecting to PostgreSQL at ${POSTGRES_HOST}:${POSTGRES_PORT}"
+
+# 6. Run the python ingestion script
+WATCHER_PY="/storage/research/igmp_dp_workspace/garciabaroja_javier/PW_reports/database/pathodb/api/workers/ingest_watcher.py"
 echo "Starting Python watcher script..."
 python3 "$WATCHER_PY" "$WATCH_DIR" "$CONTEXT_FILE"
-
-echo "Watcher finished successfully."

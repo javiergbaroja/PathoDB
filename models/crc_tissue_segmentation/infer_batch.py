@@ -50,7 +50,7 @@ from models.model_io import create_mask2former_from_checkpoint
 from engine.inference import infer_wsi
 from utils.wsi import prepare_read_from_slide, detect_tissue_mask
 from utils.geometry import save_geojson_annotation
-from utils.visualization import COLORMAP
+from utils.constants import COLORMAP
 
 # ── System constants ─────────────────────────────────────────────────────────────
 NR_GPUS = torch.cuda.device_count()
@@ -159,6 +159,7 @@ def main() -> None:
             "model_id": MODEL_ID,
             "scope": "batch",
             "job_id": JOB_ID,
+            "job_status": "running",
             "params": PARAMS,
             "batch_summary": {
                 "total_slides": total_slides,
@@ -273,6 +274,7 @@ def main() -> None:
             "model_id": MODEL_ID,
             "scope": "batch",
             "job_id": JOB_ID,
+            "job_status": "running",
             "params": PARAMS,
             "batch_summary": {
                 "total_slides": total_slides,
@@ -284,6 +286,11 @@ def main() -> None:
 
         with open(os.path.join(RESULT_DIR, "result.json"), "w") as f:
             json.dump(final_result, f, indent=2)
+
+    # change status to complete at the end (after all slides processed) to ensure API doesn't read partial results
+    final_result["job_status"] = "complete"
+    with open(os.path.join(RESULT_DIR, "result.json"), "w") as f:
+        json.dump(final_result, f, indent=2)
 
     # ── 3. Write aggregated batch result ───────────────────────────────────────
 

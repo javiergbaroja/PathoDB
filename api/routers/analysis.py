@@ -36,6 +36,7 @@ import math
 import traceback
 from PIL import Image
 from pydantic import BaseModel
+import socket
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from fastapi.responses import JSONResponse, FileResponse
@@ -169,8 +170,8 @@ def _sync_job_status(job: AnalysisJob, db: Session) -> AnalysisJob:
             if is_batch:
                 # Batch jobs write result.json early as a placeholder.
                 # Only mark done when the explicit completion marker exists.
-                marker_file = _job_result_dir(job.id) / "batch_complete.marker"
-                file_ready = result_file.exists() and marker_file.exists()
+                marker_complete = _(job.params_json.get("job_status")) == "complete"
+                file_ready = result_file.exists() and marker_complete
             else:
                 file_ready = result_file.exists()
 
@@ -473,6 +474,7 @@ def submit_job(
         "scope": req.scope,
         "params": req.params,
         "roi": roi_file_path 
+
     }
     context_file.write_text(json.dumps(context_data), encoding="utf-8")
 
@@ -838,7 +840,8 @@ def submit_batch_job(
         "result_dir": str(result_dir),         
         "output_dir": str(custom_out_dir),     
         "params": req.params,                  
-        "targets": target_files
+        "targets": target_files,
+        "db_host": socket.gethostname(),
     }
     context_file.write_text(json.dumps(context_data), encoding="utf-8")
 
