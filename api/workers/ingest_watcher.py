@@ -53,6 +53,16 @@ def main():
     conn = psycopg2.connect(conn_str)
     print("Connected successfully. Starting watch loop...", flush=True)
 
+    cursor = conn.cursor()
+    cursor.execute("SELECT classes FROM projects WHERE id = %s", (project_id,))
+    row = cursor.fetchone()
+    project_classes = row[0] if row and row[0] else []
+    
+    # Create a case-insensitive lookup dictionary
+    name_to_id = {c.get("name", "").lower(): c.get("id") for c in project_classes}
+    cursor.close()
+
+    print("Starting watch loop...", flush=True)
     while True:
         job_complete = False
         scan_map = {}
@@ -106,13 +116,37 @@ def main():
                         elif mapped_val:
                             final_class = mapped_val
 
+                    class_id = name_to_id.get(final_class.lower())
                     geom = feature["geometry"]
-                    bx, by, bw, bh = calculate_bbox(geom.get("coordinates"))
+                    g_type = geom.get("type")
+                    coords = geom.get("coordinates")
+                    if not coords:
+                        continue
 
-                    # Add to our batch list instead of querying immediately
-                    insert_records.append((
-                        project_id, scan_id, final_class, 'polygon', bx, by, bw, bh, json.dumps(geom)
-                    ))
+                    # 1. Break down geometries into PathoDB-compatible structures
+                    geoms_to_insert = []
+                    
+                    if g_type == "Polygon":
+                        rings = [[{"x": pt[0], "y": pt[1]} for pt in ring] for ring in coords]
+                        # If len(rings) == 1, it's solid. If > 1, it passes the 2D array (holes included)
+                        pts = rings[0] if len(rings) == 1 else rings
+                        geoms_to_insert.append({"points": pts})
+                        
+                    elif g_type == "MultiPolygon":
+                        # Break MultiPolygons into individual rows so they behave correctly in the UI
+                        for poly_coords in coords:
+                            rings = [[{"x": pt[0], "y": pt[1]} for pt in ring] for ring in poly_coords]
+                            pts = rings[0] if len(rings) == 1 else rings
+                            geoms_to_insert.append({"points": pts})
+
+                    # 2. Add each extracted geometry to the bulk insert list
+                    for internal_geom in geoms_to_insert:
+                        # Re-calculate bounding box for the individual polygon
+                        bx, by, bw, bh = calculate_bbox([[(p["x"], p["y"]) for p in (internal_geom["points"][0] if isinstance(internal_geom["points"][0], list) else internal_geom["points"])]])
+
+                        insert_records.append((
+                            project_id, scan_id, class_id, final_class, 'polygon', bx, by, bw, bh, json.dumps(internal_geom)
+                        ))
 
                 if insert_records:
                     print(f"Bulk inserting {len(insert_records)} polygons for scan {scan_id}...", flush=True)
@@ -120,7 +154,7 @@ def main():
                         cursor,
                         """
                         INSERT INTO annotations 
-                        (project_id, scan_id, class_name, annotation_type, bbox_x, bbox_y, bbox_w, bbox_h, geometry) 
+                        (project_id, scan_id, class_id, class_name, annotation_type, bbox_x, bbox_y, bbox_w, bbox_h, geometry) 
                         VALUES %s
                         """,
                         insert_records

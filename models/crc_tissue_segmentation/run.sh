@@ -50,17 +50,20 @@ echo ""
 
 # 2. Clean environment and activate Conda safely
 module purge
-module load Anaconda3
+export APPTAINER_BIND="/storage:/storage"
+# module load Anaconda3
 module load CUDA/11.8.0
 module load GCCcore/10.3.0
 
-source activate "/storage/research/igmp_slide_workspace/GRP Zlobec/Javier/conda_envs/metassist"
-
+# source activate "/storage/research/igmp_slide_workspace/GRP Zlobec/Javier/conda_envs/metassist"
+container_path="/storage/research/igmp_slide_workspace/GRP Zlobec/Amjad/qupath/metassist-v1/MetAssist_expansion/crc-ugi/code/package_refactored/singularity/metassist_env.sif"
 # ── Run inference ─────────────────────────────────────────────────────────────
 # get absolute folder for this bash script.
 PROJECT_DIR="/storage/research/igmp_dp_workspace/garciabaroja_javier/PW_reports/database/pathodb"
 INFERENCE_SCRIPT="/storage/research/igmp_dp_workspace/garciabaroja_javier/PW_reports/database/pathodb/models/crc_tissue_segmentation/infer.py"
-python3 "${INFERENCE_SCRIPT}"
+apptainer exec --nv "${container_path}" \
+    /opt/conda/envs/metassist_infer/bin/python3 \
+    "${INFERENCE_SCRIPT}"
 
 echo ""
 echo "=== Finished : $(date) ==="

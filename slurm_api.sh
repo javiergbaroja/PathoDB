@@ -21,9 +21,13 @@
 #   2. Add JWT_SECRET and SCANNER_API_KEY to .env
 #   3. Note which node the job runs on (printed below) for SSH tunnel setup
 #
+# If any changes are made to the API code, you can simply cancel the job and resubmit it.
+#   scancel --name=pathodb_api && cd frontend && npm run build && cd .. && sbatch slurm_api.sh && squeue --me
+#
 # SSH tunnel from your local machine (run after job starts):
 #   ssh -L 8080:<NODE>:8000 <your-cluster-login>
 #   Then open http://localhost:8080/docs
+# 
 # =============================================================================
 
 set -euo pipefail
@@ -92,7 +96,34 @@ else
         sleep 1
     done
 fi
+echo "Syncing database password with .env file..."
+psql -p "$PGPORT" -d postgres -c "ALTER USER ${PGUSER} WITH PASSWORD '${POSTGRES_PASSWORD}';"
 # psql -h localhost -p 15432 -U jg23p152 -d pathodb -f db/schema.sql
+
+NODE_IP=$(hostname -I | awk '{print $1}')
+CLUSTER_SUBNET=$(echo "$NODE_IP" | cut -d. -f1-2).0.0/16
+
+echo "Configuring PostgreSQL to accept cluster connections from $CLUSTER_SUBNET..."
+
+# Set listen_addresses = '*' (update existing line or append)
+if grep -q "^listen_addresses" "$PGDATA/postgresql.conf"; then
+    sed -i "s/^listen_addresses.*/listen_addresses = '*'/" "$PGDATA/postgresql.conf"
+else
+    echo "listen_addresses = '*'" >> "$PGDATA/postgresql.conf"
+fi
+
+# Add pg_hba rule for the cluster subnet (idempotent)
+PG_HBA_RULE="host    all    $PGUSER    $CLUSTER_SUBNET    md5"
+if ! grep -qF "$CLUSTER_SUBNET" "$PGDATA/pg_hba.conf"; then
+    echo "$PG_HBA_RULE" >> "$PGDATA/pg_hba.conf"
+    echo "Added pg_hba rule: $PG_HBA_RULE"
+fi
+
+# Reload config (no full restart needed)
+pg_ctl -D "$PGDATA" restart
+echo "PostgreSQL reloaded — now listening on $NODE_IP:$API_PORT"
+
+
 # ── Install API dependencies ──────────────────────────────────────────────────
 echo ""
 echo "Installing API dependencies..."

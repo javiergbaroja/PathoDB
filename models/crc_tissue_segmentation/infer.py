@@ -1,5 +1,5 @@
 """
-PathoDB — CRC Tissue Segmentation Detector
+PathoDB — CRC Tissue Segmentation
 ==========================================
 Single-stage Mask2Former pipeline:
   Infers the entire slide (or tissue mask) to detect Tumor, 
@@ -46,7 +46,7 @@ from models.model_io import create_mask2former_from_checkpoint
 from engine.inference import infer_wsi
 from utils.wsi import prepare_read_from_slide, detect_tissue_mask
 from utils.geometry import save_geojson_annotation, create_mask_from_contours
-from utils.visualization import COLORMAP
+from utils.constants import COLORMAP
 
 # ── System constants ─────────────────────────────────────────────────────────────
 NR_GPUS = torch.cuda.device_count()
@@ -128,7 +128,7 @@ def main() -> None:
     assert STEP_SIZE <= TILE_SIZE, 'Step size should be less than or equal to tile size'
     assert CROP_PRED_EDGE / 2 <= (TILE_SIZE - STEP_SIZE), 'Crop pred edge should be <= half of tile overlap'
 
-    print(f"=== PathoDB CRC Tissue Seg Detector ===")
+    print(f"=== PathoDB CRC Tissue Segmentation ===")
     print(f"WSI        : {SCAN_PATH}")
     print(f"Result dir : {RESULT_DIR}")
     print(f"System running on {NR_GPUS} GPU(s) [{GPU_TYPE}]")

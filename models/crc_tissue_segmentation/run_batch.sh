@@ -28,17 +28,20 @@ echo ""
 
 # Clean environment and activate Conda safely
 module purge
-module load Anaconda3
+# module load Anaconda3
 module load CUDA/11.8.0
 module load GCCcore/10.3.0
 
-source activate metassist
+export APPTAINER_BIND="/storage:/storage"
 
 # ── Run batch inference ───────────────────────────────────────────────────────
+SING_CONTAINER="/storage/research/igmp_slide_workspace/GRP Zlobec/Amjad/qupath/metassist-v1/MetAssist_expansion/crc-ugi/code/package_refactored/singularity/metassist_env.sif"
 INFERENCE_SCRIPT="/storage/research/igmp_dp_workspace/garciabaroja_javier/PW_reports/database/pathodb/models/crc_tissue_segmentation/infer_batch.py"
 
 # Pass the JSON file directly to Python
-python3 "${INFERENCE_SCRIPT}" "${CONTEXT_FILE}"
+apptainer exec --nv "${SING_CONTAINER}" \
+    /opt/conda/envs/metassist_infer/bin/python3 \
+    "${INFERENCE_SCRIPT}" "${CONTEXT_FILE}"
 
 echo ""
 echo "=== Finished : $(date) ==="
