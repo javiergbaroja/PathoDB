@@ -17,7 +17,7 @@ export default memo(function ClassPanel({
   annotationCount,
   totalScans,
   annotatedScans,
-  // ── AI model props ──────────────────────────────────────────────
+  onOpenManageClasses,
   catalog          = [],
   scanId           = null,
   aiRoiAnnotations = [],
@@ -110,6 +110,7 @@ export default memo(function ClassPanel({
             readOnly={readOnly}
             aiRoiAnnotations={aiRoiAnnotations}
             onSetAiClass={() => onSetActiveClass?.(AI_ROI_CLASS)}
+            onOpenManageClasses={onOpenManageClasses}
           />
         )}
         {tab === 'list' && (
@@ -139,7 +140,7 @@ export default memo(function ClassPanel({
 })
 
 // ── Classes tab ────────────────────────────────────────────────────────────────
-function ClassTab({ classes, activeClass, setActiveClass, annotations, onSelectAllOfClass, readOnly, aiRoiAnnotations, onSetAiClass }) {
+function ClassTab({ classes, activeClass, setActiveClass, annotations, onSelectAllOfClass, readOnly, aiRoiAnnotations, onSetAiClass, onOpenManageClasses }) {
   const SHORTCUTS = [
     { key: 'M', label: 'Select / move' },
     { key: 'G', label: 'Polygon' },
@@ -180,7 +181,20 @@ function ClassTab({ classes, activeClass, setActiveClass, annotations, onSelectA
         {readOnly ? 'Classes' : 'Select a class, then draw on the slide'}
       </div>
 
-      {/* ── AI ROI system class — pinned at top ─────────────────────────────── */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8, padding: '0 4px' }}>
+        <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.35)' }}>
+          {readOnly ? 'Classes' : 'Select a class, then draw on the slide'}
+        </div>
+        {!readOnly && (
+          <button 
+            onClick={onOpenManageClasses} 
+            style={{ background: 'none', border: 'none', color: '#6ee7b7', fontSize: 10, cursor: 'pointer', padding: '0 4px', textDecoration: 'underline', textUnderlineOffset: '2px' }}
+          >
+            Edit
+          </button>
+        )}
+      </div>
+
       <AiRoiClassRow
         isActive={isAiRoiActive}
         count={aiRoiAnnotations.length}

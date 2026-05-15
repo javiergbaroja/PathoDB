@@ -11,6 +11,7 @@ import ClassPanel from './ClassPanel'
 import SlideTray from './SlideTray'
 import ImportModal from './ImportModal'
 import { AI_ROI_CLASS } from './ProjectModelsPanel'                   // ← NEW
+import ManageClassesModal from '../../components/ManageClassesModal'
 import BatchAIModal from './BatchAIModal'
 import RBush from 'rbush'
 import { getAnnotationBBox } from '../../lib/annotationMath'
@@ -41,6 +42,7 @@ function ensureGammaFilter() {
 export default function ProjectDetail() {
   const { projectId } = useParams()
   const [showBatchAIModal, setShowBatchAIModal] = useState(false)
+  const [showManageClasses, setShowManageClasses] = useState(false);
   const navigate      = useNavigate()
   const token         = localStorage.getItem('pathodb_token')
   const queryClient   = useQueryClient()
@@ -866,6 +868,7 @@ export default function ProjectDetail() {
             // Auto-switch to a drawing tool if none is active
             if (!activeTool || activeTool === 'select') setActiveTool('polygon')
           }}
+          onOpenManageClasses={() => setShowManageClasses(true)}
         />
       </div>
 
@@ -880,6 +883,11 @@ export default function ProjectDetail() {
         projectId={Number(projectId)}
         projectClasses={project?.classes || []} // <--- Pass classes directly
         projectScans={projectScans}             // <--- Pass scans directly
+      />
+      <ManageClassesModal 
+        isOpen={showManageClasses} 
+        onClose={() => setShowManageClasses(false)} 
+        project={project} 
       />
     </div>
   )

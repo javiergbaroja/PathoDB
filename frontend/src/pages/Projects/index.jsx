@@ -8,11 +8,12 @@ import { api } from '../../api'
 import CreateProjectModal from './CreateProjectModal'
 import ShareModal from './ShareModal'
 import BatchAIModal from '../ProjectDetail/BatchAIModal'
+import ManageClassesModal from '../../components/ManageClassesModal'
 
 const token = () => localStorage.getItem('pathodb_token')
 
 // ─── Project card ─────────────────────────────────────────────────────────────
-function ProjectCard({ project, onOpen, onShare, onDelete, isOwner, onBatchAI }) {
+function ProjectCard({ project, onOpen, onShare, onDelete, isOwner, onBatchAI, onManageClasses }) {
   const [imgError, setImgError] = useState(false)
   const pct = project.scan_count > 0
     ? Math.round((project.annotated_scans / project.scan_count) * 100)
@@ -122,6 +123,15 @@ function ProjectCard({ project, onOpen, onShare, onDelete, isOwner, onBatchAI })
           Open
         </Btn>
 
+        {(isOwner || project.access === 'edit') && (
+          <Btn variant="ghost" small onClick={(e) => { e.stopPropagation(); onManageClasses(project); }}>
+            <svg width="11" height="11" viewBox="0 0 16 16" fill="currentColor">
+              <path d="M4.5 3a1.5 1.5 0 100-3 1.5 1.5 0 000 3zm7 0a1.5 1.5 0 100-3 1.5 1.5 0 000 3zM4.5 16a1.5 1.5 0 100-3 1.5 1.5 0 000 3zm7 0a1.5 1.5 0 100-3 1.5 1.5 0 000 3zM4.5 9.5a1.5 1.5 0 100-3 1.5 1.5 0 000 3zm7 0a1.5 1.5 0 100-3 1.5 1.5 0 000 3z"/>
+            </svg>
+            Classes
+          </Btn>
+        )}
+
         <Btn variant="ghost" small onClick={(e) => { e.stopPropagation(); onBatchAI(); }}>
           🪄 Batch AI
         </Btn>
@@ -155,6 +165,7 @@ function ProjectCard({ project, onOpen, onShare, onDelete, isOwner, onBatchAI })
 // ─── Main page ────────────────────────────────────────────────────────────────
 export default function Projects() {
   const [aiTargetProjectId, setAiTargetProjectId] = useState(null)
+  const [manageClassesTarget, setManageClassesTarget] = useState(null)
   const navigate     = useNavigate()
   const queryClient  = useQueryClient()
   const [showCreate, setShowCreate]   = useState(false)
@@ -221,6 +232,7 @@ export default function Projects() {
                     onShare={setShareTarget}
                     onDelete={setDeleteTarget}
                     onBatchAI={() => setAiTargetProjectId(p.id)} 
+                    onManageClasses={setManageClassesTarget}
                   />
                 ))}
               </Section>
@@ -234,7 +246,8 @@ export default function Projects() {
                     onOpen={id => navigate(`/projects/${id}`)}
                     onShare={() => {}}
                     onDelete={() => {}}
-                    onBatchAI={() => setAiTargetProjectId(p.id)} 
+                    onBatchAI={() => setAiTargetProjectId(p.id)}
+                    onManageClasses={setManageClassesTarget} 
                   />
                 ))}
               </Section>
@@ -286,12 +299,17 @@ export default function Projects() {
         </div>
       )}
 
-      {/* NEW: Batch AI Modal */}
       <BatchAIModal 
         isOpen={!!aiTargetProjectId}
         projectId={aiTargetProjectId}
         projectClasses={targetProject?.classes || []} // <--- Added this line
         onClose={() => setAiTargetProjectId(null)}
+      />
+      
+      <ManageClassesModal 
+        isOpen={!!manageClassesTarget} 
+        onClose={() => setManageClassesTarget(null)} 
+        project={manageClassesTarget} 
       />
     </Layout>
   )

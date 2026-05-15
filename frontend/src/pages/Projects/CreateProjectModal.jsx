@@ -3,12 +3,7 @@ import { useState, useRef } from 'react'
 import { api } from '../../api'
 import { Btn, FormLabel, FormInput, FormField } from '../../components/ui'
 import SlideTargetManager from '../../components/SlideTargetManager'
-
-const PRESET_COLORS = [
-  '#ef4444','#f97316','#eab308','#22c55e',
-  '#14b8a6','#3b82f6','#8b5cf6','#ec4899',
-  '#6ee7b7','#fbbf24','#60a5fa','#f472b6',
-]
+import { PATHOLOGY_PALETTE } from '../../constants/stains' 
 
 function genId() {
   return Math.random().toString(36).slice(2, 10)
@@ -73,14 +68,14 @@ function TypeCard({ selected, onClick, icon, title, description }) {
 // ─── Class editor ─────────────────────────────────────────────────────────────
 function ClassEditor({ classes, setClasses }) {
   const [newName,  setNewName]  = useState('')
-  const [newColor, setNewColor] = useState(PRESET_COLORS[0])
+  const [newColor, setNewColor] = useState(PATHOLOGY_PALETTE[0])
 
   function addCls() {
     const name = newName.trim()
     if (!name) return
     setClasses(prev => [...prev, { id: genId(), name, color: newColor }])
     setNewName('')
-    setNewColor(PRESET_COLORS[(classes.length + 1) % PRESET_COLORS.length])
+    setNewColor(PATHOLOGY_PALETTE[(classes.length + 1) % PATHOLOGY_PALETTE.length])
   }
 
   function removeCls(id)          { setClasses(prev => prev.filter(c => c.id !== id)) }
@@ -143,7 +138,7 @@ function ClassEditor({ classes, setClasses }) {
 
       {/* Preset palette */}
       <div style={{ display:'flex', flexWrap:'wrap', gap:6, marginTop:10 }}>
-        {PRESET_COLORS.map(c => (
+        {PATHOLOGY_PALETTE.map(c => (
           <div key={c} onClick={() => setNewColor(c)}
             style={{ width:18, height:18, borderRadius:'var(--radius-sm)', background:c, cursor:'pointer', border: newColor===c ? '2px solid var(--navy)' : '2px solid transparent', flexShrink:0 }}
           />
