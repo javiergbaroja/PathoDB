@@ -163,19 +163,27 @@ def _sync_job_status(job: AnalysisJob, db: Session) -> AnalysisJob:
                 changed = True
 
         elif slurm_state in ("COMPLETED", None):
-            # COMPLETED or purged from squeue — check if result file exists
             result_file = _job_result_dir(job.id) / "result.json"
-            if result_file.exists():
+            is_batch = bool(job.params_json.get("is_batch"))
+
+            if is_batch:
+                # Batch jobs write result.json early as a placeholder.
+                # Only mark done when the explicit completion marker exists.
+                marker_file = _job_result_dir(job.id) / "batch_complete.marker"
+                file_ready = result_file.exists() and marker_file.exists()
+            else:
+                file_ready = result_file.exists()
+
+            if file_ready:
                 job.status      = "done"
                 job.progress    = 100
                 job.result_path = str(_job_result_dir(job.id))
                 changed = True
-            elif slurm_state == "COMPLETED":
-                # SLURM says done but no result — mark failed
+            elif slurm_state == "COMPLETED" and not is_batch:
+                # Non-batch SLURM-completed but no result → genuinely failed
                 job.status        = "failed"
                 job.error_message = "SLURM job completed but no result.json was produced."
                 changed = True
-            # else: None (purged) and no result yet — still running, wait
 
         elif slurm_state in ("FAILED", "TIMEOUT", "NODE_FAIL", "OUT_OF_MEMORY"):
             job.status        = "failed"
@@ -855,7 +863,7 @@ def submit_batch_job(
         # 5. CONDITIONALLY SUBMIT CPU WATCHER JOB
         if is_auto_ingest:
             # Note: Adjust this path depending on exactly where you saved run_watcher.sh!
-            watcher_sh = Path(__file__).resolve().parents[2] / "workers" / "run_watcher.sh"
+            watcher_sh = Path(__file__).resolve().parents[1] / "workers" / "run_watcher.sh"
             watcher_log = result_dir / "watcher_%j.out"
             
             # Watcher takes 2 arguments: The Directory to watch, and the Context file (for class mappings)

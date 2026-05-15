@@ -279,33 +279,54 @@ function PastJobsList({ jobs, catalog, activeOverlays, onToggleOverlay, onDelete
       </div>
 
       {past.map(job => {
-        const model      = catalog.find(m => m.id === job.model_id)
-        const scopeLabel = job.scope === 'roi' ? ' · ROI' : job.scope === 'visible_region' ? ' · Visible' : ''
-        const isActive   = activeOverlays[job.id]
+        const model       = catalog.find(m => m.id === job.model_id)
+        const scopeLabel  = job.scope === 'roi' ? ' · ROI' : job.scope === 'visible_region' ? ' · Visible' : ''
+        const isActive    = activeOverlays[job.id]
+
+        // Batch/annotation jobs write GeoJSON only — no tiled overlay to display in the viewer.
+        const isBatchAnnotation = !!job.params_json?.is_batch
 
         return (
           <div key={job.id} style={{ marginBottom: 12 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 4 }}>
-              <JobStatusBadge status={job.status} />
+
+              {/* Status badge — distinguish annotation-only batch runs */}
+              {job.status === 'done' && isBatchAnnotation ? (
+                <span style={{
+                  display: 'inline-flex', alignItems: 'center',
+                  padding: '2px 8px', borderRadius: 'var(--radius-full)',
+                  fontSize: 'var(--text-xs)', fontWeight: 500, whiteSpace: 'nowrap',
+                  background: 'rgba(167,139,250,0.15)', color: '#a78bfa',
+                }}>
+                  Annotations
+                </span>
+              ) : (
+                <JobStatusBadge status={job.status} />
+              )}
+
               <span style={{ flex: 1, fontSize: 10, color: 'var(--text-dark-2)' }}>
                 {new Date(job.created_at).toLocaleDateString()}{scopeLabel}
               </span>
+
               <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
                 {job.status === 'done' && (
                   <>
-                    <button
-                      onClick={() => onToggleOverlay(job.id)}
-                      style={{
-                        fontSize: 10, padding: '2px 8px', borderRadius: 3, cursor: 'pointer',
-                        border: `1px solid ${isActive ? 'rgba(230,0,46,0.25)' : 'rgba(27,153,139,0.25)'}`,
-                        background: isActive ? 'rgba(230,0,46,0.1)' : 'rgba(27,153,139,0.1)',
-                        color: isActive ? 'var(--viewer-red)' : 'var(--viewer-teal-light)',
-                      }}
-                    >
-                      {isActive ? 'Hide' : 'View'}
-                    </button>
+                    {/* View overlay — only for single-slide jobs that produce a tiled overlay */}
+                    {!isBatchAnnotation && (
+                      <button
+                        onClick={() => onToggleOverlay(job.id)}
+                        style={{
+                          fontSize: 10, padding: '2px 8px', borderRadius: 3, cursor: 'pointer',
+                          border: `1px solid ${isActive ? 'rgba(230,0,46,0.25)' : 'rgba(27,153,139,0.25)'}`,
+                          background: isActive ? 'rgba(230,0,46,0.1)' : 'rgba(27,153,139,0.1)',
+                          color: isActive ? 'var(--viewer-red)' : 'var(--viewer-teal-light)',
+                        }}
+                      >
+                        {isActive ? 'Hide' : 'View'}
+                      </button>
+                    )}
 
-                    {/* Download */}
+                    {/* Download is available for all completed jobs */}
                     <button
                       onClick={() => handleDownload(job.id)}
                       title="Download model output"
@@ -325,9 +346,11 @@ function PastJobsList({ jobs, catalog, activeOverlays, onToggleOverlay, onDelete
                     </button>
                   </>
                 )}
+
                 {job.status === 'failed' && job.error_message && (
                   <span title={job.error_message} style={{ fontSize: 10, color: 'var(--viewer-red)', cursor: 'help', padding: '0 4px' }}>ⓘ</span>
                 )}
+
                 <button
                   onClick={() => onDeleteJob(job)}
                   title="Delete run and files"
@@ -342,7 +365,7 @@ function PastJobsList({ jobs, catalog, activeOverlays, onToggleOverlay, onDelete
               </div>
             </div>
 
-            {job.status === 'done' && (
+            {job.status === 'done' && !isBatchAnnotation && (
               <ErrorBoundary
                 fallback={
                   <div style={{ padding: 8, border: '1px dashed rgba(230,0,46,0.3)', borderRadius: 4, color: 'var(--viewer-red)', fontSize: 10, background: 'rgba(230,0,46,0.05)', marginTop: 6 }}>
@@ -359,7 +382,6 @@ function PastJobsList({ jobs, catalog, activeOverlays, onToggleOverlay, onDelete
     </div>
   )
 }
-
 // ── Main component ─────────────────────────────────────────────────────────────
 
 export default function ModelsPanel({
