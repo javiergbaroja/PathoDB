@@ -2,7 +2,7 @@
 import { useState, useEffect } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from '../api'
-import { Modal, Btn, FormInput } from './ui'
+import { Modal, Btn, FormInput, Table, Th, Tr, Td } from './ui'
 import { PATHOLOGY_PALETTE } from '../constants/stains'
 
 export default function ManageClassesModal({ isOpen, onClose, project }) {
@@ -54,56 +54,55 @@ export default function ManageClassesModal({ isOpen, onClose, project }) {
           </label>
           
           {/* Formatted Table Grid (Matching BatchAIModal style) */}
-          <div style={{ border: '1px solid var(--border-l)', borderRadius: 8, overflow: 'hidden' }}>
-            
-            {/* Table Header */}
-            <div style={{ display: 'grid', gridTemplateColumns: '50px 1fr 40px', background: 'var(--navy-05)', padding: '8px 12px', fontSize: 11, fontWeight: 600, color: 'var(--text-3)', borderBottom: '1px solid var(--border-l)' }}>
-              <div>COLOR</div>
-              <div>CLASS NAME</div>
-              <div></div>
-            </div>
-            
-            {/* Table Body */}
-            <div style={{ maxHeight: 300, overflowY: 'auto', background: 'var(--white)' }}>
+          <Table>
+            <thead>
+              <tr>
+                <Th style={{ width: 60 }}>Color</Th>
+                <Th>Class Name</Th>
+                <Th style={{ width: 60, textAlign: 'center' }}>Actions</Th>
+              </tr>
+            </thead>
+            <tbody>
               {draftClasses.length === 0 ? (
-                <div style={{ padding: '20px', textAlign: 'center', fontSize: 13, color: 'var(--text-3)' }}>
-                  No classes defined. Add one below.
-                </div>
+                <Tr>
+                  <Td colSpan={3} style={{ textAlign: 'center', padding: 'var(--space-6)' }}>
+                    No classes defined. Add one below.
+                  </Td>
+                </Tr>
               ) : (
                 draftClasses.map((cls) => (
-                  <div key={cls.id} style={{ display: 'grid', gridTemplateColumns: '50px 1fr 40px', gap: 12, padding: '10px 12px', borderBottom: '1px solid var(--border-l)', alignItems: 'center' }}>
-                    
-                    <input 
-                      type="color" 
-                      value={cls.color} 
-                      onChange={(e) => handleUpdateClass(cls.id, 'color', e.target.value)}
-                      style={{ width: 32, height: 32, padding: 0, border: '1px solid var(--border)', borderRadius: 4, cursor: 'pointer', background: 'transparent' }}
-                    />
-
-                    {/* Utilizing shared FormInput from ui/index.jsx */}
-                    <FormInput 
-                      value={cls.name}
-                      onChange={(e) => handleUpdateClass(cls.id, 'name', e.target.value)}
-                      placeholder="e.g. Tumor, Necrosis..."
-                    />
-
-                    <div style={{ textAlign: 'center' }}>
-                      <button 
+                  <Tr key={cls.id}>
+                    <Td>
+                      <input 
+                        type="color" 
+                        value={cls.color} 
+                        onChange={(e) => handleUpdateClass(cls.id, 'color', e.target.value)}
+                        style={{ width: 32, height: 32, padding: 0, border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', cursor: 'pointer', background: 'transparent' }}
+                      />
+                    </Td>
+                    <Td>
+                      <FormInput 
+                        value={cls.name}
+                        onChange={(e) => handleUpdateClass(cls.id, 'name', e.target.value)}
+                        placeholder="e.g. Tumor, Necrosis..."
+                      />
+                    </Td>
+                    <Td style={{ textAlign: 'center' }}>
+                      <Btn 
+                        variant="ghost" 
+                        small
                         onClick={() => handleRemoveClass(cls.id)}
                         title="Remove class"
-                        style={{ background: 'transparent', border: 'none', color: 'var(--crimson)', opacity: 0.6, cursor: 'pointer', fontSize: 20, lineHeight: 1 }}
-                        onMouseEnter={e => e.currentTarget.style.opacity = 1}
-                        onMouseLeave={e => e.currentTarget.style.opacity = 0.6}
+                        style={{ color: 'var(--crimson)', borderColor: 'transparent', padding: '4px 8px' }}
                       >
-                        ×
-                      </button>
-                    </div>
-
-                  </div>
+                        ✕
+                      </Btn>
+                    </Td>
+                  </Tr>
                 ))
               )}
-            </div>
-          </div>
+            </tbody>
+          </Table>
         </div>
 
         <Btn variant="ghost" onClick={handleAddClass} style={{ alignSelf: 'flex-start' }}>

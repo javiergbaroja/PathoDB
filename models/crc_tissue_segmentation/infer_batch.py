@@ -7,7 +7,7 @@ Single-stage Mask2Former pipeline for Batch Processing:
 
 Inputs arrive via the batch_context.json file passed as sys.argv[1].
 Outputs written to the custom RESULT_DIR:
-  progress.json  — polled every 5s by the API for the progress bar
+  progress.json  — polled every 5s by the API for the live tracking
   result.json    — aggregated summary of all slides processed
   <wsi>.geojson  — primary multi-class overlay (per slide)
   error.txt      — stack trace on global failure
@@ -84,18 +84,6 @@ CROP_PRED_EDGE  = 84 if PARAMS.get("tile_overlap", 66.667) > 25 else 50
 # HELPERS
 # ─────────────────────────────────────────────────────────────────────────────
 
-def write_progress(pct: int, message: str) -> None:
-    """Write progress.json atomically."""
-    pct = max(0, min(100, int(pct)))
-    payload = {"pct": pct, "message": message}
-    tmp = os.path.join(RESULT_DIR, "progress.tmp")
-    dst = os.path.join(RESULT_DIR, "progress.json")
-    with open(tmp, "w") as f:
-        json.dump(payload, f)
-    os.replace(tmp, dst)
-    print(f"[{pct:3d}%] {message}", flush=True)
-
-
 def close_tumor(pred_mask: np.ndarray, tumor_class: int) -> np.ndarray:
     """Close small gaps inside tumor regions."""
     kernel = np.ones((5, 5), np.uint8)
@@ -116,8 +104,37 @@ def main() -> None:
     assert CROP_PRED_EDGE / 2 <= (TILE_SIZE - STEP_SIZE), 'Crop pred edge should be <= half of tile overlap'
 
     total_slides = len(TARGETS)
+
+    # 1. Initialize the Live State Dictionary for progress.json
+    state = {
+        "pct": 0,
+        "message": "Initializing batch...",
+        "slides": { 
+            str(t["scan_id"]): {
+                "scan_path": t.get("file_path"), # <--- ADD THIS EXACT LINE
+                "status": "pending", 
+                "progress": 0, 
+                "message": "Queued"
+            } for t in TARGETS 
+        }
+    }
+
+    def update_progress(global_pct=None, global_msg=None) -> None:
+        """Write detailed live progress.json atomically."""
+        if global_pct is not None:
+            state["pct"] = max(0, min(100, int(global_pct)))
+        if global_msg is not None:
+            state["message"] = global_msg
+            print(f"[{state['pct']:3d}%] {global_msg}", flush=True)
+
+        tmp = os.path.join(RESULT_DIR, "progress.tmp")
+        dst = os.path.join(RESULT_DIR, "progress.json")
+        with open(tmp, "w") as f:
+            json.dump(state, f, indent=2)
+        os.replace(tmp, dst)
+
     if total_slides == 0:
-        write_progress(100, "No targets provided. Exiting.")
+        update_progress(100, "No targets provided. Exiting.")
         return
 
     print(f"=== PathoDB CRC Tissue Seg Detector (BATCH) ===")
@@ -126,7 +143,7 @@ def main() -> None:
     print(f"System     : {NR_GPUS} GPU(s) [{GPU_TYPE}]", flush=True)
 
     # ── 1. Load model once for the entire batch ────────────────────────────────
-    write_progress(2, f"Loading model into memory [{GPU_TYPE}]...")
+    update_progress(2, f"Loading model into memory [{GPU_TYPE}]...")
     model = create_mask2former_from_checkpoint(
         checkpoint_path=CHECKPOINT_PATH, 
         label2id=LABEL2ID, 
@@ -172,15 +189,20 @@ def main() -> None:
     # ── 2. Process each slide ──────────────────────────────────────────────────
     for idx, target in enumerate(TARGETS):
         scan_id = target.get("scan_id")
+        scan_id_str = str(scan_id)
         scan_path = target.get("file_path")
         wsi_name = os.path.splitext(os.path.basename(scan_path))[0]
         
         # Calculate base progress for this slide (leaves 2% for model load, 2% for final JSON)
         base_pct = 2 + (idx / total_slides) * 96
+        
         def slide_prog(sub_pct, msg):
-            # Map a 0-100 slide progress to the global batch progress
+            """Updates both the global batch progress and the individual slide progress."""
             global_pct = int(base_pct + (sub_pct / 100.0) * (96 / total_slides))
-            write_progress(global_pct, f"[{idx+1}/{total_slides}] {wsi_name}: {msg}")
+            state["slides"][scan_id_str]["status"] = "running"
+            state["slides"][scan_id_str]["progress"] = sub_pct
+            state["slides"][scan_id_str]["message"] = msg
+            update_progress(global_pct, f"[{idx+1}/{total_slides}] {wsi_name}: {msg}")
 
         try:
             if not os.path.isfile(scan_path):
@@ -256,6 +278,12 @@ def main() -> None:
             }
             successful += 1
 
+            # Mark slide finished in the live state
+            state["slides"][scan_id_str]["status"] = "success"
+            state["slides"][scan_id_str]["progress"] = 100
+            state["slides"][scan_id_str]["message"] = "Processed successfully."
+            update_progress()
+
         except Exception as e:
             tb = traceback.format_exc()
             print(f"\n[ERROR] Slide {wsi_name} failed:\n{tb}", file=sys.stderr)
@@ -267,9 +295,17 @@ def main() -> None:
             }
             failed += 1
             
+            # Mark slide failed in the live state
+            state["slides"][scan_id_str]["status"] = "failed"
+            state["slides"][scan_id_str]["progress"] = 0
+            state["slides"][scan_id_str]["message"] = f"Error: {str(e)}"
+            update_progress()
+            
         finally:
             # Free memory between slides to prevent creeping OOM errors
             torch.cuda.empty_cache()
+
+        # Write intermediate result.json (Fallback sync)
         final_result = {
             "model_id": MODEL_ID,
             "scope": "batch",
@@ -292,12 +328,7 @@ def main() -> None:
     with open(os.path.join(RESULT_DIR, "result.json"), "w") as f:
         json.dump(final_result, f, indent=2)
 
-    # ── 3. Write aggregated batch result ───────────────────────────────────────
-
-    
-    
-
-    write_progress(100, f"Batch complete. {successful}/{total_slides} successful.")
+    update_progress(100, f"Batch complete. {successful}/{total_slides} successful.")
     print(f"\n=== Batch Complete ===")
     print(f"Success: {successful} | Failed: {failed}")
 
@@ -307,10 +338,16 @@ if __name__ == "__main__":
         main()
     except Exception:
         tb = traceback.format_exc()
+        # Fallback state injection if catastrophic failure
         try:
-            write_progress(0, "Fatal batch failure — see error.txt")
+            tmp = os.path.join(RESULT_DIR, "progress.tmp")
+            dst = os.path.join(RESULT_DIR, "progress.json")
+            with open(tmp, "w") as f:
+                json.dump({"pct": 0, "message": "Fatal batch failure — see error.txt", "slides": {}}, f)
+            os.replace(tmp, dst)
         except Exception:
             pass
+        
         error_path = os.path.join(RESULT_DIR, "error.txt")
         with open(error_path, "w") as f:
             f.write(tb)

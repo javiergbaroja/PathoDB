@@ -823,3 +823,32 @@ export function ConfirmDialog({ isOpen, onClose, onConfirm, title, message, conf
     </Modal>
   )
 }
+
+
+// ============================================================
+// CIRCULAR PROGRESS
+// ============================================================
+export function CircularProgress({ progress = 0, size = 24, strokeWidth = 3, color = 'var(--warning-dot)', trackColor = 'var(--navy-10)' }) {
+  const radius = (size - strokeWidth) / 2
+  const circumference = radius * 2 * Math.PI
+  const offset = circumference - (progress / 100) * circumference
+
+  // This return statement is what prevents Error #310!
+  return (
+    <div style={{ position: 'relative', width: size, height: size, display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>
+      <svg width={size} height={size} style={{ transform: 'rotate(-90deg)' }}>
+        <circle 
+          cx={size / 2} cy={size / 2} r={radius} 
+          stroke={trackColor} strokeWidth={strokeWidth} fill="none" 
+        />
+        <circle 
+          cx={size / 2} cy={size / 2} r={radius} 
+          stroke={color} strokeWidth={strokeWidth} fill="none" 
+          strokeDasharray={circumference} strokeDashoffset={offset} 
+          strokeLinecap="round"
+          style={{ transition: 'stroke-dashoffset 0.3s ease' }}
+        />
+      </svg>
+    </div>
+  )
+}

@@ -20,8 +20,8 @@ function ProjectCard({ project, onOpen, onShare, onDelete, isOwner, onBatchAI, o
     : 0
 
   const typeLabel = project.project_type === 'cell_detection' ? 'Cell detection' : 'Region annotation'
-  const typeColor = project.project_type === 'cell_detection' ? '#fbbf24' : '#6ee7b7'
-  const typeBg    = project.project_type === 'cell_detection' ? 'rgba(251,191,36,0.12)' : 'rgba(27,153,139,0.12)'
+  const typeColor = project.project_type === 'cell_detection' ? 'var(--blue-h)' : 'var(--teal-h)'
+  const typeBg    = project.project_type === 'cell_detection' ? 'var(--blue-20)' : 'var(--teal-20)'
 
   return (
     <div
@@ -118,10 +118,6 @@ function ProjectCard({ project, onOpen, onShare, onDelete, isOwner, onBatchAI, o
 
       {/* Footer actions */}
       <div onClick={e => e.stopPropagation()} style={{ padding:'10px 14px', borderTop:'1px solid var(--border-l)', display:'flex', gap:6, alignItems:'center', flexWrap: 'wrap' }}>
-        
-        <Btn variant="ghost" small onClick={() => onOpen(project.id)}>
-          Open
-        </Btn>
 
         {(isOwner || project.access === 'edit') && (
           <Btn variant="ghost" small onClick={(e) => { e.stopPropagation(); onManageClasses(project); }}>

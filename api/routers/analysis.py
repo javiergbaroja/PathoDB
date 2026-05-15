@@ -168,10 +168,13 @@ def _sync_job_status(job: AnalysisJob, db: Session) -> AnalysisJob:
             is_batch = bool(job.params_json.get("is_batch"))
 
             if is_batch:
-                # Batch jobs write result.json early as a placeholder.
-                # Only mark done when the explicit completion marker exists.
-                marker_complete = _(job.params_json.get("job_status")) == "complete"
-                file_ready = result_file.exists() and marker_complete
+                file_ready = False
+                if result_file.exists():
+                    try:
+                        res_data = json.loads(result_file.read_text(encoding="utf-8"))
+                        file_ready = res_data.get("job_status") == "complete"
+                    except Exception:
+                        pass
             else:
                 file_ready = result_file.exists()
 
@@ -895,3 +898,25 @@ def submit_batch_job(
 
     db.refresh(job)
     return job
+
+@router.get("/jobs/{job_id}/live-state")
+def get_job_live_state(
+    job_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_active_user),
+):
+    """Lightweight endpoint for frontend polling of active SLURM jobs."""
+    job = _get_job_or_404(job_id, db, user)
+    
+    progress_file = _job_result_dir(job_id) / "progress.json"
+    
+    # Default state if worker hasn't created the file yet
+    if not progress_file.exists():
+        return {"pct": job.progress, "message": "Queued on cluster...", "slides": {}}
+        
+    try:
+        data = json.loads(progress_file.read_text(encoding="utf-8"))
+        return data
+    except json.JSONDecodeError:
+        # Fallback in case of an extreme race condition, prevents 500 errors
+        return {"pct": job.progress, "message": "Updating...", "slides": {}}

@@ -29,6 +29,34 @@
   --teal-10:     #e8f7f6;
   --teal-light:  #6ee7b7;   /* text on dark bg */
 
+  /* ── Secondary accents ─────────────────────────────────── */
+  /* Gold */
+  --amber:       #fbbf24;
+  --amber-h:     #f59e0b;   /* hover */
+  --amber-40:    #fcd34d;
+  --amber-20:    #fef3c7;
+  
+  /* Purple */
+  --purple:      #8b5cf6;
+  --purple-h:    #7c3aed;   /* hover */
+  --purple-40:   #c4b5fd;
+  --purple-20:   #ede9fe; 
+
+  /* Pink */
+  --pink:        #ec4899;
+  --pink-h:      #db2777;   /* hover */
+  --pink-40:     #f9a8d4;
+  --pink-20:     #fce7f3;
+
+  /* Blue */
+  --blue:       #3b82f6;
+  --blue-h:     #2563eb;   /* hover */
+  --blue-40:    #93c5fd;
+  --blue-20:    #dbeafe;
+  
+
+
+
   /* ── Semantic state colors ──────────────────────────────── */
   --success:     #0a6e3a;
   --success-bg:  #e6f4ec;

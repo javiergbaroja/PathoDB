@@ -1,9 +1,9 @@
-import React, { useState } from 'react'
+import React, { useState, useMemo } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import Layout from '../components/Layout'
 import {
   SpinnerPage, Spinner, ErrorMsg, Btn, Badge, StatCard,
-  Table, Th, Td, Tr, ElapsedTimer, JobStatusBadge, ProgressBar,
+  Table, Th, Td, Tr, ElapsedTimer, JobStatusBadge, ProgressBar, CircularProgress 
 } from '../components/ui'
 import { api } from '../api'
 
@@ -12,13 +12,23 @@ import { api } from '../api'
 function BatchDrillDown({ job }) {
   const queryClient = useQueryClient()
   const [retryMsg,  setRetryMsg]  = useState('')
-  const isRunning = job.status === 'running'
+  const [limit, setLimit]         = useState(20)
+  const isRunning                 = job.status === 'running'
 
-  const { data, isLoading, error } = useQuery({
+  // 1. Poll the lightweight live state ONLY while running
+  const { data: liveState, isLoading: isLiveLoading, error: liveError } = useQuery({
+    queryKey:      ['job-live', job.id],
+    queryFn:       () => api.getLiveJobState(job.id),
+    enabled:       isRunning,
+    refetchInterval: 3000,
+  })
+
+  // 2. Fetch the final heavy result ONLY when done
+  const { data: finalResult, isLoading: isResultLoading, error: resultError } = useQuery({
     queryKey:      ['job-result', job.id],
     queryFn:       () => api.getAnalysisResult(job.id),
-    enabled:       job.status === 'done' || job.status === 'running',
-    refetchInterval: isRunning ? 3000 : false,
+    enabled:       job.status === 'done' || job.status === 'failed',
+    staleTime:     Infinity, 
   })
 
   const retryMutation = useMutation({
@@ -30,15 +40,12 @@ function BatchDrillDown({ job }) {
     onError: err => setRetryMsg(`Retry failed: ${err.message}`),
   })
 
+  const isLoading = isRunning ? isLiveLoading : isResultLoading
+  const error = isRunning ? liveError : resultError
+
   if (job.status === 'queued') {
     return (
-      <div style={{
-        padding: 24,
-        background: 'var(--navy-05)',
-        textAlign: 'center',
-        color: 'var(--text-3)',
-        fontSize: 13,
-      }}>
+      <div style={{ padding: 24, background: 'var(--navy-05)', textAlign: 'center', color: 'var(--text-3)', fontSize: 13 }}>
         Waiting for cluster allocation…
       </div>
     )
@@ -60,7 +67,10 @@ function BatchDrillDown({ job }) {
     )
   }
 
-  const slides       = data?.scans || []
+  const slides = isRunning
+    ? Object.entries(liveState?.slides || {}).map(([id, sData]) => ({ scan_id: parseInt(id), ...sData }))
+    : (finalResult?.scans || [])
+
   const failedSlides = slides.filter(s => s.status === 'failed')
 
   if (!slides.length) {
@@ -98,23 +108,12 @@ function BatchDrillDown({ job }) {
         {!isRunning && failedSlides.length > 0 && (
           <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
             {retryMsg && (
-              <span style={{
-                fontSize: 12,
-                color: retryMsg.includes('failed') ? 'var(--crimson)' : 'var(--teal)',
-                fontWeight: 500,
-              }}>
+              <span style={{ fontSize: 12, color: retryMsg.includes('failed') ? 'var(--crimson)' : 'var(--teal)', fontWeight: 500 }}>
                 {retryMsg}
               </span>
             )}
-            <Btn
-              variant="primary"
-              small
-              onClick={handleRetry}
-              disabled={retryMutation.isLoading || retryMutation.isPending}
-            >
-              {retryMutation.isLoading || retryMutation.isPending
-                ? 'Queuing…'
-                : `Retry ${failedSlides.length} Failed`}
+            <Btn variant="primary" small onClick={handleRetry} disabled={retryMutation.isLoading || retryMutation.isPending}>
+              {retryMutation.isLoading || retryMutation.isPending ? 'Queuing…' : `Retry ${failedSlides.length} Failed`}
             </Btn>
           </div>
         )}
@@ -129,7 +128,7 @@ function BatchDrillDown({ job }) {
           </tr>
         </thead>
         <tbody>
-          {slides.map((s, idx) => {
+          {slides.slice(0, limit).map((s, idx) => {
             const isFailed  = s.status === 'failed'
             const isSuccess = s.status === 'success'
             const slideName = s.scan_path
@@ -142,15 +141,26 @@ function BatchDrillDown({ job }) {
                   <span title={s.file_path}>{slideName}</span>
                 </Td>
                 <Td>
-                  <Badge variant={isFailed ? 'red' : isSuccess ? 'green' : 'muted'}>
-                    {isFailed ? 'Failed' : isSuccess ? 'Success' : 'Pending'}
-                  </Badge>
+                  {s.status === 'running' ? (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <CircularProgress progress={s.progress || 0} size={20} />
+                      <span style={{ fontSize: 'var(--text-sm)', color: 'var(--warning-dot)', fontWeight: 600 }}>
+                        {s.progress || 0}%
+                      </span>
+                    </div>
+                  ) : (
+                    <Badge variant={isFailed ? 'red' : isSuccess ? 'green' : 'muted'}>
+                      {isFailed ? 'Failed' : isSuccess ? 'Success' : 'Pending'}
+                    </Badge>
+                  )}
                 </Td>
-                <Td style={{ color: isFailed ? 'var(--crimson)' : isSuccess ? 'var(--text-2)' : 'var(--text-3)' }}>
+                <Td style={{ color: isFailed ? 'var(--crimson)' : isSuccess ? 'var(--text-2)' : s.status === 'running' ? 'var(--warning-dot)' : 'var(--text-3)' }}>
                   {isFailed
                     ? (s.error || 'Unknown error occurred.')
                     : isSuccess
                     ? 'Processed successfully.'
+                    : s.status === 'running'
+                    ? (s.message || 'Processing slide...') 
                     : 'Waiting to be processed…'}
                 </Td>
               </tr>
@@ -158,6 +168,14 @@ function BatchDrillDown({ job }) {
           })}
         </tbody>
       </Table>
+
+      {slides.length > limit && (
+        <div style={{ textAlign: 'center', marginTop: 12 }}>
+          <Btn variant="ghost" small onClick={() => setLimit(slides.length)}>
+            Show all {slides.length} slides
+          </Btn>
+        </div>
+      )}
     </div>
   )
 }
@@ -168,9 +186,9 @@ const FILTER_OPTS = ['All', 'Running', 'Done', 'Failed', 'Batch', 'Single']
 
 export default function JobTracker() {
   const queryClient = useQueryClient()
-  const [errorMsg,      setErrorMsg]      = useState('')
-  const [filter,        setFilter]        = useState('All')
-  const [expandedJobs,  setExpandedJobs]  = useState({})
+  const [errorMsg,      setErrorMsg]     = useState('')
+  const [filter,        setFilter]       = useState('All')
+  const [expandedJobs,  setExpandedJobs] = useState({})
 
   const { data: jobs = [], isLoading } = useQuery({
     queryKey:       ['all-jobs'],
@@ -198,25 +216,37 @@ export default function JobTracker() {
   }
   const toggleExpand = id => setExpandedJobs(prev => ({ ...prev, [id]: !prev[id] }))
 
+  // 1. MUST BE BEFORE ANY EARLY RETURNS!
+  // Derived stats & filters (Memoized for performance)
+  const { activeJobs, completedJobs, failedJobs, successRate, filteredJobs } = useMemo(() => {
+    const active = jobs.filter(j => j.status === 'running' || j.status === 'queued')
+    const completed = jobs.filter(j => j.status === 'done')
+    const failed = jobs.filter(j => j.status === 'failed')
+    const rate = (completed.length + failed.length) > 0
+      ? Math.round((completed.length / (completed.length + failed.length)) * 100)
+      : 0
+
+    const filtered = jobs.filter(job => {
+      const isBatch = job.params_json?.is_batch === true || job.params_json?.output_directory !== undefined
+      if (filter === 'Running') return job.status === 'running' || job.status === 'queued'
+      if (filter === 'Done')    return job.status === 'done'
+      if (filter === 'Failed')  return job.status === 'failed'
+      if (filter === 'Batch')   return isBatch
+      if (filter === 'Single')  return !isBatch
+      return true
+    })
+
+    return { 
+      activeJobs: active, 
+      completedJobs: completed, 
+      failedJobs: failed, 
+      successRate: rate, 
+      filteredJobs: filtered 
+    }
+  }, [jobs, filter])
+
+  // 2. NOW WE CAN SAFELY EARLY RETURN
   if (isLoading) return <SpinnerPage />
-
-  // Derived stats
-  const activeJobs     = jobs.filter(j => j.status === 'running' || j.status === 'queued')
-  const completedJobs  = jobs.filter(j => j.status === 'done')
-  const failedJobs     = jobs.filter(j => j.status === 'failed')
-  const successRate    = (completedJobs.length + failedJobs.length) > 0
-    ? Math.round((completedJobs.length / (completedJobs.length + failedJobs.length)) * 100)
-    : 0
-
-  const filteredJobs = jobs.filter(job => {
-    const isBatch = job.params_json?.is_batch === true || job.params_json?.output_directory !== undefined
-    if (filter === 'Running') return job.status === 'running' || job.status === 'queued'
-    if (filter === 'Done')    return job.status === 'done'
-    if (filter === 'Failed')  return job.status === 'failed'
-    if (filter === 'Batch')   return isBatch
-    if (filter === 'Single')  return !isBatch
-    return true
-  })
 
   return (
     <Layout title="Job Tracker">
