@@ -1,0 +1,72 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg id="Layer_2" data-name="Layer 2" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 61.8 44.82">
+  <defs>
+    <style>
+      .cls-1 {
+        fill: none;
+        stroke: #171c4b;
+        stroke-linecap: round;
+        stroke-miterlimit: 10;
+      }
+
+      .cls-2 {
+        fill: #4e6198;
+      }
+
+      .cls-3 {
+        font-family: Consolas, Consolas;
+        font-size: 3.05px;
+        letter-spacing: .03em;
+      }
+
+      .cls-3, .cls-4, .cls-5, .cls-6 {
+        fill: #171c4b;
+      }
+
+      .cls-7 {
+        letter-spacing: 0em;
+      }
+
+      .cls-7, .cls-8 {
+        fill: #0e988d;
+      }
+
+      .cls-4 {
+        letter-spacing: 0em;
+      }
+
+      .cls-5 {
+        letter-spacing: 0em;
+      }
+
+      .cls-9 {
+        font-family: NeueFrutigerWorld-Bold, 'Neue Frutiger World';
+        font-size: 15.81px;
+        font-weight: 700;
+      }
+    </style>
+  </defs>
+  <g id="Layer_1-2" data-name="Layer 1">
+    <g>
+      <g>
+        <path class="cls-1" d="M33.76.57c4.99,1.21,8.68,5.53,8.68,10.68s-3.69,9.46-8.68,10.67"/>
+        <path class="cls-1" d="M28.31,21.99c-5.13-1.12-8.95-5.5-8.95-10.74S23.18,1.63,28.31.5"/>
+        <g>
+          <circle class="cls-6" cx="26.06" cy="6.14" r="1.7"/>
+          <circle class="cls-6" cx="31.04" cy="6.14" r="1.7"/>
+          <circle class="cls-2" cx="36.03" cy="6.14" r="1.7"/>
+          <circle class="cls-2" cx="36.03" cy="11.17" r="1.7"/>
+          <circle class="cls-2" cx="36.03" cy="16.2" r="1.7"/>
+          <circle class="cls-2" cx="26.06" cy="16.2" r="1.7"/>
+          <circle class="cls-8" cx="31.04" cy="11.17" r="1.7"/>
+          <circle class="cls-6" cx="26.06" cy="11.17" r="1.7"/>
+          <circle class="cls-6" cx="31.04" cy="16.2" r="1.7"/>
+        </g>
+      </g>
+      <g>
+        <text class="cls-9" transform="translate(0 36.91) scale(.94 1)"><tspan class="cls-4" x="0" y="0">P</tspan><tspan class="cls-5" x="8.98" y="0">atho</tspan><tspan class="cls-7" x="44.06" y="0">DB</tspan></text>
+        <text class="cls-3" transform="translate(.94 41.41) scale(.95 1)"><tspan x="0" y="0">AI-ASSISTED PATHOLOGY INFRASTRUCTURE</tspan></text>
+      </g>
+    </g>
+  </g>
+</svg>

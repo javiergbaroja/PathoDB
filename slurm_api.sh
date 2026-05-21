@@ -3,13 +3,13 @@
 #SBATCH --mail-user=javier.garcia@unibe.ch
 #SBATCH --job-name="pathodb_api"
 #SBATCH --output="/storage/research/igmp_dp_workspace/garciabaroja_javier/PW_reports/database/pathodb/logs/pathodb_api_%j.out"
-#SBATCH --time=2:00:00
+#SBATCH --time=8:00:00
 #SBATCH --mem=90G
 #SBATCH --nodes=1
 #SBATCH --account=invest
 #SBATCH --gres=gpu:rtx4090:1
 #SBATCH --partition=gpu-invest
-#SBATCH --cpus-per-task=12
+#SBATCH --cpus-per-task=16
 #SBATCH --qos=job_gpu_igmp-tru
 
 
@@ -147,14 +147,14 @@ for i in $(seq 1 30); do
 done
 
 echo "Ollama running on $(hostname):11434 (PID $OLLAMA_PID)"
-
+sleep 2
 # ── Start API server ──────────────────────────────────────────────────────────
 echo ""
 echo "Starting FastAPI server..."
 python3 -m uvicorn api.main:app \
     --host 0.0.0.0 \
     --port "$API_PORT" \
-    --workers 2 \
+    --workers 4 \
     --log-level info
 
 echo ""
