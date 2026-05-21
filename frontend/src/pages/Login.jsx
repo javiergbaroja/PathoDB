@@ -3,6 +3,7 @@ import { useNavigate, useLocation } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { Btn, ErrorMsg } from '../components/ui'
 import { api } from '../api' 
+import logo from '../assets/logos/logo_horizontal_neg.svg'
 
 export default function Login() {
   const { login } = useAuth()
@@ -51,18 +52,16 @@ export default function Login() {
       <div style={{ width: 380 }}>
         {/* Header */}
         <div style={{ textAlign: 'center', marginBottom: 32 }}>
-          <div style={{
-            width: 48, height: 48, background: 'var(--crimson)', borderRadius: 12,
-            display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 16px',
-          }}>
-            <svg width="26" height="26" viewBox="0 0 16 16" fill="white">
-              <path d="M8 1a2 2 0 012 2v1h1a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2V6a2 2 0 012-2h1V3a2 2 0 012-2zm0 1.5A.5.5 0 007.5 3v1h1V3A.5.5 0 008 2.5zM5.5 7a.5.5 0 000 1H6v1.5a.5.5 0 001 0V8h1v1.5a.5.5 0 001 0V8h.5a.5.5 0 000-1H5.5z"/>
-            </svg>
-          </div>
-          <div style={{ fontFamily: 'var(--font-serif)', fontSize: 26, color: 'white' }}>PathoDB</div>
-          <div style={{ fontSize: 13, color: 'rgba(255,255,255,0.45)', marginTop: 4, letterSpacing: '0.04em' }}>
-            Computational Pathology Database
-          </div>
+          <img 
+            src={logo} 
+            alt="PathoDB Logo" 
+            style={{ 
+              width: 380, 
+              height: 'auto', 
+              margin: '0 auto 16px', 
+              display: 'block' 
+            }} 
+          />
         </div>
 
         {/* Card */}

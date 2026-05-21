@@ -3,6 +3,7 @@ import { NavLink, useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { api } from '../api'
 import { TYPE_COLORS, TYPE_LABELS } from '../constants/stains'
+import logoHorizontalNeg from '../assets/logos/logo_horizontal_neg.svg'
 
 const NAV = [
   {
@@ -143,15 +144,11 @@ export default function Layout({ children, title, actions }) {
       <aside style={{ width: 220, background: 'var(--navy)', flexShrink: 0, display: 'flex', flexDirection: 'column' }}>
         <div style={{ padding: '20px 18px 16px', borderBottom: '1px solid rgba(255,255,255,0.1)' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <div style={{ width: 28, height: 28, background: 'var(--crimson)', borderRadius: 6, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-              <svg width="16" height="16" viewBox="0 0 16 16" fill="white">
-                <path d="M8 1a2 2 0 012 2v1h1a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2V6a2 2 0 012-2h1V3a2 2 0 012-2zm0 1.5A.5.5 0 007.5 3v1h1V3A.5.5 0 008 2.5zM5.5 7a.5.5 0 000 1H6v1.5a.5.5 0 001 0V8h1v1.5a.5.5 0 001 0V8h.5a.5.5 0 000-1H5.5z"/>
-              </svg>
-            </div>
-            <div>
-              <div style={{ fontFamily: 'var(--font-serif)', fontSize: 17, color: 'white', letterSpacing: '0.02em' }}>PathoDB</div>
-              <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.4)', letterSpacing: '0.08em', textTransform: 'uppercase', fontWeight: 300 }}>Computational Pathology</div>
-            </div>
+            <img 
+              src={logoHorizontalNeg} 
+              alt="PathoDB" 
+              style={{ width: 160, height: 'auto', display: 'block' }} 
+            />
           </div>
         </div>
 
