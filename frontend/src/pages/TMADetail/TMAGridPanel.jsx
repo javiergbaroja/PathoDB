@@ -1,5 +1,4 @@
-// frontend/src/pages/TMADetail/TMAGridPanel.jsx
-import { useMemo, useState } from 'react'
+import { useMemo, useState, useRef, useLayoutEffect } from 'react'
 
 const CORE_COLORS = {
   tissue_matched:   'var(--teal)',
@@ -15,32 +14,53 @@ const CORE_BORDER = {
   empty:            'rgba(255,255,255,0.06)',
 }
 
-function CorePopover({ core, onClose }) {
+// Rendered at the panel root level with position:fixed — never clipped by overflow:hidden
+function CorePopover({ core, onClose, anchor }) {
+  const ref = useRef(null)
+  const [pos, setPos] = useState({ top: -9999, left: -9999, opacity: 0 })
   const isMatched = !!core.donor_block_id
+
+  useLayoutEffect(() => {
+    if (!ref.current || !anchor) return
+    const { width: pw, height: ph } = ref.current.getBoundingClientRect()
+    const vw = window.innerWidth
+    const vh = window.innerHeight
+
+    // Default: centred above the anchor dot
+    let top  = anchor.top - ph - 8
+    let left = anchor.left + anchor.width / 2 - pw / 2
+
+    // Flip below the dot if no room above
+    if (top < 8) top = anchor.bottom + 8
+
+    // Clamp horizontally within viewport
+    left = Math.max(8, Math.min(left, vw - pw - 8))
+    // Clamp vertically (bottom edge)
+    top  = Math.min(top, vh - ph - 8)
+
+    setPos({ top, left, opacity: 1 })
+  }, [anchor])
 
   return (
     <div
+      ref={ref}
       onClick={e => e.stopPropagation()}
       style={{
-        position: 'absolute', zIndex: 200,
+        position: 'fixed',
+        top:      pos.top,
+        left:     pos.left,
+        opacity:  pos.opacity,
+        transition: 'opacity 0.1s',
+        zIndex: 9999,
         background: 'rgba(3,8,25,0.98)',
         border: '1px solid rgba(255,255,255,0.12)',
-        borderRadius: 8, padding: '12px 14px',
-        minWidth: 200, maxWidth: 260,
+        borderRadius: 8,
+        padding: '12px 14px',
+        minWidth: 200,
+        maxWidth: 260,
         boxShadow: '0 8px 24px rgba(0,0,0,0.5)',
-        bottom: 'calc(100% + 6px)', left: '50%',
-        transform: 'translateX(-50%)',
       }}
     >
-      {/* Arrow */}
-      <div style={{
-        position: 'absolute', bottom: -5, left: '50%', transform: 'translateX(-50%)',
-        width: 8, height: 8, background: 'rgba(3,8,25,0.98)',
-        border: '1px solid rgba(255,255,255,0.12)',
-        borderTop: 'none', borderLeft: 'none',
-        transform: 'translateX(-50%) rotate(45deg)',
-      }} />
-
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 8 }}>
         <span style={{ fontSize: 10, fontWeight: 700, color: 'rgba(255,255,255,0.5)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
           R{core.row_idx} · C{core.col_idx}
@@ -48,9 +68,7 @@ function CorePopover({ core, onClose }) {
         <button
           onClick={onClose}
           style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'rgba(255,255,255,0.4)', fontSize: 14, lineHeight: 1, padding: 0 }}
-        >
-          ×
-        </button>
+        >×</button>
       </div>
 
       {core.core_type === 'control' ? (
@@ -64,22 +82,18 @@ function CorePopover({ core, onClose }) {
         <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.35)' }}>Empty position</div>
       ) : isMatched ? (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
-          {core.patient_code && (
-            <PopoverRow label="Patient" value={core.patient_code} mono />
-          )}
-          {core.lis_submission_id && (
-            <PopoverRow label="Submission" value={core.lis_submission_id} mono />
-          )}
-          {core.lis_probe_id && (
-            <PopoverRow label="Probe" value={core.lis_probe_id} mono />
-          )}
-          {core.block_label && (
-            <PopoverRow label="Block" value={`Block ${core.block_label}`} />
-          )}
+          {core.patient_code    && <PopoverRow label="Patient"    value={core.patient_code}      mono />}
+          {core.lis_submission_id && <PopoverRow label="Submission" value={core.lis_submission_id} mono />}
+          {core.lis_probe_id    && <PopoverRow label="Probe"      value={core.lis_probe_id}      mono />}
+          {core.block_label     && <PopoverRow label="Block"      value={`Block ${core.block_label}`} />}
+          {core.control_description && <PopoverRow label="Notes"  value={core.control_description} />}
         </div>
       ) : (
-        <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.35)', fontStyle: 'italic' }}>
-          No patient block matched
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}>
+          <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.35)', fontStyle: 'italic' }}>
+            No patient block matched
+          </div>
+          {core.control_description && <PopoverRow label="Notes" value={core.control_description} />}
         </div>
       )}
     </div>
@@ -103,6 +117,7 @@ function PopoverRow({ label, value, mono }) {
 
 export default function TMAGridPanel({ cores }) {
   const [selectedCoreId, setSelectedCoreId] = useState(null)
+  const [popoverAnchor,  setPopoverAnchor]  = useState(null)
 
   const { maxRow, maxCol } = useMemo(() => {
     let mr = 0, mc = 0
@@ -120,11 +135,31 @@ export default function TMAGridPanel({ cores }) {
   }, [cores, maxRow, maxCol])
 
   const stats = useMemo(() => {
-    const tissue    = cores.filter(c => c.core_type === 'tissue')
-    const matched   = tissue.filter(c => !!c.donor_block_id).length
-    const control   = cores.filter(c => c.core_type === 'control').length
+    const tissue  = cores.filter(c => c.core_type === 'tissue')
+    const matched = tissue.filter(c => !!c.donor_block_id).length
+    const control = cores.filter(c => c.core_type === 'control').length
     return { total: cores.length, matched, unmatched: tissue.length - matched, control }
   }, [cores])
+
+  const selectedCore = cores.find(c => c.id === selectedCoreId) ?? null
+
+  function handleCoreClick(e, core, isSelected) {
+    e.stopPropagation()
+    if (!core) return
+    if (isSelected) {
+      setSelectedCoreId(null)
+      setPopoverAnchor(null)
+    } else {
+      setSelectedCoreId(core.id)
+      // Capture viewport-relative rect at click time
+      setPopoverAnchor(e.currentTarget.getBoundingClientRect())
+    }
+  }
+
+  function handleClose() {
+    setSelectedCoreId(null)
+    setPopoverAnchor(null)
+  }
 
   if (cores.length === 0) {
     return (
@@ -145,24 +180,21 @@ export default function TMAGridPanel({ cores }) {
     )
   }
 
-  const selectedCore = cores.find(c => c.id === selectedCoreId)
-
   return (
-    <div style={{
-      width: 300, flexShrink: 0,
-      background: 'rgba(2,5,18,0.98)',
-      borderLeft: '1px solid rgba(255,255,255,0.07)',
-      display: 'flex', flexDirection: 'column', overflow: 'hidden',
-    }}
-      onClick={() => setSelectedCoreId(null)}
+    <div
+      style={{
+        width: 300, flexShrink: 0,
+        background: 'rgba(2,5,18,0.98)',
+        borderLeft: '1px solid rgba(255,255,255,0.07)',
+        display: 'flex', flexDirection: 'column', overflow: 'hidden',
+      }}
+      onClick={handleClose}
     >
       {/* Header */}
       <div style={{ padding: '10px 14px', borderBottom: '1px solid rgba(255,255,255,0.07)', flexShrink: 0 }}>
         <div style={{ fontSize: 9, fontWeight: 600, color: 'rgba(255,255,255,0.5)', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 6 }}>
           Array Map · {maxRow}×{maxCol}
         </div>
-
-        {/* Stats pills */}
         <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap' }}>
           <StatPill color="var(--teal)"           label={`${stats.matched} matched`} />
           {stats.unmatched > 0 && (
@@ -192,7 +224,6 @@ export default function TMAGridPanel({ cores }) {
         {/* Rows */}
         {grid.map((row, rIdx) => (
           <div key={rIdx} style={{ display: 'flex', alignItems: 'center', gap: 3, marginBottom: 3 }}>
-            {/* Row label */}
             <div style={{
               width: 18, textAlign: 'right', marginRight: 3,
               fontSize: 8, color: 'rgba(255,255,255,0.2)',
@@ -213,22 +244,17 @@ export default function TMAGridPanel({ cores }) {
               return (
                 <div
                   key={cIdx}
-                  onClick={e => { e.stopPropagation(); if (core) setSelectedCoreId(isSelected ? null : core.id) }}
+                  onClick={e => handleCoreClick(e, core, isSelected)}
                   style={{
-                    position: 'relative',
                     width: 18, height: 18, borderRadius: '50%', flexShrink: 0,
-                    background:    CORE_COLORS[type],
-                    border:        `1.5px solid ${isSelected ? 'white' : CORE_BORDER[type]}`,
-                    cursor:        core ? 'pointer' : 'default',
-                    transition:    'transform 0.1s, border-color 0.1s',
-                    transform:     isSelected ? 'scale(1.25)' : 'scale(1)',
-                    boxShadow:     isSelected ? '0 0 0 2px rgba(255,255,255,0.3)' : 'none',
+                    background: CORE_COLORS[type],
+                    border:     `1.5px solid ${isSelected ? 'white' : CORE_BORDER[type]}`,
+                    cursor:     core ? 'pointer' : 'default',
+                    transition: 'transform 0.1s, border-color 0.1s',
+                    transform:  isSelected ? 'scale(1.25)' : 'scale(1)',
+                    boxShadow:  isSelected ? '0 0 0 2px rgba(255,255,255,0.3)' : 'none',
                   }}
-                >
-                  {isSelected && core && (
-                    <CorePopover core={core} onClose={() => setSelectedCoreId(null)} />
-                  )}
-                </div>
+                />
               )
             })}
           </div>
@@ -238,14 +264,23 @@ export default function TMAGridPanel({ cores }) {
       {/* Legend */}
       <div style={{ padding: '10px 14px', borderTop: '1px solid rgba(255,255,255,0.07)', flexShrink: 0 }}>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px 12px' }}>
-          <LegendItem color="var(--teal)"           label="Matched tissue" />
+          <LegendItem color="var(--teal)"            label="Matched tissue" />
           <LegendItem color="rgba(255,255,255,0.15)" label="Unmatched" />
-          <LegendItem color="#a78bfa"               label="Control" />
+          <LegendItem color="#a78bfa"                label="Control" />
         </div>
         <div style={{ marginTop: 6, fontSize: 9, color: 'rgba(255,255,255,0.2)' }}>
           Click any core for patient block details
         </div>
       </div>
+
+      {/* Popover rendered here — outside overflow:hidden, using position:fixed */}
+      {selectedCore && popoverAnchor && (
+        <CorePopover
+          core={selectedCore}
+          onClose={handleClose}
+          anchor={popoverAnchor}
+        />
+      )}
     </div>
   )
 }

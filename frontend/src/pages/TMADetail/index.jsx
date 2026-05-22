@@ -67,14 +67,15 @@ export default function TMADetail() {
 
   // ── Auto-open manage modal if no data yet ─────────────────────────────────
   // Only fires once when the TMA is first loaded and has no data
-  const autoOpenedRef = useRef(false)
-  useEffect(() => {
-    if (autoOpenedRef.current) return
-    if (!tmaLoading && tmaScans.length === 0 && tmaCores.length === 0) {
-      autoOpenedRef.current = true
-      setShowManage(true)
-    }
-  }, [tmaLoading, tmaScans.length, tmaCores.length])
+    useEffect(() => {
+      if (tmaLoading || !tma) return
+      if (tmaScans.length > 0 || tmaCores.length > 0) return
+      // Only auto-open for freshly created TMAs (within the last 5 minutes)
+      const ageMs = Date.now() - new Date(tma.created_at).getTime()
+      if (ageMs < 5 * 60 * 1000) {
+        setShowManage(true)
+      }
+    }, [tmaLoading, tma]) // eslint-disable-line
 
   // ── Delete ─────────────────────────────────────────────────────────────────
   async function handleDelete() {

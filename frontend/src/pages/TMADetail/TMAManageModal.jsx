@@ -12,7 +12,7 @@ const CSV_SPECS = {
       { name: 'col',                 required: true,  example: '1',               desc: 'Integer column index' },
       { name: 'identifier',          required: false, example: 'B08.17770_I_I',   desc: 'Block identifier (era-aware)' },
       { name: 'core_type',           required: false, example: 'tissue',          desc: 'tissue | control | empty' },
-      { name: 'control_description', required: false, example: 'Tonsil control',  desc: 'Free text if core_type=control' },
+      { name: 'description',         required: false, example: 'Tonsil control',  desc: 'Free text if core_type=control' },
     ],
   },
   scans: {
@@ -20,7 +20,7 @@ const CSV_SPECS = {
     description: 'Registers Whole Slide Images for this TMA. Uploading adds to existing scans (duplicates are skipped).',
     accept:      '.csv',
     columns: [
-      { name: 'file_path',  required: true, example: '/mnt/nfs/TMA_HE.ndpi', desc: 'Absolute NFS path' },
+      { name: 'file_path',  required: true, example: '/storage/research/.../TMA_HE.ndpi', desc: 'Absolute NFS path' },
       { name: 'stain_name', required: true, example: 'HE',                   desc: 'Must match a registered stain' },
     ],
   },
@@ -134,7 +134,7 @@ export default function TMAManageModal({ isOpen, onClose, tmaId, onCoresUpdated,
   async function handleCoresUpload(file) {
     setLoading(true); setError(''); setResult('')
     try {
-      const { default: api } = await import('../../api')
+      const { api } = await import('../../api')
       const res = await api.uploadTMACoresCSV(tmaId, file)
       if (res.total === 0) {
         setError('0 cores were mapped. Check your CSV headers and delimiter.')
@@ -152,7 +152,7 @@ export default function TMAManageModal({ isOpen, onClose, tmaId, onCoresUpdated,
   async function handleScansUpload(file) {
     setLoading(true); setError(''); setResult('')
     try {
-      const { default: api } = await import('../../api')
+      const { api } = await import('../../api')
       const res = await api.uploadTMAScansCSV(tmaId, file)
       if (res.total === 0) {
         setError('0 scans were registered. Check file_path and stain_name columns.')

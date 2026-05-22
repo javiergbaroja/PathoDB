@@ -275,7 +275,7 @@ async def upload_tma_cores(
             col_idx=c_idx,
             donor_block_id=donor_block_id,
             core_type=core_type,
-            control_description=control_desc if core_type == 'control' else None
+            control_description=control_desc or None
         ))
 
     try:
@@ -374,10 +374,16 @@ def delete_tma(
 ):
     tma = db.query(Project).filter(
         Project.id == tma_id,
-        Project.owner_id == current_user.id
+        Project.owner_id == current_user.id,
+        Project.project_type == 'tma'
     ).first()
     if not tma:
         raise HTTPException(status_code=404, detail="TMA not found or unauthorized")
+
+    # TMACore uses backref (no cascade) — must delete manually before project
+    db.query(TMACore).filter(TMACore.project_id == tma_id).delete(synchronize_session=False)
+
+    # ProjectScan and ProjectShare have cascade="all, delete-orphan" on Project model
     db.delete(tma)
     db.commit()
     return None
