@@ -206,8 +206,8 @@ export default function Projects() {
     </Btn>
   )
 
-  const ownedProjects  = projects.filter(p => p.owner_id === myUserId)
-  const sharedProjects = projects.filter(p => p.owner_id !== myUserId)
+  const ownedProjects  = projects.filter(p => p.owner_id === myUserId    && p.project_type !== 'tma')
+  const sharedProjects = projects.filter(p => p.owner_id !== myUserId    && p.project_type !== 'tma')
   const targetProject = projects.find(p => p.id === aiTargetProjectId)
 
   return (
