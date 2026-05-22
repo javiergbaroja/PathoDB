@@ -1,0 +1,644 @@
+/* ============================================================
+   PathoDB UI Component Library — Scoped Styles
+   All style rules for components in ui/index.jsx live here.
+   Design tokens (CSS variables) are defined globally in index.css.
+   ============================================================ */
+
+/* ── Animations (component-scoped) ───────────────────────────── */
+@keyframes ui-spin    { to { transform: rotate(360deg); } }
+@keyframes ui-fadein  { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+@keyframes ui-pulse   { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+
+/* ============================================================
+   BADGE
+   ============================================================ */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: var(--radius-full);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  white-space: nowrap;
+}
+.badgeRed     { background: var(--crimson-10); color: var(--crimson); }
+.badgeGreen   { background: var(--success-bg); color: var(--success); }
+.badgeNavy    { background: var(--navy-10);    color: var(--navy); }
+.badgeMuted   { background: var(--navy-10);    color: var(--text-2); }
+.badgeWarning { background: var(--warning-bg); color: var(--warning); }
+.badgeTeal    { background: var(--teal-10);    color: var(--teal); }
+
+/* ============================================================
+   BUTTON
+   ============================================================ */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 14px;
+  border-radius: var(--radius-md);
+  font-size: var(--text-base);
+  font-family: var(--font-sans);
+  font-weight: 500;
+  transition: var(--transition-base);
+  cursor: pointer;
+  border: 1px solid transparent;
+}
+.btn:disabled { cursor: not-allowed; opacity: 0.5; }
+.btnSmall { padding: 5px 10px; font-size: var(--text-sm); }
+
+.btnPrimary { background: var(--navy);    color: var(--white); border-color: transparent; }
+.btnPrimary:hover:not(:disabled) { background: var(--navy-80); }
+.btnTeal    { background: var(--teal);    color: var(--white); border-color: transparent; }
+.btnTeal:hover:not(:disabled) { background: var(--teal-h); }
+.btnGhost   { background: transparent;    color: var(--text-2); border-color: var(--border); }
+.btnGhost:hover:not(:disabled) { background: var(--navy-05); }
+.btnDanger  { background: var(--crimson); color: var(--white); border-color: transparent; }
+.btnDanger:hover:not(:disabled) { background: var(--crimson-h); }
+.btnLink    { background: transparent; color: var(--navy); border: none; padding: 4px 0; }
+.btnLink:hover:not(:disabled) { text-decoration: underline; }
+
+.btnIcon { display: flex; align-items: center; }
+
+/* ============================================================
+   SPINNER
+   ============================================================ */
+.spinner {
+  border-radius: 50%;
+  border-style: solid;
+  border-width: 2px;
+  animation: ui-spin 0.7s linear infinite;
+  flex-shrink: 0;
+}
+.spinnerPage {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+}
+
+/* ============================================================
+   ERROR MESSAGE
+   ============================================================ */
+.errorMsg {
+  background: var(--crimson-10);
+  border: 1px solid var(--crimson);
+  border-radius: var(--radius-md);
+  padding: 10px 14px;
+  font-size: var(--text-base);
+  color: var(--crimson);
+  margin-bottom: var(--space-3);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.errorMsgText { flex: 1; }
+.errorMsgClose {
+  background: none;
+  border: none;
+  color: var(--crimson);
+  cursor: pointer;
+  font-size: 16px;
+  line-height: 1;
+  padding: 0 2px;
+}
+
+/* ============================================================
+   PANEL
+   ============================================================ */
+.panel {
+  background: var(--white);
+  border: 1px solid var(--border-l);
+  border-radius: var(--radius-lg);
+  padding: var(--space-4);
+  box-shadow: var(--shadow-s);
+}
+.panelHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--space-3);
+}
+.panelTitle {
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--text-3);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+/* ============================================================
+   STAT CARD
+   ============================================================ */
+.statCard {
+  background: var(--white);
+  border: 1px solid var(--border-l);
+  border-radius: var(--radius-lg);
+  padding: 12px 14px;
+}
+.statCardLabel {
+  font-size: var(--text-sm);
+  color: var(--text-3);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-weight: 600;
+}
+.statCardValue {
+  font-size: 22px;
+  font-family: var(--font-serif);
+  color: var(--navy);
+  margin-top: 4px;
+}
+.statCardSub {
+  font-size: var(--text-sm);
+  color: var(--text-3);
+  margin-top: 2px;
+}
+
+/* ============================================================
+   FORM PRIMITIVES
+   ============================================================ */
+.formLabel {
+  display: block;
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--text-3);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  margin-bottom: 5px;
+}
+
+.formControl {
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  font-size: var(--text-base);
+  font-family: var(--font-sans);
+  color: var(--text-1);
+  background: var(--white);
+  outline: none;
+  transition: var(--transition-fast);
+}
+.formControl:focus {
+  border-color: var(--teal);
+  box-shadow: var(--focus-ring);
+}
+.formControl:disabled {
+  background: var(--navy-05);
+  cursor: not-allowed;
+  opacity: 0.7;
+}
+.formControl[aria-invalid="true"] {
+  border-color: var(--crimson);
+}
+
+.formSelect { cursor: pointer; }
+.formTextarea { resize: vertical; min-height: 80px; }
+
+.formField { margin-bottom: 14px; }
+.formError {
+  margin-top: 4px;
+  font-size: var(--text-sm);
+  color: var(--crimson);
+}
+
+/* ============================================================
+   TABLE PRIMITIVES
+   ============================================================ */
+.tableWrap {
+  background: var(--white);
+  border: 1px solid var(--border-l);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+}
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--text-base);
+}
+.th {
+  padding: 10px 14px;
+  text-align: left;
+  font-size: var(--text-xs);
+  font-weight: 600;
+  color: var(--text-3);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  border-bottom: 1px solid var(--border-l);
+  background: var(--navy-05);
+  white-space: nowrap;
+}
+.td {
+  padding: 11px 14px;
+  border-bottom: 1px solid var(--border-l);
+  color: var(--text-2);
+  vertical-align: middle;
+}
+.tdMono {
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+.tr {
+  transition: background var(--transition-fast);
+  background: var(--white);
+}
+.trClickable { cursor: pointer; }
+.trClickable:hover { background: var(--navy-05); }
+.trSelected { background: var(--navy-05); }
+
+/* ============================================================
+   MODAL
+   ============================================================ */
+.modalOverlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 20, 100, 0.35);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: var(--z-modal);
+  backdrop-filter: blur(2px);
+}
+.modalCard {
+  background: var(--white);
+  border-radius: var(--radius-2xl);
+  max-height: 90vh;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  box-shadow: var(--shadow-xl);
+  animation: ui-fadein 0.15s ease;
+}
+.modalHeader {
+  padding: 18px 24px 14px;
+  border-bottom: 1px solid var(--border-l);
+  flex-shrink: 0;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+}
+.modalTitle {
+  font-family: var(--font-serif);
+  font-size: var(--text-xl);
+  color: var(--navy);
+}
+.modalSubtitle {
+  font-size: var(--text-sm);
+  color: var(--text-3);
+  margin-top: 3px;
+}
+.modalClose {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--text-3);
+  font-size: 20px;
+  line-height: 1;
+  padding: 0 4px;
+  margin-top: 2px;
+}
+.modalScroll {
+  overflow-y: auto;
+  flex: 1;
+}
+.modalBody { padding: 18px 24px; }
+.modalFooter {
+  padding: 12px 24px;
+  border-top: 1px solid var(--border-l);
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  background: rgba(0, 0, 0, 0.02);
+  flex-shrink: 0;
+}
+
+/* ============================================================
+   ID CELL
+   ============================================================ */
+.idCell {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--navy);
+  font-weight: 500;
+}
+
+/* ============================================================
+   EMPTY STATE
+   ============================================================ */
+.emptyState {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-8);
+  gap: var(--space-4);
+  color: var(--text-3);
+}
+.emptyStateIcon {
+  width: 56px;
+  height: 56px;
+  border-radius: var(--radius-xl);
+  background: var(--navy-10);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--navy-40);
+}
+.emptyStateTitle {
+  font-family: var(--font-serif);
+  font-size: var(--text-2xl);
+  color: var(--navy);
+  text-align: center;
+}
+.emptyStateDesc {
+  font-size: var(--text-base);
+  color: var(--text-3);
+  text-align: center;
+  max-width: 340px;
+  line-height: 1.6;
+}
+
+/* ============================================================
+   SECTION LABEL & SECTION HEADER
+   ============================================================ */
+.sectionLabel {
+  font-size: var(--text-xs);
+  font-weight: 600;
+  color: var(--text-3);
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+}
+
+.sectionHeader {
+  font-family: var(--font-serif);
+  font-size: var(--text-xl);
+  color: var(--navy);
+  font-weight: 400;
+  margin: 0 0 12px;
+}
+.sectionHeaderSub {
+  margin-top: 2px;
+  font-size: var(--text-sm);
+  color: var(--text-3);
+  font-family: var(--font-sans);
+}
+
+/* ============================================================
+   DIVIDER
+   ============================================================ */
+.dividerH { height: 1px; background: var(--border-l); }
+.dividerV { width: 1px; align-self: stretch; background: var(--border-l); }
+
+/* ============================================================
+   PROGRESS BAR
+   ============================================================ */
+.progressTrack {
+  background: var(--navy-10);
+  border-radius: var(--radius-full);
+  overflow: hidden;
+}
+.progressFill {
+  height: 100%;
+  border-radius: var(--radius-full);
+  transition: width 0.3s ease;
+}
+
+/* ============================================================
+   STATUS DOT
+   ============================================================ */
+.statusDot {
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+/* ============================================================
+   SLIDER ROW
+   ============================================================ */
+.sliderRow { margin-bottom: 10px; }
+.sliderHeader {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 4px;
+}
+.sliderLabel { font-size: var(--text-sm); color: var(--text-3); }
+.sliderValue {
+  font-size: var(--text-sm);
+  font-family: var(--font-mono);
+  color: var(--text-2);
+}
+.sliderInput {
+  width: 100%;
+  accent-color: var(--teal);
+  cursor: pointer;
+}
+
+/* ============================================================
+   JOB STATUS BADGE
+   ============================================================ */
+.jobBadge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: var(--radius-full);
+  font-size: var(--text-xs);
+  font-weight: 500;
+  white-space: nowrap;
+}
+.jobBadgeRunning   { background: rgba(251, 191, 36, 0.15); color: var(--warning-dot); }
+.jobBadgeDone      { background: rgba(27, 153, 139, 0.18); color: var(--success); }
+.jobBadgeCancelled { background: rgba(148, 163, 184, 0.12); color: #64748b; }
+
+/* ============================================================
+   THUMBNAIL
+   ============================================================ */
+.thumb {
+  background: #0d1623;
+  position: relative;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.thumbImg {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+.thumbFallback {
+  color: rgba(255, 255, 255, 0.25);
+  font-size: 10px;
+  font-family: var(--font-mono);
+}
+
+/* ============================================================
+   SEGMENTED CONTROL
+   ============================================================ */
+.segmented {
+  display: flex;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  width: fit-content;
+}
+.segmentedDark {
+  border-color: var(--border-dark);
+  background: rgba(255, 255, 255, 0.04);
+}
+.segmentedBtn {
+  padding: 8px 20px;
+  font-size: 13px;
+  font-family: var(--font-sans);
+  font-weight: 400;
+  background: var(--white);
+  color: var(--text-2);
+  border: none;
+  cursor: pointer;
+  transition: var(--transition-base);
+}
+.segmentedBtn:not(:last-child) { border-right: 1px solid var(--border-l); }
+.segmentedBtnActive {
+  background: var(--navy);
+  color: var(--white);
+  font-weight: 600;
+}
+.segmentedDark .segmentedBtn {
+  background: transparent;
+  color: var(--text-dark-2);
+}
+.segmentedDark .segmentedBtn:not(:last-child) { border-right-color: var(--border-dark); }
+.segmentedDark .segmentedBtnActive {
+  background: rgba(27, 153, 139, 0.20);
+  color: var(--viewer-teal-light);
+}
+.segmentedSmall .segmentedBtn { padding: 5px 12px; font-size: 12px; }
+
+/* ============================================================
+   MULTI-SELECT
+   ============================================================ */
+.multi { position: relative; margin-bottom: 12px; }
+.multiBox {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 4px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--white);
+  min-height: 38px;
+}
+.multiChip {
+  background: var(--navy-10);
+  color: var(--navy);
+  padding: 2px 8px;
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.multiChipRemove {
+  cursor: pointer;
+  opacity: 0.5;
+  font-weight: 700;
+}
+.multiInput {
+  border: none;
+  outline: none;
+  flex: 1;
+  font-size: 13px;
+  min-width: 100px;
+  background: transparent;
+}
+.multiClear {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--text-3);
+  font-size: 14px;
+}
+.multiDropdown {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  z-index: var(--z-dropdown);
+  background: var(--white);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-m);
+  margin-top: 4px;
+  max-height: 200px;
+  overflow-y: auto;
+}
+.multiOption {
+  padding: 8px 12px;
+  font-size: 13px;
+  cursor: pointer;
+  border-bottom: 1px solid var(--border-l);
+}
+.multiOption:hover { background: var(--navy-05); }
+
+/* ============================================================
+   TOOL BUTTON (dark mode viewer)
+   ============================================================ */
+.toolBtn {
+  width: 34px;
+  height: 34px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--border-dark);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  color: var(--text-dark-2);
+  transition: var(--transition-base);
+}
+.toolBtn:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.10);
+  border-color: rgba(255, 255, 255, 0.25);
+}
+.toolBtn:disabled { cursor: not-allowed; opacity: 0.35; }
+
+/* ============================================================
+   KEY-VALUE ROW (label + value pairs, used heavily in ClinicalPanel)
+   ============================================================ */
+.kvRow {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  padding: 6px 0;
+  gap: 12px;
+}
+.kvRowBorder { border-bottom: 1px solid var(--border-l); }
+.kvRowDark { border-bottom-color: var(--border-dark); }
+.kvLabel {
+  font-size: var(--text-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-3);
+  font-weight: 600;
+  white-space: nowrap;
+}
+.kvLabelDark { color: var(--text-dark-3); }
+.kvValue {
+  font-size: var(--text-base);
+  color: var(--text-1);
+  text-align: right;
+  word-break: break-word;
+}
+.kvValueDark { color: var(--text-dark-1); }
+.kvValueMono { font-family: var(--font-mono); font-size: 12px; }
+
+/* ============================================================
+   PAGE SECTION (replaces inline h2 patterns)
+   ============================================================ */
+.pageSection { margin-bottom: 24px; }
+.pageSectionTitle {
+  font-family: var(--font-serif);
+  font-size: var(--text-xl);
+  color: var(--navy);
+  font-weight: 400;
+  margin: 0 0 16px;
+}
