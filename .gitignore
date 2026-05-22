@@ -1,10 +1,6 @@
-# Node / frontend
+# Node / frontend build-time dependencies
 node_modules/
 frontend/node_modules/
-
-# Vite build output (emitted into api/static/ by `npm run build`)
-api/static/assets/
-api/static/favicon_*.svg
 
 # Python
 __pycache__/

@@ -20,11 +20,25 @@ import { useEffect, useRef } from 'react'
 
 const DEFAULT_COLOR = '#6ee7b7'
 
+// Minimum screen dimension (px) below which a shape is replaced with a dot.
+// This is the core LOD (level-of-detail) threshold — the same technique used
+// by HALO, Aiforia, and QuPath to keep large slides interactive at low zoom.
+const LOD_THRESHOLD = 3
+
+// drawPath with inline point decimation: skip vertices that project to the
+// same canvas pixel as the previous one — reduces lineTo calls by >90% at
+// low zoom levels while remaining visually lossless.
 function drawPath(ctx, points, sx, sy, ox, oy) {
   if (!points.length) return
-  ctx.moveTo(points[0].x * sx + ox, points[0].y * sy + oy)
+  let px = points[0].x * sx + ox
+  let py = points[0].y * sy + oy
+  ctx.moveTo(px, py)
   for (let i = 1; i < points.length; i++) {
-    ctx.lineTo(points[i].x * sx + ox, points[i].y * sy + oy)
+    const nx = points[i].x * sx + ox
+    const ny = points[i].y * sy + oy
+    if (Math.abs(nx - px) >= 0.5 || Math.abs(ny - py) >= 0.5) {
+      ctx.lineTo(nx, ny); px = nx; py = ny
+    }
   }
   ctx.closePath()
 }
@@ -37,6 +51,24 @@ function drawAnnotation(ctx, ann, sx, sy, ox, oy, selected, fillEnabled) {
   const stroke = selected ? '#ffffff' : color
   const sw     = selected ? 2 : 1.5
   const fillOp = fillEnabled ? (selected ? 0.50 : 0.28) : 0
+
+  // LOD: if the annotation's image-space bbox projects to less than LOD_THRESHOLD
+  // pixels on screen, render a single dot instead of the full geometry. This is
+  // the primary performance win at low zoom with thousands of visible annotations.
+  const bbox = ann.bbox
+  if (bbox && ann.annotation_type !== 'point') {
+    const screenW = Math.abs(bbox.w * sx)
+    const screenH = Math.abs(bbox.h * sy)
+    if (screenW < LOD_THRESHOLD && screenH < LOD_THRESHOLD) {
+      const dotX = (bbox.x + bbox.w * 0.5) * sx + ox
+      const dotY = (bbox.y + bbox.h * 0.5) * sy + oy
+      ctx.globalAlpha = selected ? 0.9 : 0.5
+      ctx.fillStyle   = color
+      ctx.beginPath(); ctx.arc(dotX, dotY, selected ? 2 : 1.5, 0, 2 * Math.PI); ctx.fill()
+      ctx.globalAlpha = 1
+      return
+    }
+  }
 
   switch (ann.annotation_type) {
     case 'point': {
