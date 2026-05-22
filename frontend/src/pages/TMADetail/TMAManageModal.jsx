@@ -1,6 +1,6 @@
 // frontend/src/pages/TMADetail/TMAManageModal.jsx
 import { useState } from 'react'
-import { Modal, Btn, ErrorMsg } from '../../components/ui'
+import { Modal, Btn, ErrorMsg, Badge, SegmentedControl } from '../../components/ui'
 
 const CSV_SPECS = {
   cores: {
@@ -72,15 +72,7 @@ function UploadTab({ spec, onUpload, loading, error, result }) {
       </div>
 
       {/* Result feedback */}
-      {result && (
-        <div style={{
-          padding: '10px 14px', borderRadius: 'var(--radius-md)', fontSize: 13,
-          background: 'var(--success-bg)', border: '1px solid rgba(27,153,139,0.2)',
-          color: 'var(--success)',
-        }}>
-          {result}
-        </div>
-      )}
+      {result && <Badge variant="green" style={{ fontSize: 12, padding: '6px 10px', borderRadius: 'var(--radius-md)', whiteSpace: 'normal', lineHeight: 1.5 }}>{result}</Badge>}
 
       <ErrorMsg message={error} />
 
@@ -167,41 +159,18 @@ export default function TMAManageModal({ isOpen, onClose, tmaId, onCoresUpdated,
     }
   }
 
-  const tabs = [
-    { id: 'cores', label: 'Core Map', count: coreCount },
-    { id: 'scans', label: 'WSI Scans', count: scanCount },
-  ]
-
   return (
     <Modal isOpen={isOpen} onClose={onClose} title="Manage TMA Data" subtitle="Upload or replace core mapping and WSI scan lists." width={560}>
       {/* Tabs */}
-      <div style={{ display: 'flex', borderBottom: '1px solid var(--border-l)', padding: '0 24px' }}>
-        {tabs.map(tab => (
-          <button
-            key={tab.id}
-            onClick={() => handleTabChange(tab.id)}
-            style={{
-              padding: '10px 16px', fontSize: 13, fontFamily: 'var(--font-sans)',
-              border: 'none', cursor: 'pointer', background: 'transparent',
-              color:       activeTab === tab.id ? 'var(--navy)' : 'var(--text-3)',
-              fontWeight:  activeTab === tab.id ? 600 : 400,
-              borderBottom: activeTab === tab.id ? '2px solid var(--navy)' : '2px solid transparent',
-              marginBottom: -1,
-              display: 'flex', alignItems: 'center', gap: 6,
-            }}
-          >
-            {tab.label}
-            {tab.count > 0 && (
-              <span style={{
-                fontSize: 10, fontWeight: 600, padding: '1px 6px', borderRadius: 10,
-                background: activeTab === tab.id ? 'var(--navy-10)' : 'var(--border-l)',
-                color:      activeTab === tab.id ? 'var(--navy)' : 'var(--text-3)',
-              }}>
-                {tab.count}
-              </span>
-            )}
-          </button>
-        ))}
+      <div style={{ padding: '10px 24px', borderBottom: '1px solid var(--border-l)' }}>
+        <SegmentedControl
+          value={activeTab}
+          onChange={handleTabChange}
+          options={[
+            { value: 'cores', label: `Core Map${coreCount > 0 ? ` (${coreCount})` : ''}` },
+            { value: 'scans', label: `WSI Scans${scanCount > 0 ? ` (${scanCount})` : ''}` },
+          ]}
+        />
       </div>
 
       <Modal.Body>

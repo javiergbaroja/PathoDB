@@ -1,9 +1,8 @@
-// frontend/src/pages/Projects/CreateProjectModal.jsx
 import { useState, useRef } from 'react'
 import { api } from '../../api'
-import { Modal, Btn, FormLabel, FormInput, FormField } from '../../components/ui'
+import { Modal, Btn, FormInput, FormField, ErrorMsg } from '../../components/ui'
 import SlideTargetManager from '../../components/SlideTargetManager'
-import { PATHOLOGY_PALETTE } from '../../constants/stains' 
+import { PATHOLOGY_PALETTE } from '../../constants/stains'
 
 function genId() {
   return Math.random().toString(36).slice(2, 10)
@@ -260,9 +259,10 @@ export default function CreateProjectModal({ onClose, onCreated, cohorts }) {
             </div>
             <ClassEditor classes={classes} setClasses={setClasses} />
             {classes.length === 0 && (
-              <div style={{ marginTop: 12, padding: '10px 12px', borderRadius: 'var(--radius-md)', background: 'var(--warning-bg)', border: '1px solid #e8c84a', fontSize: 12, color: 'var(--warning)' }}>
-                You can proceed without classes and add them later, but you won't be able to assign labels while annotating.
-              </div>
+              <ErrorMsg
+                message="You can proceed without classes and add them later, but you won't be able to assign labels while annotating."
+                style={{ marginTop: 12, background: 'var(--warning-bg)', borderColor: '#e8c84a', color: 'var(--warning)' }}
+              />
             )}
           </div>
         )}
@@ -304,11 +304,7 @@ export default function CreateProjectModal({ onClose, onCreated, cohorts }) {
           </div>
         )}
 
-        {error && (
-          <div style={{ marginTop: 12, padding: '10px 12px', borderRadius: 'var(--radius-md)', background: 'var(--crimson-10)', border: '1px solid var(--crimson)', fontSize: 12, color: 'var(--crimson)' }}>
-            {error}
-          </div>
-        )}
+        <ErrorMsg message={error} style={{ marginTop: 12 }} />
       </Modal.Body>
 
       {/* Footer */}
