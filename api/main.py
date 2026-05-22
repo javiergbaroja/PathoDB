@@ -12,7 +12,7 @@ from fastapi.responses import FileResponse
 from .config import get_settings
 from .database import check_db_connection
 from .routers import (
-    auth, patients, scans, stains, cohorts,
+    auth, patients, scans, stains, cohorts, tmas,
     stats, slides, search, assistant, analysis, summarize, projects
 )
 
@@ -71,6 +71,7 @@ api_router.include_router(assistant.router)
 api_router.include_router(analysis.router)
 api_router.include_router(summarize.router)
 api_router.include_router(projects.router)
+api_router.include_router(tmas.router)  # <-- Include TMA router
 app.include_router(api_router)
 
 @api_router.get("/health")

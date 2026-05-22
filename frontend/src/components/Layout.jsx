@@ -11,6 +11,7 @@ const NAV = [
     items: [
       { to: '/patients',  label: 'Patients',        icon: <PatientIcon /> },
       { to: '/cohorts',   label: 'Cohorts',          icon: <CohortIcon /> },
+      { to: '/tmas',      label: 'TMAs',           icon: <TmaIcon /> },
       { to: '/stains',    label: 'Stains',           icon: <StainIcon /> },
     ]
   },
@@ -333,3 +334,4 @@ function ProjectIcon() {
 }
 function BatchIcon() { return ( <svg viewBox="0 0 16 16" fill="currentColor" width="15" height="15"><path d="M8 1.5c-3 0-5.5 1.3-5.5 3s2.5 3 5.5 3 5.5-1.3 5.5-3-2.5-3-5.5-3zm0 1.5c2.2 0 4 .8 4 1.5s-1.8 1.5-4 1.5-4-.8-4-1.5 1.8-1.5 4-1.5zm0 4.5c-3 0-5.5-1.3-5.5-3v2c0 1.7 2.5 3 5.5 3s5.5-1.3 5.5-3v-2c0 1.7-2.5 3-5.5 3zm0 4c-3 0-5.5-1.3-5.5-3v2c0 1.7 2.5 3 5.5 3s5.5-1.3 5.5-3v-2c0 1.7-2.5 3-5.5 3z"/></svg> ) }
 function TrackerIcon() { return ( <svg viewBox="0 0 16 16" fill="currentColor" width="15" height="15"><path d="M14 3h-3.53a3.001 3.001 0 00-4.94 0H2a1 1 0 00-1 1v9a1 1 0 001 1h12a1 1 0 001-1V4a1 1 0 00-1-1zM8 2.5a1.5 1.5 0 110 3 1.5 1.5 0 010-3zM4 8h8v1H4V8zm0 3h5v1H4v-1z"/></svg> ) }
+function TmaIcon() { return ( <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" width="15" height="15"> <rect x="3" y="3" width="7" height="7"></rect> <rect x="14" y="3" width="7" height="7"></rect> <rect x="14" y="14" width="7" height="7"></rect> <rect x="3" y="14" width="7" height="7"></rect> </svg> ) }

@@ -154,8 +154,8 @@ echo "Starting FastAPI server..."
 python3 -m uvicorn api.main:app \
     --host 0.0.0.0 \
     --port "$API_PORT" \
-    --workers 4 \
-    --log-level info
+    --log-level info \
+    # --workers 4 
 
 echo ""
 echo "=== API Server stopped ==="

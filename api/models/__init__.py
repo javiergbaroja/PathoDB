@@ -252,3 +252,25 @@ class Annotation(Base):
     project    = relationship("Project")
     scan       = relationship("Scan")
     creator    = relationship("User", foreign_keys=[created_by])
+
+
+# Add this to api/models/__init__.py
+
+class TMACore(Base):
+    __tablename__ = "tma_cores"
+
+    id                  = Column(Integer, primary_key=True)
+    project_id          = Column(Integer, ForeignKey("projects.id", ondelete="CASCADE"), nullable=False)
+    row_idx             = Column(Integer, nullable=False)
+    col_idx             = Column(Integer, nullable=False)
+    donor_block_id      = Column(Integer, ForeignKey("blocks.id"), nullable=True)
+    core_type           = Column(Text, nullable=False, default="tissue")
+    control_description = Column(Text, nullable=True)
+    bbox_x              = Column(Numeric, nullable=True)
+    bbox_y              = Column(Numeric, nullable=True)
+    bbox_w              = Column(Numeric, nullable=True)
+    bbox_h              = Column(Numeric, nullable=True)
+    created_at          = Column(TIMESTAMP(timezone=True), server_default=func.now())
+
+    project     = relationship("Project", backref="tma_cores")
+    donor_block = relationship("Block")

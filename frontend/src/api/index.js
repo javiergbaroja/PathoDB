@@ -10,7 +10,8 @@ import { getScansForBlock, registerScan, deleteScan } from './scans'
 import { getStains, createStain, updateStain } from './stains'
 import { search, lookup, getStats } from './search'
 import { askAssistant } from './assistant'
-import {
+import { createTMA, uploadTMACoresCSV, uploadTMAScansCSV, getTMACores} from './tmas'
+import { 
   getProjects, getProject, createProject, updateProject, deleteProject,
   syncProject, getProjectProgress, createProjectFromFile,
   getProjectScans,
@@ -45,4 +46,7 @@ export const api = {
   getAnnotations, createAnnotation, updateAnnotation, deleteAnnotation, bulkSaveAnnotations, importAnnotations,
   // Health
   health: () => request('GET', '/health'),
+
+  // TMAs
+  createTMA, uploadTMACoresCSV, uploadTMAScansCSV, getTMACores, getProjectScans, // Reuse project scans logic for TMA WSIs
 }

@@ -265,3 +265,33 @@ CREATE TABLE IF NOT EXISTS annotations (
 CREATE INDEX IF NOT EXISTS idx_annotations_project_scan ON annotations (project_id, scan_id);
 CREATE INDEX IF NOT EXISTS idx_annotations_scan         ON annotations (scan_id);
 CREATE INDEX IF NOT EXISTS idx_annotations_project      ON annotations (project_id);
+
+
+-- 1. Update the project_type check constraint to include TMAs
+ALTER TABLE projects DROP CONSTRAINT IF EXISTS projects_project_type_check;
+ALTER TABLE projects ADD CONSTRAINT projects_project_type_check 
+    CHECK (project_type IN ('cell_detection', 'region_annotation', 'tma'));
+
+-- 2. Make block_id nullable in scans (since TMA scans reflect multiple blocks)
+ALTER TABLE scans ALTER COLUMN block_id DROP NOT NULL;
+
+-- 3. Create the TMA Cores mapping table
+CREATE TABLE IF NOT EXISTS tma_cores (
+    id                  SERIAL      PRIMARY KEY,
+    project_id          INTEGER     NOT NULL REFERENCES projects (id) ON DELETE CASCADE,
+    row_idx             INTEGER     NOT NULL, -- E.g., 1, 2
+    col_idx             INTEGER     NOT NULL, -- E.g., 1, 2
+    donor_block_id      INTEGER     REFERENCES blocks (id), -- Nullable for empty or controls
+    core_type           TEXT        NOT NULL DEFAULT 'tissue' 
+                                    CHECK (core_type IN ('tissue', 'control', 'empty')),
+    control_description TEXT,                 -- Context if core_type = 'control'
+    bbox_x              FLOAT,                -- De-arrayer bounding box coordinates
+    bbox_y              FLOAT,
+    bbox_w              FLOAT,
+    bbox_h              FLOAT,
+    created_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE (project_id, row_idx, col_idx)
+);
+
+CREATE INDEX IF NOT EXISTS idx_tma_cores_project ON tma_cores (project_id);
+CREATE INDEX IF NOT EXISTS idx_tma_cores_donor_block ON tma_cores (donor_block_id);

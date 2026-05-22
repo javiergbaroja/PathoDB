@@ -15,6 +15,8 @@ import CohortResults from './pages/CohortResults'
 import Projects      from './pages/Projects'
 import ProjectDetail from './pages/ProjectDetail'
 import BatchAnalysis from './pages/BatchAnalysis'
+import TMAsList from './pages/TMAs'
+import TMADetail from './pages/TMADetail'
 import JobTracker from './pages/JobTracker'
 import { ErrorBoundary } from './components/ErrorBoundary'
 
@@ -56,6 +58,8 @@ export default function App() {
               <Route path="/assistant" element={<Protected><AIAssistant /></Protected>} />
               <Route path="/viewer/:scanId" element={<Protected><SlideViewer /></Protected>} />
               <Route path="/saved-results/:cohortId" element={<Protected><CohortResults /></Protected>} />
+              <Route path="/tmas"            element={<Protected><TMAsList /></Protected>} />
+              <Route path="/tmas/:tmaId" element={<Protected><TMADetail /></Protected>} />
               <Route path="/projects"            element={<Protected><Projects /></Protected>} />
               <Route path="/projects/:projectId" element={<Protected><ProjectDetail /></Protected>} />
               <Route path="*"element={<Navigate to="/patients" replace />} />
