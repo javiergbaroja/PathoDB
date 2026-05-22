@@ -118,6 +118,8 @@ function PopoverRow({ label, value, mono }) {
 export default function TMAGridPanel({ cores }) {
   const [selectedCoreId, setSelectedCoreId] = useState(null)
   const [popoverAnchor,  setPopoverAnchor]  = useState(null)
+  const [rotation,       setRotation]       = useState(0)    // 0 | 90 | 180 | 270 (clockwise)
+  const [mirrorH,        setMirrorH]        = useState(false)
 
   const { maxRow, maxCol } = useMemo(() => {
     let mr = 0, mc = 0
@@ -133,6 +135,24 @@ export default function TMAGridPanel({ cores }) {
     cores.forEach(c => { arr[c.row_idx - 1][c.col_idx - 1] = c })
     return arr
   }, [cores, maxRow, maxCol])
+
+  const displayGrid = useMemo(() => {
+    let g = grid
+    if (mirrorH) g = g.map(row => [...row].reverse())
+    const steps = (rotation / 90) % 4
+    for (let i = 0; i < steps; i++) {
+      const R = g.length, C = g[0]?.length ?? 0
+      const next = Array.from({ length: C }, () => Array(R).fill(null))
+      for (let r = 0; r < R; r++)
+        for (let c = 0; c < C; c++)
+          next[c][R - 1 - r] = g[r][c]
+      g = next
+    }
+    return g
+  }, [grid, rotation, mirrorH])
+
+  const dispRows = displayGrid.length
+  const dispCols = displayGrid[0]?.length ?? 0
 
   const stats = useMemo(() => {
     const tissue  = cores.filter(c => c.core_type === 'tissue')
@@ -192,8 +212,40 @@ export default function TMAGridPanel({ cores }) {
     >
       {/* Header */}
       <div style={{ padding: '10px 14px', borderBottom: '1px solid rgba(255,255,255,0.07)', flexShrink: 0 }}>
-        <div style={{ fontSize: 9, fontWeight: 600, color: 'rgba(255,255,255,0.5)', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 6 }}>
-          Array Map · {maxRow}×{maxCol}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+          <div style={{ fontSize: 9, fontWeight: 600, color: 'rgba(255,255,255,0.5)', textTransform: 'uppercase', letterSpacing: '0.1em' }}>
+            Array Map · {dispRows}×{dispCols}
+          </div>
+          <div style={{ display: 'flex', gap: 3 }}>
+            <TransformBtn title="Rotate left 90°" onClick={() => setRotation(r => ((r - 90 + 360) % 360))}>
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/>
+                <path d="M3 3v5h5"/>
+              </svg>
+            </TransformBtn>
+            <TransformBtn title="Rotate right 90°" onClick={() => setRotation(r => (r + 90) % 360)}>
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M21 12a9 9 0 1 1-9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/>
+                <path d="M21 3v5h-5"/>
+              </svg>
+            </TransformBtn>
+            <TransformBtn title="Mirror horizontally" active={mirrorH} onClick={() => setMirrorH(m => !m)}>
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M12 3v18"/>
+                <path d="M4 9l-2 3 2 3"/>
+                <path d="M2 12h6"/>
+                <path d="M20 9l2 3-2 3"/>
+                <path d="M22 12h-6"/>
+              </svg>
+            </TransformBtn>
+            {(rotation !== 0 || mirrorH) && (
+              <TransformBtn title="Reset orientation" onClick={() => { setRotation(0); setMirrorH(false) }}>
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round">
+                  <path d="M18 6 6 18"/><path d="M6 6l12 12"/>
+                </svg>
+              </TransformBtn>
+            )}
+          </div>
         </div>
         <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap' }}>
           <StatPill color="var(--teal)"           label={`${stats.matched} matched`} />
@@ -210,7 +262,7 @@ export default function TMAGridPanel({ cores }) {
       <div style={{ flex: 1, overflowY: 'auto', overflowX: 'auto', padding: 14 }}>
         {/* Column labels */}
         <div style={{ display: 'flex', marginLeft: 24, marginBottom: 3, gap: 3 }}>
-          {Array.from({ length: maxCol }, (_, i) => (
+          {Array.from({ length: dispCols }, (_, i) => (
             <div key={i} style={{
               width: 18, textAlign: 'center',
               fontSize: 8, color: 'rgba(255,255,255,0.2)',
@@ -222,7 +274,7 @@ export default function TMAGridPanel({ cores }) {
         </div>
 
         {/* Rows */}
-        {grid.map((row, rIdx) => (
+        {displayGrid.map((row, rIdx) => (
           <div key={rIdx} style={{ display: 'flex', alignItems: 'center', gap: 3, marginBottom: 3 }}>
             <div style={{
               width: 18, textAlign: 'right', marginRight: 3,
@@ -300,5 +352,24 @@ function LegendItem({ color, label }) {
       <div style={{ width: 8, height: 8, borderRadius: '50%', background: color }} />
       <span style={{ fontSize: 9, color: 'rgba(255,255,255,0.4)' }}>{label}</span>
     </div>
+  )
+}
+
+function TransformBtn({ onClick, title, active, children }) {
+  return (
+    <button
+      onClick={onClick}
+      title={title}
+      style={{
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        width: 22, height: 22, borderRadius: 4, border: 'none', cursor: 'pointer',
+        background: active ? 'rgba(255,255,255,0.15)' : 'rgba(255,255,255,0.06)',
+        color: active ? 'rgba(255,255,255,0.9)' : 'rgba(255,255,255,0.45)',
+        transition: 'background 0.1s, color 0.1s',
+        flexShrink: 0,
+      }}
+    >
+      {children}
+    </button>
   )
 }
