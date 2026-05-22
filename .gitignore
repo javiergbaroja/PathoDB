@@ -13,3 +13,15 @@ venv/
 .DS_Store
 .vscode/
 .idea/
+to_delete.json
+logs/*
+*/__pycache__/*
+frontend/node_modules
+.gitignore
+pgdata
+analysis_results/*
+api/*/__pycache__/*
+.env
+api/static
+api/routers/summarize copy.py
+api/static/index.html
