@@ -14,6 +14,7 @@ import { createTMA, uploadTMACoresCSV, uploadTMAScansCSV, getTMACores, getTMAs, 
 import { 
   getProjects, getProject, createProject, updateProject, deleteProject,
   syncProject, getProjectProgress, createProjectFromFile,
+  exportProject,
   getProjectScans,
   shareProject, updateShare, revokeShare,
   getAnnotations, createAnnotation, updateAnnotation, deleteAnnotation, bulkSaveAnnotations, importAnnotations,
@@ -41,6 +42,7 @@ export const api = {
   // Projects
   getProjects, getProject, createProject, updateProject, deleteProject,
   syncProject, getProjectProgress, createProjectFromFile,
+  exportProject,
   getProjectScans,
   shareProject, updateShare, revokeShare,
   getAnnotations, createAnnotation, updateAnnotation, deleteAnnotation, bulkSaveAnnotations, importAnnotations,

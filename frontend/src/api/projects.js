@@ -33,6 +33,33 @@ export async function createProjectFromFile(formData) {
   return res.json()
 }
 
+export async function exportProject(id) {
+  const token = getToken()
+  const headers = {}
+  if (token) headers['Authorization'] = `Bearer ${token}`
+
+  const res = await fetch(`${BASE}/projects/${id}/export`, { headers })
+
+  if (res.status === 401) {
+    localStorage.removeItem('pathodb_token')
+    window.location.href = '/login'
+    return
+  }
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: res.statusText }))
+    throw new Error(err.detail || 'Export failed')
+  }
+
+  const disposition = res.headers.get('Content-Disposition') ?? ''
+  const match = disposition.match(/filename="?([^"]+)"?/)
+  const filename = match ? match[1] : `project_${id}_export`
+
+  const blob = await res.blob()
+  const url  = URL.createObjectURL(blob)
+  Object.assign(document.createElement('a'), { href: url, download: filename }).click()
+  URL.revokeObjectURL(url)
+}
+
 // ─── Project scans ────────────────────────────────────────────────────────────
 export const getProjectScans = (id) => request('GET', `/projects/${id}/scans`)
 
