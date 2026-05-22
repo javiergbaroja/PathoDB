@@ -2,7 +2,7 @@
 import { useState, useEffect, useRef, useMemo } from 'react'
 import { useParams, useNavigate, useLocation } from 'react-router-dom'
 import Layout from '../../components/Layout'
-import { Badge, Btn, Panel, SpinnerPage, ErrorMsg } from '../../components/ui'
+import { Badge, Btn, Panel, SpinnerPage, ErrorMsg, SegmentedControl } from '../../components/ui'
 import { api } from '../../api'
 import { useQuery } from '@tanstack/react-query'
 import { useAuth } from '../../context/AuthContext'
@@ -506,31 +506,16 @@ export default function PatientDetail() {
               }}>
                 Submissions
               </div>
-              <div style={{
-                display: 'flex', gap: 0,
-                border: '1px solid var(--border)', borderRadius: 6, overflow: 'hidden',
-              }}>
-                {[
+              <SegmentedControl
+                small
+                value={filterTab}
+                onChange={setFilterTab}
+                options={[
                   ['all',       `All (${data.submissions.length})`],
                   ['malignant', `Malignant (${malignantCount})`],
                   ['scanned',   `Has scans (${scannedCount})`],
-                ].map(([val, label]) => (
-                  <button
-                    key={val}
-                    onClick={() => setFilterTab(val)}
-                    style={{
-                      padding: '4px 12px', fontSize: 11.5,
-                      fontFamily: 'var(--font-sans)',
-                      fontWeight: filterTab === val ? 600 : 400,
-                      background: filterTab === val ? 'var(--navy)' : 'white',
-                      color:      filterTab === val ? 'white' : 'var(--text-2)',
-                      border: 'none', cursor: 'pointer', transition: 'all 0.12s',
-                    }}
-                  >
-                    {label}
-                  </button>
-                ))}
-              </div>
+                ]}
+              />
             </div>
 
             {/* Empty state for filtered view */}

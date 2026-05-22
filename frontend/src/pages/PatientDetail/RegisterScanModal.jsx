@@ -1,25 +1,30 @@
 // frontend/src/pages/PatientDetail/RegisterScanModal.jsx
 import { useState, useEffect } from 'react'
+import { useForm } from 'react-hook-form'
 import { Modal, Btn, FormField, FormInput, FormSelect, ErrorMsg } from '../../components/ui'
 import { api } from '../../api'
 
 const FILE_FORMATS = ['SVS', 'CZI', 'NDPI', 'SCN', 'TIF', 'MRXS', 'VSI', 'BIF', 'OTHER']
 
 export default function RegisterScanModal({ block, probe, sub, existingScans, onClose, onSuccess }) {
-  const [stains,  setStains]  = useState([])
-  const [form,    setForm]    = useState({ stain_name: '', file_path: '', file_format: 'SVS', magnification: '' })
-  const [saving,  setSaving]  = useState(false)
-  const [error,   setError]   = useState('')
+  const [stains, setStains] = useState([])
+  const [error,  setError]  = useState('')
+
+  const {
+    register, handleSubmit, watch,
+    formState: { isSubmitting, errors },
+  } = useForm({
+    defaultValues: { stain_name: '', file_path: '', file_format: 'SVS', magnification: '' },
+  })
 
   useEffect(() => { api.getStains().then(setStains).catch(() => {}) }, [])
 
+  const stainName = watch('stain_name')
   const existingStains = new Set(existingScans.map(s => s.stain_name).filter(Boolean))
-  const isDuplicate    = form.stain_name && existingStains.has(form.stain_name)
+  const isDuplicate = stainName && existingStains.has(stainName)
 
-  async function handleSubmit(e) {
-    e.preventDefault()
+  async function onSubmit(form) {
     setError('')
-    setSaving(true)
     try {
       await api.registerScan({
         lis_submission_id: sub.lis_submission_id,
@@ -34,8 +39,6 @@ export default function RegisterScanModal({ block, probe, sub, existingScans, on
       onSuccess()
     } catch (e) {
       setError(e.message)
-    } finally {
-      setSaving(false)
     }
   }
 
@@ -47,15 +50,15 @@ export default function RegisterScanModal({ block, probe, sub, existingScans, on
       subtitle={`${sub.lis_submission_id} / ${probe.lis_probe_id} / Block ${block.block_label}`}
       width={480}
     >
-      <form onSubmit={handleSubmit}>
+      <form onSubmit={handleSubmit(onSubmit)} noValidate>
         <Modal.Body style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-3)' }}>
           <ErrorMsg message={error} onDismiss={() => setError('')} />
 
-          <FormField label="Stain *">
+          <FormField label="Stain *" htmlFor="scan-stain" error={errors.stain_name?.message}>
             <FormSelect
-              required
-              value={form.stain_name}
-              onChange={e => setForm(f => ({ ...f, stain_name: e.target.value }))}
+              id="scan-stain"
+              aria-invalid={!!errors.stain_name}
+              {...register('stain_name', { required: 'Stain is required' })}
             >
               <option value="">Select stain…</option>
               {stains.map(s => (
@@ -64,38 +67,35 @@ export default function RegisterScanModal({ block, probe, sub, existingScans, on
             </FormSelect>
             {isDuplicate && (
               <div style={{ marginTop: 5, fontSize: 12, color: 'var(--warning)', fontWeight: 500 }}>
-                ⚠ A {form.stain_name} scan already exists for this block. You can still proceed.
+                ⚠ A {stainName} scan already exists for this block. You can still proceed.
               </div>
             )}
           </FormField>
 
-          <FormField label="File path *">
+          <FormField label="File path *" htmlFor="scan-path" error={errors.file_path?.message}>
             <FormInput
-              required
+              id="scan-path"
               type="text"
               placeholder="/storage/slides/..."
-              value={form.file_path}
-              onChange={e => setForm(f => ({ ...f, file_path: e.target.value }))}
+              aria-invalid={!!errors.file_path}
+              {...register('file_path', { required: 'File path is required' })}
             />
           </FormField>
 
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
-            <FormField label="Format">
-              <FormSelect
-                value={form.file_format}
-                onChange={e => setForm(f => ({ ...f, file_format: e.target.value }))}
-              >
+            <FormField label="Format" htmlFor="scan-format">
+              <FormSelect id="scan-format" {...register('file_format')}>
                 {FILE_FORMATS.map(fmt => <option key={fmt} value={fmt}>{fmt}</option>)}
               </FormSelect>
             </FormField>
-            <FormField label="Magnification">
+            <FormField label="Magnification" htmlFor="scan-mag">
               <FormInput
+                id="scan-mag"
                 type="number"
                 step="0.1"
                 min="0"
                 placeholder="e.g. 40"
-                value={form.magnification}
-                onChange={e => setForm(f => ({ ...f, magnification: e.target.value }))}
+                {...register('magnification')}
               />
             </FormField>
           </div>
@@ -116,8 +116,8 @@ export default function RegisterScanModal({ block, probe, sub, existingScans, on
 
         <Modal.Footer>
           <Btn variant="ghost" type="button" onClick={onClose}>Cancel</Btn>
-          <Btn variant="primary" type="submit" disabled={saving}>
-            {saving ? 'Registering…' : 'Register scan'}
+          <Btn variant="primary" type="submit" disabled={isSubmitting}>
+            {isSubmitting ? 'Registering…' : 'Register scan'}
           </Btn>
         </Modal.Footer>
       </form>

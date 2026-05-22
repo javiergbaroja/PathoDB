@@ -1,8 +1,9 @@
 import { useState, useEffect } from 'react'
+import { useForm } from 'react-hook-form'
 import Layout from '../components/Layout'
 import {
   Badge, Btn, Table, Th, Td, Tr, IdCell,
-  ErrorMsg, SpinnerPage, Modal, FormLabel, FormInput, FormSelect,
+  ErrorMsg, SpinnerPage, Modal, FormInput, FormSelect,
   FormField,
 } from '../components/ui'
 import { api } from '../api'
@@ -12,53 +13,49 @@ const CATEGORIES = ['HE', 'IHC', 'special_stain', 'FISH', 'other']
 // ── Edit modal ────────────────────────────────────────────────────────────────
 
 function EditModal({ stain, onSave, onClose }) {
-  const [form, setForm] = useState({
-    stain_name:     stain.stain_name,
-    stain_category: stain.stain_category,
-    aliases:        stain.aliases?.join(', ') || '',
+  const { register, handleSubmit, formState: { isSubmitting, errors } } = useForm({
+    defaultValues: {
+      stain_name:     stain.stain_name,
+      stain_category: stain.stain_category,
+      aliases:        stain.aliases?.join(', ') || '',
+    },
   })
-  const [saving, setSaving] = useState(false)
 
-  async function handleSave() {
-    setSaving(true)
+  async function submit(form) {
     await onSave(stain.id, {
       stain_name:     form.stain_name,
       stain_category: form.stain_category,
       aliases:        form.aliases.split(',').map(a => a.trim()).filter(Boolean),
     })
-    setSaving(false)
   }
 
   return (
     <Modal isOpen onClose={onClose} title="Edit stain" width={420}>
-      <Modal.Body>
-        <FormField label="Stain name">
-          <FormInput
-            value={form.stain_name}
-            onChange={e => setForm(f => ({ ...f, stain_name: e.target.value }))}
-          />
-        </FormField>
-        <FormField label="Aliases (comma separated)">
-          <FormInput
-            value={form.aliases}
-            onChange={e => setForm(f => ({ ...f, aliases: e.target.value }))}
-          />
-        </FormField>
-        <FormField label="Category">
-          <FormSelect
-            value={form.stain_category}
-            onChange={e => setForm(f => ({ ...f, stain_category: e.target.value }))}
-          >
-            {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
-          </FormSelect>
-        </FormField>
-      </Modal.Body>
-      <Modal.Footer>
-        <Btn variant="ghost" onClick={onClose}>Cancel</Btn>
-        <Btn variant="primary" onClick={handleSave} disabled={saving}>
-          {saving ? 'Saving…' : 'Save'}
-        </Btn>
-      </Modal.Footer>
+      <form onSubmit={handleSubmit(submit)} noValidate>
+        <Modal.Body>
+          <FormField label="Stain name" htmlFor="stain-name" error={errors.stain_name?.message}>
+            <FormInput
+              id="stain-name"
+              aria-invalid={!!errors.stain_name}
+              {...register('stain_name', { required: 'Required' })}
+            />
+          </FormField>
+          <FormField label="Aliases (comma separated)" htmlFor="stain-aliases">
+            <FormInput id="stain-aliases" {...register('aliases')} />
+          </FormField>
+          <FormField label="Category" htmlFor="stain-category">
+            <FormSelect id="stain-category" {...register('stain_category')}>
+              {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+            </FormSelect>
+          </FormField>
+        </Modal.Body>
+        <Modal.Footer>
+          <Btn variant="ghost" type="button" onClick={onClose}>Cancel</Btn>
+          <Btn variant="primary" type="submit" disabled={isSubmitting}>
+            {isSubmitting ? 'Saving…' : 'Save'}
+          </Btn>
+        </Modal.Footer>
+      </form>
     </Modal>
   )
 }
@@ -109,15 +106,6 @@ export default function Stains() {
     </span>
   )
 
-  const selStyle = {
-    padding: '7px 10px',
-    border: '1px solid var(--border)',
-    borderRadius: 'var(--radius-md)',
-    fontSize: 'var(--text-base)',
-    background: 'var(--white)',
-    outline: 'none',
-  }
-
   return (
     <Layout title="Stains" actions={actions}>
       <div style={{ height: '100%', overflowY: 'auto', padding: 'var(--space-5) var(--space-6)' }}>
@@ -125,23 +113,23 @@ export default function Stains() {
 
         {/* Filters */}
         <div style={{ display: 'flex', gap: 10, marginBottom: 'var(--space-4)', alignItems: 'center' }}>
-          <select
-            style={selStyle}
+          <FormSelect
+            style={{ width: 'auto' }}
             value={filter.category}
             onChange={e => setFilter(f => ({ ...f, category: e.target.value }))}
           >
             <option value="">All categories</option>
             {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
-          </select>
-          <select
-            style={selStyle}
+          </FormSelect>
+          <FormSelect
+            style={{ width: 'auto' }}
             value={filter.needs_review}
             onChange={e => setFilter(f => ({ ...f, needs_review: e.target.value }))}
           >
             <option value="">All</option>
             <option value="true">Needs review</option>
             <option value="false">Reviewed</option>
-          </select>
+          </FormSelect>
         </div>
 
         {loading ? <SpinnerPage /> : (

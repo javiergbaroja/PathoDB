@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import Layout from '../components/Layout'
-import { Btn } from '../components/ui'
+import { Btn, FormTextarea } from '../components/ui'
 import { useAuth } from '../context/AuthContext'
 
 const EXAMPLE_QUERIES = [
@@ -118,17 +118,13 @@ export default function AIAssistant() {
           padding: '12px 24px 20px', borderTop: '1px solid var(--border-l)',
           background: 'white', display: 'flex', gap: 10,
         }}>
-          <textarea
+          <FormTextarea
             value={input}
             onChange={e => setInput(e.target.value)}
             onKeyDown={handleKey}
             placeholder="Ask about patients, blocks, cohorts, or diagnostic history…"
             rows={2}
-            style={{
-              flex: 1, padding: '9px 12px',
-              border: '1px solid var(--border)', borderRadius: 8,
-              fontSize: 13, fontFamily: 'var(--font-sans)', resize: 'none', outline: 'none',
-            }}
+            style={{ flex: 1, resize: 'none' }}
           />
           <Btn
             variant="primary"

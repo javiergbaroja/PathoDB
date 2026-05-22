@@ -7,7 +7,7 @@ import { ErrorBoundary } from '../../components/ErrorBoundary'
 import { useViewerStore } from '../../store/viewerStore'
 import {
   Btn, JobStatusBadge, ElapsedTimer, SliderRow,
-  ProgressBar, SectionLabel, FormLabel,
+  ProgressBar, SectionLabel, FormLabel, SegmentedControl,
 } from '../../components/ui'
 
 // ── GeoJSON serialisers ────────────────────────────────────────────────────────
@@ -475,21 +475,14 @@ export default function ModelsPanel({
       </div>
 
       {/* Category tabs */}
-      <div style={{ display: 'flex', gap: 4, padding: '6px 10px', flexShrink: 0, overflowX: 'auto' }}>
-        {categories.map(cat => (
-          <button
-            key={cat}
-            onClick={() => setCategoryTab(cat)}
-            style={{
-              fontSize: 10, padding: '3px 9px', borderRadius: 20, cursor: 'pointer', whiteSpace: 'nowrap',
-              background: categoryTab === cat ? 'rgba(27,153,139,0.18)' : 'rgba(255,255,255,0.04)',
-              border: `1px solid ${categoryTab === cat ? 'rgba(27,153,139,0.4)' : 'rgba(255,255,255,0.08)'}`,
-              color: categoryTab === cat ? 'var(--viewer-teal-light)' : 'var(--text-dark-2)',
-            }}
-          >
-            {cat}
-          </button>
-        ))}
+      <div style={{ padding: '6px 10px', flexShrink: 0, overflowX: 'auto' }}>
+        <SegmentedControl
+          dark
+          small
+          options={categories.map(c => [c, c])}
+          value={categoryTab}
+          onChange={setCategoryTab}
+        />
       </div>
 
       {/* Model list */}

@@ -3,7 +3,8 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import Layout from '../components/Layout'
 import {
   SpinnerPage, Spinner, ErrorMsg, Btn, Badge, StatCard,
-  Table, Th, Td, Tr, ElapsedTimer, JobStatusBadge, ProgressBar, CircularProgress 
+  Table, Th, Td, Tr, ElapsedTimer, JobStatusBadge, ProgressBar, CircularProgress,
+  SegmentedControl, SectionHeader,
 } from '../components/ui'
 import { api } from '../api'
 
@@ -254,14 +255,10 @@ export default function JobTracker() {
         <div style={{ maxWidth: 1100, margin: '0 auto' }}>
 
           {/* Header */}
-          <div style={{ marginBottom: 'var(--space-6)' }}>
-            <h2 style={{ fontFamily: 'var(--font-serif)', fontSize: 20, color: 'var(--navy)', marginBottom: 4 }}>
-              Mission Control
-            </h2>
-            <p style={{ fontSize: 'var(--text-base)', color: 'var(--text-3)', margin: 0 }}>
-              Monitor and manage your SLURM compute jobs. Auto-refreshes every 5 seconds.
-            </p>
-          </div>
+          <SectionHeader
+            title="Mission Control"
+            subtitle="Monitor and manage your SLURM compute jobs. Auto-refreshes every 5 seconds."
+          />
 
           {/* Stats */}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 'var(--space-4)', marginBottom: 'var(--space-6)' }}>
@@ -274,27 +271,13 @@ export default function JobTracker() {
           <ErrorMsg message={errorMsg} onDismiss={() => setErrorMsg('')} />
 
           {/* Filter tabs */}
-          <div style={{ display: 'flex', gap: 8, marginBottom: 'var(--space-4)' }}>
-            {FILTER_OPTS.map(f => (
-              <button
-                key={f}
-                onClick={() => setFilter(f)}
-                style={{
-                  padding: '6px 14px',
-                  borderRadius: 'var(--radius-full)',
-                  fontSize: 12,
-                  fontWeight: 600,
-                  cursor: 'pointer',
-                  transition: 'var(--transition-base)',
-                  background: filter === f ? 'var(--navy)' : 'var(--white)',
-                  color:      filter === f ? 'var(--white)' : 'var(--text-2)',
-                  border:     `1px solid ${filter === f ? 'var(--navy)' : 'var(--border-l)'}`,
-                  boxShadow:  filter === f ? 'var(--shadow-s)' : 'none',
-                }}
-              >
-                {f}
-              </button>
-            ))}
+          <div style={{ marginBottom: 'var(--space-4)' }}>
+            <SegmentedControl
+              options={FILTER_OPTS.map(f => [f, f])}
+              value={filter}
+              onChange={setFilter}
+              small
+            />
           </div>
 
           {/* Jobs table */}
