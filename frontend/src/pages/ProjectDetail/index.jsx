@@ -700,7 +700,7 @@ export default function ProjectDetail() {
           </button>
         )}        
 
-        <button onClick={() => window.open(`/api/projects/${projectId}/export`, '_blank')}
+        <button onClick={() => api.exportProject(projectId)}
           style={{ display:'flex', alignItems:'center', gap:5, padding:'5px 12px',
             borderRadius:6, background:'rgba(27,153,139,0.15)',
             border:'1px solid rgba(27,153,139,0.3)', color:'#6ee7b7',
