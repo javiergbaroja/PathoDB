@@ -10,9 +10,10 @@ import {
 } from '../../lib/annotationMath'
 import { useSelectTool, useBrushTool, usePolygonTool, useShapeTool } from './hooks/useAnnotationTools'
 import {
-  AnnotationShape, LiveAnnotation,
+  LiveAnnotation,
   RectHandleOverlay, EllipseHandleOverlay, PolygonHandleOverlay,
 } from './AnnotationShapes'
+import CanvasAnnotationOverlay from './CanvasAnnotationOverlay'
 import BrushLimits from './BrushLimits'
 
 
@@ -386,9 +387,27 @@ export default function AnnotationLayer({
           if (h) return ELLIPSE_CURSOR[h.id] || 'move'
         }
       }
-      for (let i = annotations.length - 1; i >= 0; i--) {
-        if (hitTestBody(viewer, annotations[i], mouse))
-          return selectedAnnIds.has(annotations[i].id) ? (readOnly ? 'pointer' : 'move') : 'pointer'
+      // R-tree lookup so cursor hit-testing stays O(log N + k) even with
+      // tens of thousands of annotations. Falls back to visibleAnns when the
+      // tree is not yet built.
+      const tree = rtreeRef?.current
+      let cursorCandidates = visibleAnns
+      if (tree && viewer?.viewport) {
+        const mImg = elementToImage(viewer, mouse.x, mouse.y)
+        if (mImg) {
+          const ref  = elementToImage(viewer, mouse.x + 14, mouse.y + 14)
+          const padX = ref ? Math.max(1, Math.abs(ref.x - mImg.x)) : 1
+          const padY = ref ? Math.max(1, Math.abs(ref.y - mImg.y)) : 1
+          cursorCandidates = tree.search({
+            minX: mImg.x - padX, maxX: mImg.x + padX,
+            minY: mImg.y - padY, maxY: mImg.y + padY,
+          }).map(r => r.ann)
+        }
+      }
+      for (let i = cursorCandidates.length - 1; i >= 0; i--) {
+        const ann = cursorCandidates[i]
+        if (hitTestBody(viewer, ann, mouse))
+          return selectedAnnIds.has(ann.id) ? (readOnly ? 'pointer' : 'move') : 'pointer'
       }
       return 'default'
     }
@@ -396,24 +415,35 @@ export default function AnnotationLayer({
   })()
 
   return (
-    <svg
-      ref={svgRef}
-      style={{
-        position: 'absolute', inset: 0, width: '100%', height: '100%',
-        pointerEvents: activeTool ? 'all' : 'none',
-        cursor: dynamicCursor, zIndex: 50,
-      }}
-      onPointerDown={onPointerDown}
-      onPointerMove={onPointerMove}
-      onPointerUp={onPointerUp}
-      onPointerLeave={onPointerLeave}
-      onPointerCancel={onPointerCancel}
-      onClick={onClick}
-      onDoubleClick={onDblClick}
-    >
-      {showAnnotations && visibleAnns.filter(a => !hiddenIds.has(a.id)).map(ann => (
-        <AnnotationShape key={ann.id} viewer={viewer} ann={ann} selected={selectedAnnIds.has(ann.id)} fillAnnotations={fillAnnotations}/>
-      ))}
+    <>
+      {/* All annotation bodies are drawn on canvas — including the selected
+          one — so the SVG node count stays flat (handles + live previews only)
+          regardless of how many annotations exist or are selected. */}
+      <CanvasAnnotationOverlay
+        viewer={viewer}
+        annotations={annotations}
+        selectedAnnIds={selectedAnnIds}
+        hiddenIds={hiddenIds}
+        rtreeRef={rtreeRef}
+        fillAnnotations={fillAnnotations}
+        showAnnotations={showAnnotations}
+        drawSelected={true}
+      />
+      <svg
+        ref={svgRef}
+        style={{
+          position: 'absolute', inset: 0, width: '100%', height: '100%',
+          pointerEvents: activeTool ? 'all' : 'none',
+          cursor: dynamicCursor, zIndex: 50,
+        }}
+        onPointerDown={onPointerDown}
+        onPointerMove={onPointerMove}
+        onPointerUp={onPointerUp}
+        onPointerLeave={onPointerLeave}
+        onPointerCancel={onPointerCancel}
+        onClick={onClick}
+        onDoubleClick={onDblClick}
+      >
 
       {liveGeom && liveType && (
         <LiveAnnotation viewer={viewer} type={liveType} geometry={liveGeom} color={liveColor} />
@@ -513,6 +543,7 @@ export default function AnnotationLayer({
       {mouse && activeTool === 'brush' && (
         <BrushLimits cx={mouse.x} cy={mouse.y} radius={viewRadius()} subtract={brush.subtractMode.current} visible={brush.brushLimitsV} />
       )}
-    </svg>
+      </svg>
+    </>
   )
 }
