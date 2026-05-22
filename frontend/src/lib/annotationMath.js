@@ -49,16 +49,27 @@ export function toSVGPath(pts, closed) {
 export function dist(a, b) { return Math.hypot(a.x - b.x, a.y - b.y) }
 
 export function polygonContains(pts, img) {
-  // If points is an array of arrays (holes), test the exterior ring (index 0)
-  const ring = Array.isArray(pts[0]) ? pts[0] : pts
-  let inside = false, n = ring.length
+  if (!pts || !pts.length) return false
+  // Multi-ring polygon (exterior + holes): apply the even-odd rule across ALL
+  // rings together. A point inside a hole crosses two rings (outer + hole) → even
+  // → correctly reported as outside. The old code only tested the exterior ring.
+  if (Array.isArray(pts[0])) {
+    let crossings = 0
+    for (const ring of pts) crossings += _ringCrossings(ring, img)
+    return (crossings & 1) === 1
+  }
+  return (_ringCrossings(pts, img) & 1) === 1
+}
+
+function _ringCrossings(ring, img) {
+  let count = 0, n = ring.length
   for (let i = 0, j = n - 1; i < n; j = i++) {
     const pi = ring[i], pj = ring[j]
     if ((pi.y > img.y) !== (pj.y > img.y) &&
         img.x < (pj.x - pi.x) * (img.y - pi.y) / (pj.y - pi.y) + pi.x)
-      inside = !inside
+      count++
   }
-  return inside
+  return count
 }
 
 export function hitTestBody(viewer, ann, el) {
