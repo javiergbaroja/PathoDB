@@ -1,0 +1,233 @@
+// frontend/src/pages/TMADetail/TMAManageModal.jsx
+import { useState } from 'react'
+import { Modal, Btn, ErrorMsg } from '../../components/ui'
+
+const CSV_SPECS = {
+  cores: {
+    title:       'Core Map CSV',
+    description: 'Maps each spot in the array to a patient block. Uploading replaces all existing core data.',
+    accept:      '.csv',
+    columns: [
+      { name: 'row',                 required: true,  example: '1',               desc: 'Integer row index' },
+      { name: 'col',                 required: true,  example: '1',               desc: 'Integer column index' },
+      { name: 'identifier',          required: false, example: 'B08.17770_I_I',   desc: 'Block identifier (era-aware)' },
+      { name: 'core_type',           required: false, example: 'tissue',          desc: 'tissue | control | empty' },
+      { name: 'control_description', required: false, example: 'Tonsil control',  desc: 'Free text if core_type=control' },
+    ],
+  },
+  scans: {
+    title:       'WSI Scans CSV',
+    description: 'Registers Whole Slide Images for this TMA. Uploading adds to existing scans (duplicates are skipped).',
+    accept:      '.csv',
+    columns: [
+      { name: 'file_path',  required: true, example: '/mnt/nfs/TMA_HE.ndpi', desc: 'Absolute NFS path' },
+      { name: 'stain_name', required: true, example: 'HE',                   desc: 'Must match a registered stain' },
+    ],
+  },
+}
+
+function UploadTab({ spec, onUpload, loading, error, result }) {
+  const [file, setFile] = useState(null)
+
+  function handleSubmit() {
+    if (!file) return
+    onUpload(file)
+    setFile(null)
+  }
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+      <p style={{ fontSize: 13, color: 'var(--text-2)', lineHeight: 1.6 }}>
+        {spec.description}
+      </p>
+
+      {/* Column reference */}
+      <div style={{
+        background: 'var(--navy-05)', border: '1px solid var(--border-l)',
+        borderRadius: 'var(--radius-md)', overflow: 'hidden',
+      }}>
+        <div style={{ padding: '8px 12px', borderBottom: '1px solid var(--border-l)', background: 'var(--white)' }}>
+          <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+            Required columns
+          </span>
+        </div>
+        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
+          <tbody>
+            {spec.columns.map(col => (
+              <tr key={col.name} style={{ borderBottom: '1px solid var(--border-l)' }}>
+                <td style={{ padding: '7px 12px', fontFamily: 'var(--font-mono)', color: 'var(--navy)', fontWeight: 600, whiteSpace: 'nowrap' }}>
+                  {col.name}
+                  {!col.required && (
+                    <span style={{ marginLeft: 4, fontSize: 9, fontWeight: 400, color: 'var(--text-3)', fontFamily: 'var(--font-sans)' }}>optional</span>
+                  )}
+                </td>
+                <td style={{ padding: '7px 12px', color: 'var(--text-2)' }}>{col.desc}</td>
+                <td style={{ padding: '7px 12px', fontFamily: 'var(--font-mono)', color: 'var(--text-3)', textAlign: 'right', whiteSpace: 'nowrap' }}>
+                  {col.example}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      {/* Result feedback */}
+      {result && (
+        <div style={{
+          padding: '10px 14px', borderRadius: 'var(--radius-md)', fontSize: 13,
+          background: 'var(--success-bg)', border: '1px solid rgba(27,153,139,0.2)',
+          color: 'var(--success)',
+        }}>
+          {result}
+        </div>
+      )}
+
+      <ErrorMsg message={error} />
+
+      {/* File picker */}
+      <div style={{
+        border: `2px dashed ${file ? 'var(--teal)' : 'var(--border)'}`,
+        borderRadius: 'var(--radius-lg)', padding: 20, textAlign: 'center',
+        background: file ? 'var(--teal-10)' : 'rgba(0,0,0,0.01)',
+        transition: 'var(--transition-base)', position: 'relative', cursor: 'pointer',
+      }}>
+        <input
+          type="file"
+          accept={spec.accept}
+          onChange={e => { setFile(e.target.files[0]) }}
+          disabled={loading}
+          style={{ position: 'absolute', inset: 0, opacity: 0, cursor: 'pointer' }}
+        />
+        {file ? (
+          <div style={{ color: 'var(--teal)', fontSize: 13, fontWeight: 500 }}>
+            <div style={{ fontSize: 22, marginBottom: 6 }}>📄</div>
+            {file.name}
+          </div>
+        ) : (
+          <div style={{ color: 'var(--text-3)', fontSize: 13 }}>
+            Click or drag to select a <strong>.csv</strong> file
+          </div>
+        )}
+      </div>
+
+      <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+        <Btn variant="primary" onClick={handleSubmit} disabled={!file || loading}>
+          {loading ? 'Uploading…' : 'Upload & Replace'}
+        </Btn>
+      </div>
+    </div>
+  )
+}
+
+export default function TMAManageModal({ isOpen, onClose, tmaId, onCoresUpdated, onScansUpdated, coreCount, scanCount }) {
+  const [activeTab, setActiveTab] = useState('cores')
+  const [loading,   setLoading]   = useState(false)
+  const [error,     setError]     = useState('')
+  const [result,    setResult]    = useState('')
+
+  function handleTabChange(tab) {
+    setActiveTab(tab)
+    setError('')
+    setResult('')
+  }
+
+  async function handleCoresUpload(file) {
+    setLoading(true); setError(''); setResult('')
+    try {
+      const { default: api } = await import('../../api')
+      const res = await api.uploadTMACoresCSV(tmaId, file)
+      if (res.total === 0) {
+        setError('0 cores were mapped. Check your CSV headers and delimiter.')
+      } else {
+        setResult(`✓ Mapped ${res.total} cores — ${res.matched} matched to patient blocks, ${res.total - res.matched} unmatched.`)
+        onCoresUpdated?.()
+      }
+    } catch (e) {
+      setError(e.message || 'Upload failed')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  async function handleScansUpload(file) {
+    setLoading(true); setError(''); setResult('')
+    try {
+      const { default: api } = await import('../../api')
+      const res = await api.uploadTMAScansCSV(tmaId, file)
+      if (res.total === 0) {
+        setError('0 scans were registered. Check file_path and stain_name columns.')
+      } else {
+        setResult(`✓ Processed ${res.total} scans — ${res.added} newly registered.`)
+        onScansUpdated?.()
+      }
+    } catch (e) {
+      setError(e.message || 'Upload failed')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const tabs = [
+    { id: 'cores', label: 'Core Map', count: coreCount },
+    { id: 'scans', label: 'WSI Scans', count: scanCount },
+  ]
+
+  return (
+    <Modal isOpen={isOpen} onClose={onClose} title="Manage TMA Data" subtitle="Upload or replace core mapping and WSI scan lists." width={560}>
+      {/* Tabs */}
+      <div style={{ display: 'flex', borderBottom: '1px solid var(--border-l)', padding: '0 24px' }}>
+        {tabs.map(tab => (
+          <button
+            key={tab.id}
+            onClick={() => handleTabChange(tab.id)}
+            style={{
+              padding: '10px 16px', fontSize: 13, fontFamily: 'var(--font-sans)',
+              border: 'none', cursor: 'pointer', background: 'transparent',
+              color:       activeTab === tab.id ? 'var(--navy)' : 'var(--text-3)',
+              fontWeight:  activeTab === tab.id ? 600 : 400,
+              borderBottom: activeTab === tab.id ? '2px solid var(--navy)' : '2px solid transparent',
+              marginBottom: -1,
+              display: 'flex', alignItems: 'center', gap: 6,
+            }}
+          >
+            {tab.label}
+            {tab.count > 0 && (
+              <span style={{
+                fontSize: 10, fontWeight: 600, padding: '1px 6px', borderRadius: 10,
+                background: activeTab === tab.id ? 'var(--navy-10)' : 'var(--border-l)',
+                color:      activeTab === tab.id ? 'var(--navy)' : 'var(--text-3)',
+              }}>
+                {tab.count}
+              </span>
+            )}
+          </button>
+        ))}
+      </div>
+
+      <Modal.Body>
+        {activeTab === 'cores' && (
+          <UploadTab
+            spec={CSV_SPECS.cores}
+            onUpload={handleCoresUpload}
+            loading={loading}
+            error={error}
+            result={result}
+          />
+        )}
+        {activeTab === 'scans' && (
+          <UploadTab
+            spec={CSV_SPECS.scans}
+            onUpload={handleScansUpload}
+            loading={loading}
+            error={error}
+            result={result}
+          />
+        )}
+      </Modal.Body>
+
+      <Modal.Footer>
+        <Btn variant="ghost" onClick={onClose}>Close</Btn>
+      </Modal.Footer>
+    </Modal>
+  )
+}

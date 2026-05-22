@@ -10,7 +10,7 @@ import { getScansForBlock, registerScan, deleteScan } from './scans'
 import { getStains, createStain, updateStain } from './stains'
 import { search, lookup, getStats } from './search'
 import { askAssistant } from './assistant'
-import { createTMA, uploadTMACoresCSV, uploadTMAScansCSV, getTMACores} from './tmas'
+import { createTMA, uploadTMACoresCSV, uploadTMAScansCSV, getTMACores, getTMAs, getTMA, updateTMA, deleteTMA } from './tmas'
 import { 
   getProjects, getProject, createProject, updateProject, deleteProject,
   syncProject, getProjectProgress, createProjectFromFile,
@@ -48,5 +48,5 @@ export const api = {
   health: () => request('GET', '/health'),
 
   // TMAs
-  createTMA, uploadTMACoresCSV, uploadTMAScansCSV, getTMACores, getProjectScans, // Reuse project scans logic for TMA WSIs
+  createTMA, uploadTMACoresCSV, uploadTMAScansCSV, getTMACores, getTMAs, getTMA, updateTMA, deleteTMA,
 }
