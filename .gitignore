@@ -1,3 +1,18 @@
+# Node / frontend build-time dependencies
+node_modules/
+frontend/node_modules/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# Editor / OS
+.DS_Store
+.vscode/
+.idea/
 to_delete.json
 logs/*
 */__pycache__/*

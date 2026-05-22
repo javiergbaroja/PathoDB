@@ -46,8 +46,7 @@ export default function AnnotationLayer({
 
       const w = br.x - tl.x;
       const h = br.y - tl.y;
-      
-      // Add a 20% spatial buffer around the screen so panning doesn't visibly pop shapes in
+
       const searchBox = {
         minX: tl.x - w * 0.2,
         minY: tl.y - h * 0.2,
@@ -56,12 +55,24 @@ export default function AnnotationLayer({
       };
 
       const results = rtreeRef.current.search(searchBox);
-      const visibleIds = new Set(results.map(r => r.ann.id));
-      
-      // Safety: Always ensure selected annotations are "visible" to prevent active edit handles from glitching
-      selectedAnnIds.forEach(id => visibleIds.add(id));
 
-      return annotations.filter(a => visibleIds.has(a.id));
+      // Build the output in O(k) — no O(N) scan of the full annotation list.
+      // Use a Set to deduplicate and ensure selected annotations are always present.
+      const seen = new Set()
+      const out  = []
+      for (const r of results) {
+        seen.add(r.ann.id)
+        out.push(r.ann)
+      }
+      // Always include selected annotations even if outside the padded viewport
+      // (e.g. the user scrolled away while an annotation is being edited).
+      for (const id of selectedAnnIds) {
+        if (!seen.has(id)) {
+          const ann = annotations.find(a => a.id === id)
+          if (ann) out.push(ann)
+        }
+      }
+      return out;
     } catch(e) {
       return annotations;
     }
