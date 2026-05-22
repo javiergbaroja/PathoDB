@@ -30,14 +30,18 @@ const LOD_THRESHOLD = 3
 // low zoom levels while remaining visually lossless.
 function drawPath(ctx, points, sx, sy, ox, oy) {
   if (!points.length) return
-  let px = points[0].x * sx + ox
-  let py = points[0].y * sy + oy
-  ctx.moveTo(px, py)
+  // 1-screen-pixel Euclidean threshold in image space: zoom-adaptive vertex decimation.
+  // At low zoom (small |sx|), epImgSq is large → more consecutive vertices are merged.
+  // At high zoom (large |sx|), epImgSq is small → nearly every vertex is emitted.
+  const epImgSq = (1.0 / Math.abs(sx)) ** 2 + (1.0 / Math.abs(sy)) ** 2
+  let lx = points[0].x, ly = points[0].y
+  ctx.moveTo(lx * sx + ox, ly * sy + oy)
   for (let i = 1; i < points.length; i++) {
-    const nx = points[i].x * sx + ox
-    const ny = points[i].y * sy + oy
-    if (Math.abs(nx - px) >= 0.5 || Math.abs(ny - py) >= 0.5) {
-      ctx.lineTo(nx, ny); px = nx; py = ny
+    const cx = points[i].x, cy = points[i].y
+    const dx = cx - lx, dy = cy - ly
+    if (dx * dx + dy * dy >= epImgSq) {
+      ctx.lineTo(cx * sx + ox, cy * sy + oy)
+      lx = cx; ly = cy
     }
   }
   ctx.closePath()

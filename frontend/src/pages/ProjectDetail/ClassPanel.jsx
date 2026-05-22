@@ -1,6 +1,6 @@
 // frontend/src/pages/ProjectDetail/ClassPanel.jsx
 
-import { useState, memo } from 'react'
+import { useState, useEffect, useRef, memo } from 'react'
 import ProjectModelsPanel, { AI_ROI_CLASS } from './ProjectModelsPanel'
 
 export default memo(function ClassPanel({
@@ -25,6 +25,17 @@ export default memo(function ClassPanel({
   onSetActiveClass,      // (classObj) => void
 }) {
   const [tab, setTab] = useState('classes')   // 'classes' | 'list' | 'ai'
+  const listScrollRef = useRef(null)
+
+  useEffect(() => {
+    if (selectedAnnIds.size !== 1) return
+    setTab('list')
+    const [id] = selectedAnnIds
+    setTimeout(() => {
+      const el = listScrollRef.current?.querySelector(`[data-annid="${id}"]`)
+      el?.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
+    }, 0)
+  }, [selectedAnnIds])
 
   return (
     <div style={{
@@ -99,7 +110,7 @@ export default memo(function ClassPanel({
         ))}
       </div>
 
-      <div style={{ flex: 1, overflowY: 'auto' }}>
+      <div ref={listScrollRef} style={{ flex: 1, overflowY: 'auto' }}>
         {tab === 'classes' && (
           <ClassTab
             classes={classes}
@@ -424,6 +435,7 @@ function ListTab({ annotations, classes, selectedAnnIds, onSelect, onDelete, onC
         return (
           <div
             key={ann.id}
+            data-annid={ann.id}
             onClick={e => onSelect(ann.id, e.shiftKey, e.altKey)}
             style={{
               display: 'flex', alignItems: 'center', gap: 8,
