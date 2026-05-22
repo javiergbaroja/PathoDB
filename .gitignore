@@ -1,19 +1,12 @@
-# Node / frontend
-node_modules/
-frontend/node_modules/
-
-# Vite build output (emitted into api/static/ by `npm run build`)
-api/static/assets/
-api/static/favicon_*.svg
-
-# Python
-__pycache__/
-*.py[cod]
-*.egg-info/
-.venv/
-venv/
-
-# Editor / OS
-.DS_Store
-.vscode/
-.idea/
+to_delete.json
+logs/*
+*/__pycache__/*
+frontend/node_modules
+.gitignore
+pgdata
+analysis_results/*
+api/*/__pycache__/*
+.env
+api/static
+api/routers/summarize copy.py
+api/static/index.html
