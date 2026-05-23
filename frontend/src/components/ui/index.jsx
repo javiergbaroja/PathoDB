@@ -405,6 +405,34 @@ export function SliderRow({ label, value, min, max, step = 1, onChange, unit = '
   )
 }
 
+// Brightness / contrast / gamma popover shared by both viewer toolbars.
+// `style` controls placement (top/left/right) and any width/background overrides.
+export function ImageAdjustPopover({
+  brightness, contrast, gamma,
+  onBrightness, onContrast, onGamma, onReset,
+  style,
+}) {
+  return (
+    <div style={{
+      position: 'absolute', zIndex: 300,
+      background: 'var(--surface-dark-card)',
+      border: '1px solid var(--border-dark)',
+      borderRadius: 'var(--radius-lg)', padding: '12px 14px', width: 200,
+      ...style,
+    }}>
+      <SliderRow label="Brightness" value={brightness} min={50}  max={200} step={1}    unit="%" onChange={onBrightness} />
+      <SliderRow label="Contrast"   value={contrast}   min={50}  max={200} step={1}    unit="%" onChange={onContrast} />
+      <SliderRow label="Gamma"      value={gamma}      min={0.2} max={3.0} step={0.05} format={v => v.toFixed(2)} onChange={onGamma} />
+      <button
+        onClick={onReset}
+        style={{ marginTop: 6, width: '100%', background: 'rgba(255,255,255,0.05)', border: '1px solid var(--border-dark)', borderRadius: 'var(--radius-sm)', color: 'var(--text-dark-3)', fontSize: 11, padding: '4px 0', cursor: 'pointer' }}
+      >
+        Reset
+      </button>
+    </div>
+  )
+}
+
 // ============================================================
 // ELAPSED TIMER
 // ============================================================

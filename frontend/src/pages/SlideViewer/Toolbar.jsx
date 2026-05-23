@@ -1,7 +1,7 @@
 // frontend/src/pages/SlideViewer/Toolbar.jsx
 import { useViewerStore } from '../../store/viewerStore'
 import { STAIN_COLORS } from '../../constants/stains'
-import { SliderRow, ToolBtn } from '../../components/ui'
+import { ImageAdjustPopover, ToolBtn } from '../../components/ui'
 
 export default function Toolbar({ handleBack, leftInfo, rightInfo, compareMode, leftZoom, rightZoom, handleCompareToggle }) {
   const {
@@ -97,10 +97,11 @@ export default function Toolbar({ handleBack, leftInfo, rightInfo, compareMode, 
               <svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor"><path d="M8 11a3 3 0 110-6 3 3 0 010 6zm0 1a4 4 0 100-8 4 4 0 000 8zM8 0a.5.5 0 01.5.5v2a.5.5 0 01-1 0v-2A.5.5 0 018 0zm0 13a.5.5 0 01.5.5v2a.5.5 0 01-1 0v-2A.5.5 0 018 13zm8-5a.5.5 0 01-.5.5h-2a.5.5 0 010-1h2a.5.5 0 01.5.5zM3 8a.5.5 0 01-.5.5h-2a.5.5 0 010-1h2A.5.5 0 013 8zm10.657-5.657a.5.5 0 010 .707l-1.414 1.415a.5.5 0 11-.707-.708l1.414-1.414a.5.5 0 01.707 0zm-9.193 9.193a.5.5 0 010 .707L3.05 13.657a.5.5 0 01-.707-.707l1.414-1.414a.5.5 0 01.707 0zm9.193 2.121a.5.5 0 01-.707 0l-1.414-1.414a.5.5 0 00.707-.707l1.414 1.414a.5.5 0 010 .707zM4.464 4.465a.5.5 0 01-.707 0L2.343 3.05a.5.5 0 11.707-.707l1.414 1.414a.5.5 0 010 .708z"/></svg>
             </ToolBtn>
             {showBrightness && (
-              <BrightnessPanel
+              <ImageAdjustPopover
                 brightness={brightness} contrast={contrast} gamma={gamma}
                 onBrightness={setBrightness} onContrast={setContrast} onGamma={setGamma}
                 onReset={resetAdjustments}
+                style={{ top: 'calc(100% + 6px)', right: 0, width: 210, background: 'rgba(3,8,25,0.98)' }}
               />
             )}
           </div>
@@ -145,19 +146,6 @@ function StainBadge({ name, category, side, zoom }) {
       <div style={{ width: 6, height: 6, borderRadius: '50%', background: color, flexShrink: 0 }} />
       <span style={{ fontFamily: 'var(--font-mono)', fontSize: 12, fontWeight: 600, color }}>{name}{side ? ` (${side})` : ''}</span>
       {zoom && <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-dark-3)', background: 'rgba(255,255,255,0.05)', padding: '1px 5px', borderRadius: 3 }}>{zoom}×</span>}
-    </div>
-  )
-}
-
-function BrightnessPanel({ brightness, contrast, gamma, onBrightness, onContrast, onGamma, onReset }) {
-  return (
-    <div style={{ position: 'absolute', top: 'calc(100% + 6px)', right: 0, zIndex: 300, background: 'rgba(3,8,25,0.98)', border: '1px solid var(--border-dark)', borderRadius: 'var(--radius-lg)', padding: '12px 14px', width: 210 }}>
-      <SliderRow label="Brightness" value={brightness} min={50} max={200} step={1} onChange={onBrightness} unit="%" />
-      <SliderRow label="Contrast"   value={contrast}   min={50} max={200} step={1} onChange={onContrast}   unit="%" />
-      <SliderRow label="Gamma"      value={gamma}       min={0.2} max={3.0} step={0.05} onChange={onGamma} format={v => v.toFixed(2)} />
-      <button onClick={onReset} style={{ marginTop: 6, width: '100%', background: 'rgba(255,255,255,0.05)', border: '1px solid var(--border-dark)', borderRadius: 'var(--radius-sm)', color: 'var(--text-dark-3)', fontSize: 11, padding: '4px 0', cursor: 'pointer' }}>
-        Reset
-      </button>
     </div>
   )
 }
