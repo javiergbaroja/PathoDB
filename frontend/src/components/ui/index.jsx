@@ -690,3 +690,26 @@ export function ToolBtn({ active, disabled, title, onClick, children, accentColo
     </button>
   )
 }
+
+// ============================================================
+// LIST-PAGE PRIMITIVES
+// ============================================================
+
+// Responsive auto-fill card grid shared by the list/index pages.
+export function CardGrid({ minColWidth = 280, gap = 16, children, style }) {
+  return (
+    <div style={{ display: 'grid', gridTemplateColumns: `repeat(auto-fill, minmax(${minColWidth}px, 1fr))`, gap, ...style }}>
+      {children}
+    </div>
+  )
+}
+
+// Primary "New X" action button with the standard plus glyph.
+export function CreateButton({ label, onClick }) {
+  return (
+    <Btn variant="primary" onClick={onClick}>
+      <svg width="12" height="12" viewBox="0 0 16 16" fill="white"><path d="M8 2a.5.5 0 01.5.5v5h5a.5.5 0 010 1h-5v5a.5.5 0 01-1 0v-5h-5a.5.5 0 010-1h5v-5A.5.5 0 018 2z"/></svg>
+      {label}
+    </Btn>
+  )
+}
