@@ -90,12 +90,16 @@ function buildOSD({
         })
       }
 
+      viewer.addHandler('open', () => {
+        if (!isMounted.current) return
+        onReady?.()
+      })
+
       if (onZoom) {
-        viewer.addHandler('open', () => {
+        viewer.addHandler('zoom', e => {
           if (!isMounted.current) return
-          onReady?.()
-          const rawMpp = slideInfo?.mpp_x ? parseFloat(slideInfo.mpp_x) : null
-          if (!rawMpp || !viewer.scalebar) return
+          const z = e.zoom
+          onZoom(z ? parseFloat(z.toFixed(1)) : null)
         })
       }
 

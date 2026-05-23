@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { api } from '../../api'
 import { fetchAndRenderOverlay, clearOverlay } from '../../lib/overlayRenderer'
@@ -8,6 +8,7 @@ import ModelsPanel    from './ModelsPanel'
 import PolygonTool    from './PolygonTool'
 import { useViewerStore } from '../../store/viewerStore'
 import Toolbar from './Toolbar'
+import { useOSDViewer } from '../../hooks/useOSDViewer'
 import {
   useModelsCatalog,
   useSlideInfo,
@@ -128,121 +129,24 @@ export default function SlideViewer() {
       .forEach(el => el.setAttribute('exponent', exponent))
   }, [gamma])
 
-  // ── OSD creation helper ────────────────────────────────────────────────────
-  const createOSDInstance = useCallback((containerRef, id, info, setZoom, osdRef, isMounted) => {
-    if (!info || !containerRef.current || !window.OpenSeadragon) return
-    if (osdRef.current) { osdRef.current.destroy(); osdRef.current = null }
-    containerRef.current.innerHTML = ''
-
-    fetch(`/api/slides/${id}/dzi?token=${token}`)
-      .then(r => { if (!r.ok) throw new Error(`DZI ${r.status}`); return r.text() })
-      .then(xml => {
-        if (!isMounted.current) return
-        const doc      = new DOMParser().parseFromString(xml, 'application/xml')
-        const imgEl    = doc.querySelector('Image')
-        const sizeEl   = doc.querySelector('Size')
-        const tileSize = parseInt(imgEl.getAttribute('TileSize'))
-        const overlap  = parseInt(imgEl.getAttribute('Overlap'))
-        const width    = parseInt(sizeEl.getAttribute('Width'))
-        const height   = parseInt(sizeEl.getAttribute('Height'))
-
-        const viewer = window.OpenSeadragon({
-          element: containerRef.current,
-          tileSources: {
-            width, height, tileSize, tileOverlap: overlap,
-            getTileUrl: (level, x, y) => `/api/slides/${id}/dzi_files/${level}/${x}_${y}.jpeg?token=${token}`,
-          },
-          prefixUrl: 'https://cdnjs.cloudflare.com/ajax/libs/openseadragon/4.1.0/images/',
-          animationTime: 0.3, blendTime: 0.1, constrainDuringPan: true,
-          maxZoomPixelRatio: 4, minZoomImageRatio: 0.5, visibilityRatio: 1, zoomPerScroll: 1.4,
-          showNavigator: true, navigatorPosition: 'BOTTOM_RIGHT', navigatorSizeRatio: 0.15,
-          showZoomControl: true, showHomeControl: true, showFullPageControl: false, showRotationControl: false,
-          background: '#111827',
-        })
-        osdRef.current = viewer
-
-        if (viewer.navigator?.element) {
-          Object.assign(viewer.navigator.element.style, {
-            backgroundColor: '#fff', border: '1.5px solid rgba(255,255,255,0.2)', borderRadius: '4px',
-          })
-        }
-
-        viewer.addHandler('zoom', ({ zoom: z }) => setZoom(z ? parseFloat(z.toFixed(1)) : null))
-
-        viewer.addHandler('open', () => {
-          const rawMpp = info?.mpp_x ? parseFloat(info.mpp_x) : null
-          if (!rawMpp || !viewer.scalebar) return
-          viewer.scalebar({
-            type: window.OpenSeadragon.ScalebarType.MICROSCOPY,
-            pixelsPerMeter: 1000000 / rawMpp,
-            location: window.OpenSeadragon.ScalebarLocation.BOTTOM_LEFT,
-            xOffset: 20, yOffset: 20,
-            color: '#000', fontColor: '#000', backgroundColor: 'rgba(255,255,255,0.8)',
-            fontSize: '12px', fontFamily: 'monospace', fontWeight: '600', barThickness: 3, stayInsideImage: false,
-          })
-          const NICE = [10, 20, 50, 100, 200, 500, 1000, 2000, 5000, 10000, 20000, 50000]
-          let raf = null
-          const updateSB = () => {
-            const el = containerRef.current?.querySelector('.openseadragon-scalebar')
-            if (!el || !viewer.viewport) return
-            const zoom = viewer.viewport.getZoom(true)
-            const ti   = viewer.world.getItemAt(0)
-            if (!ti) return
-            const umPerPx  = rawMpp / ti.viewportToImageZoom(zoom)
-            const niceUm   = NICE.find(l => l >= umPerPx * window.innerWidth * 0.03) || NICE[NICE.length - 1]
-            el.style.width = `${Math.min(niceUm / umPerPx, 300)}px`
-            const lbl = el.querySelector('div')
-            if (lbl) lbl.textContent = niceUm >= 1000 ? `${niceUm / 1000} mm` : `${niceUm} µm`
-          }
-          const req = () => { if (raf) cancelAnimationFrame(raf); raf = requestAnimationFrame(updateSB) }
-          viewer.addHandler('zoom', req)
-          viewer.addHandler('animation', req)
-          window.addEventListener('resize', req)
-          viewer.addHandler('destroy', () => window.removeEventListener('resize', req))
-          updateSB()
-        })
-      })
-      .catch(e => console.error(`Failed to load slide: ${e.message}`))
-  }, [token])
-
-  // ── Init left viewer ───────────────────────────────────────────────────────
-  useEffect(() => {
-    const isMounted = { current: true }
-    const init = () => createOSDInstance(leftViewerRef, leftScanId, leftInfo, setLeftZoom, osdLeftRef, isMounted)
-    if (window.OpenSeadragon?.Viewer.prototype.scalebar) {
-      init()
-    } else if (window.OpenSeadragon) {
-      const s = document.createElement('script')
-      s.src = 'https://cdn.jsdelivr.net/gh/usnistgov/OpenSeadragonScalebar@master/openseadragon-scalebar.js'
-      s.onload = init; document.head.appendChild(s)
-    } else {
-      const s1 = document.createElement('script')
-      s1.src = 'https://cdnjs.cloudflare.com/ajax/libs/openseadragon/4.1.0/openseadragon.min.js'
-      s1.onload = () => {
-        const s2 = document.createElement('script')
-        s2.src = 'https://cdn.jsdelivr.net/gh/usnistgov/OpenSeadragonScalebar@master/openseadragon-scalebar.js'
-        s2.onload = init; document.head.appendChild(s2)
-      }
-      document.head.appendChild(s1)
-    }
-    return () => {
-      isMounted.current = false
-      if (osdLeftRef.current) { osdLeftRef.current.destroy(); osdLeftRef.current = null }
-    }
-  }, [leftScanId, leftInfo, createOSDInstance])
-
-  // ── Init right viewer ──────────────────────────────────────────────────────
-  useEffect(() => {
-    const isMounted = { current: true }
-    if (!rightScanId || !rightInfo) return
-    if (window.OpenSeadragon?.Viewer.prototype.scalebar) {
-      createOSDInstance(rightViewerRef, rightScanId, rightInfo, setRightZoom, osdRightRef, isMounted)
-    }
-    return () => {
-      isMounted.current = false
-      if (osdRightRef.current) { osdRightRef.current.destroy(); osdRightRef.current = null }
-    }
-  }, [rightScanId, rightInfo, createOSDInstance])
+  // ── OSD viewers (left + optional right for compare mode) ────────────────────
+  // Both share the same setup, scalebar, and script-loading via the hook.
+  useOSDViewer({
+    containerRef: leftViewerRef,
+    scanId:       leftScanId,
+    slideInfo:    leftInfo,
+    token,
+    onZoom:       setLeftZoom,
+    osdRef:       osdLeftRef,
+  })
+  useOSDViewer({
+    containerRef: rightViewerRef,
+    scanId:       rightScanId,
+    slideInfo:    rightInfo,
+    token,
+    onZoom:       setRightZoom,
+    osdRef:       osdRightRef,
+  })
 
   // ── Sync engine ────────────────────────────────────────────────────────────
   useEffect(() => {
