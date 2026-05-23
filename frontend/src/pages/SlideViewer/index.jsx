@@ -9,6 +9,7 @@ import PolygonTool    from './PolygonTool'
 import { useViewerStore } from '../../store/viewerStore'
 import Toolbar from './Toolbar'
 import { useOSDViewer } from '../../hooks/useOSDViewer'
+import { useGammaFilter } from '../../hooks/useGammaFilter'
 import {
   useModelsCatalog,
   useSlideInfo,
@@ -109,25 +110,7 @@ export default function SlideViewer() {
   }, [isPolygonActive])
 
   // ── Gamma SVG filter ───────────────────────────────────────────────────────
-  useEffect(() => {
-    let svg = document.getElementById('sv-gamma-svg')
-    if (!svg) {
-      svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg')
-      svg.setAttribute('id', 'sv-gamma-svg')
-      svg.setAttribute('style', 'position:absolute;width:0;height:0;overflow:hidden')
-      svg.innerHTML = `<defs><filter id="sv-gamma">
-        <feComponentTransfer>
-          <feFuncR type="gamma" exponent="1"/>
-          <feFuncG type="gamma" exponent="1"/>
-          <feFuncB type="gamma" exponent="1"/>
-        </feComponentTransfer>
-      </filter></defs>`
-      document.body.appendChild(svg)
-    }
-    const exponent = (1 / gamma).toFixed(4)
-    svg.querySelectorAll('feFuncR, feFuncG, feFuncB')
-      .forEach(el => el.setAttribute('exponent', exponent))
-  }, [gamma])
+  useGammaFilter(gamma)
 
   // ── OSD viewers (left + optional right for compare mode) ────────────────────
   // Both share the same setup, scalebar, and script-loading via the hook.

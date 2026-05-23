@@ -4,6 +4,7 @@ import { useParams, useNavigate } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { api } from '../../api'
 import { useOSDViewer } from '../../hooks/useOSDViewer'
+import { useGammaFilter } from '../../hooks/useGammaFilter'
 import { useModelsCatalog } from '../../hooks/useSlideData'           // ← NEW
 import AnnotationLayer from './AnnotationLayer'
 import AnnotationToolbar from './AnnotationToolbar'
@@ -24,19 +25,6 @@ if (!document.getElementById('pd-styles')) {
     @keyframes pd-pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
   `
   document.head.appendChild(s)
-}
-
-function ensureGammaFilter() {
-  if (document.getElementById('sv-gamma-svg')) return
-  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg')
-  svg.setAttribute('id', 'sv-gamma-svg')
-  svg.setAttribute('style', 'position:absolute;width:0;height:0;overflow:hidden')
-  svg.innerHTML = `<defs><filter id="sv-gamma"><feComponentTransfer>
-    <feFuncR type="gamma" exponent="1"/>
-    <feFuncG type="gamma" exponent="1"/>
-    <feFuncB type="gamma" exponent="1"/>
-  </feComponentTransfer></filter></defs>`
-  document.body.appendChild(svg)
 }
 
 export default function ProjectDetail() {
@@ -402,12 +390,7 @@ export default function ProjectDetail() {
   })
 
   // ── Gamma filter ───────────────────────────────────────────────────────────
-  useEffect(() => {
-    ensureGammaFilter()
-    const exp = (1 / gamma).toFixed(4)
-    document.querySelectorAll('#sv-gamma feFuncR, #sv-gamma feFuncG, #sv-gamma feFuncB')
-      .forEach(el => el.setAttribute('exponent', exp))
-  }, [gamma])
+  useGammaFilter(gamma)
 
   // ── Ruler tool ─────────────────────────────────────────────────────────────
   useEffect(() => {
