@@ -10,6 +10,7 @@ import { useViewerStore } from '../../store/viewerStore'
 import Toolbar from './Toolbar'
 import { useOSDViewer } from '../../hooks/useOSDViewer'
 import { useGammaFilter } from '../../hooks/useGammaFilter'
+import { attachRuler } from '../../lib/rulerTool'
 import {
   useModelsCatalog,
   useSlideInfo,
@@ -149,45 +150,12 @@ export default function SlideViewer() {
   // ── Ruler tool ─────────────────────────────────────────────────────────────
   useEffect(() => {
     if (!isRulerActive) return
-    const viewers = [osdLeftRef.current, osdRightRef.current].filter(Boolean)
-    const cleanup = []
-    viewers.forEach(viewer => {
-      viewer.setMouseNavEnabled(false)
-      const container = viewer.element
-      const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg')
-      Object.assign(svg.style, { position: 'absolute', inset: '0', width: '100%', height: '100%', pointerEvents: 'none', zIndex: 100 })
-      container.appendChild(svg)
-      let sp = null, line = null, label = null
-      const tracker = new window.OpenSeadragon.MouseTracker({
-        element: container,
-        pressHandler: e => {
-          svg.innerHTML = ''; sp = e.position
-          line = document.createElementNS('http://www.w3.org/2000/svg', 'line')
-          line.setAttribute('stroke', '#00ffcc'); line.setAttribute('stroke-width', '2')
-          svg.appendChild(line)
-          label = document.createElementNS('http://www.w3.org/2000/svg', 'text')
-          label.setAttribute('fill', '#00ffcc')
-          label.setAttribute('style', 'font-family:monospace;font-size:13px;font-weight:bold;paint-order:stroke;stroke:#000;stroke-width:3px')
-          svg.appendChild(label)
-        },
-        dragHandler: e => {
-          if (!sp || !line) return
-          const ep = e.position
-          line.setAttribute('x1', sp.x); line.setAttribute('y1', sp.y); line.setAttribute('x2', ep.x); line.setAttribute('y2', ep.y)
-          const iz  = viewer.world.getItemAt(0)?.viewportToImageZoom(viewer.viewport.getZoom(true)) || 1
-          const mpp = parseFloat(viewer === osdLeftRef.current ? leftInfo?.mpp_x : rightInfo?.mpp_x) || 0.25
-          const um  = (Math.hypot(ep.x - sp.x, ep.y - sp.y) / iz) * mpp
-          label.textContent = um >= 1000 ? `${(um / 1000).toFixed(2)} mm` : `${um.toFixed(1)} µm`
-          label.setAttribute('x', ep.x + 10); label.setAttribute('y', ep.y - 10)
-        },
-      })
-      cleanup.push({ tracker, svg, container, viewer })
-    })
-    return () => cleanup.forEach(({ tracker, svg, container, viewer }) => {
-      tracker.destroy()
-      if (container.contains(svg)) container.removeChild(svg)
-      if (viewer?.viewport) viewer.setMouseNavEnabled(true)
-    })
+    const targets = [
+      { viewer: osdLeftRef.current,  mpp: parseFloat(leftInfo?.mpp_x) },
+      { viewer: osdRightRef.current, mpp: parseFloat(rightInfo?.mpp_x) },
+    ].filter(t => t.viewer)
+    const cleanups = targets.map(t => attachRuler(t.viewer, t.mpp))
+    return () => cleanups.forEach(fn => fn())
   }, [isRulerActive, leftInfo, rightInfo, rightScanId])
 
   // ── Keyboard shortcuts ─────────────────────────────────────────────────────
