@@ -3,8 +3,8 @@ import Layout from '../components/Layout'
 import {
   Btn, Panel, ErrorMsg, SpinnerPage,
   Table, Th, Td, Tr,
-  FormLabel, FormInput, FormSelect, FormField,
-  SegmentedControl, MultiSelect // <-- ADD THESE
+  FormLabel, FormInput, FormSelect, FormTextarea, FormField,
+  SegmentedControl, MultiSelect,
 } from '../components/ui'
 import { api } from '../api'
 
@@ -335,16 +335,12 @@ export default function Cohorts() {
                 </FormField>
 
                 <FormField label={`Paste ${idType === 'b_number' ? 'B-numbers' : 'patient codes'} (one per line)`}>
-                  <textarea
+                  <FormTextarea
                     value={idText}
                     onChange={e => setIdText(e.target.value)}
                     placeholder={idType === 'b_number' ? 'B2019.14823\nB2015.00392' : '581561\n795492'}
                     rows={8}
-                    style={{
-                      width: '100%', padding: '8px 10px',
-                      border: '1px solid var(--border)', borderRadius: 'var(--radius-md)',
-                      fontSize: 13, fontFamily: 'var(--font-mono)', resize: 'vertical', outline: 'none',
-                    }}
+                    style={{ fontFamily: 'var(--font-mono)' }}
                   />
                   <div style={{ fontSize: 'var(--text-sm)', color: 'var(--text-3)', marginTop: 4 }}>
                     {idText.split('\n').filter(s => s.trim()).length} IDs entered

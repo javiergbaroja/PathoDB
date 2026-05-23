@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef, memo } from 'react'
 import ProjectModelsPanel, { AI_ROI_CLASS } from './ProjectModelsPanel'
+import { SegmentedControl } from '../../components/ui'
 
 export default memo(function ClassPanel({
   classes,
@@ -73,41 +74,35 @@ export default memo(function ClassPanel({
       </div>
 
       {/* Tabs */}
-      <div style={{ display: 'flex', borderBottom: '1px solid rgba(255,255,255,0.05)', flexShrink: 0 }}>
-        {[
-          ['classes', 'Classes'],
-          ['list',    'This slide'],
-          ['ai',      'AI'],
-        ].map(([val, lbl]) => (
-          <button key={val} onClick={() => setTab(val)} style={{
-            flex: 1, padding: '7px 0', fontSize: 11,
-            fontFamily: 'var(--font-sans)', cursor: 'pointer', border: 'none',
-            background: tab === val
-              ? (val === 'ai' ? 'rgba(139,92,246,0.15)' : 'rgba(27,153,139,0.12)')
-              : 'transparent', 
-            color: tab === val
-              ? (val === 'ai' ? 'var(--purple-40)' : 'var(--viewer-teal-light)')
-              : 'var(--text-dark-3)',
-            borderBottom: tab === val
-              ? `2px solid ${val === 'ai' ? 'var(--purple-40)' : 'var(--viewer-teal)'}`
-              : '2px solid transparent',
-            position: 'relative',
-          }}>
-            {lbl}
-            {/* Badge: show AI ROI count on the AI tab when not active */}
-            {val === 'ai' && tab !== 'ai' && aiRoiAnnotations.length > 0 && (
-              <span style={{
-                position: 'absolute', top: 4, right: 8,
-                fontSize: 8, fontWeight: 700,
-                background: '#a78bfa', color: '#0a0f1e',
-                borderRadius: 6, padding: '1px 4px',
-                lineHeight: 1.4,
-              }}>
-                {aiRoiAnnotations.length}
-              </span>
-            )}
-          </button>
-        ))}
+      <div style={{ padding: '6px 10px', borderBottom: '1px solid rgba(255,255,255,0.05)', flexShrink: 0 }}>
+        <SegmentedControl
+          dark
+          small
+          value={tab}
+          onChange={setTab}
+          options={[
+            { value: 'classes', label: 'Classes' },
+            { value: 'list',    label: 'This slide' },
+            {
+              value: 'ai',
+              label: (
+                <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+                  AI
+                  {tab !== 'ai' && aiRoiAnnotations.length > 0 && (
+                    <span style={{
+                      fontSize: 8, fontWeight: 700,
+                      background: '#a78bfa', color: '#0a0f1e',
+                      borderRadius: 6, padding: '1px 4px',
+                      lineHeight: 1.4,
+                    }}>
+                      {aiRoiAnnotations.length}
+                    </span>
+                  )}
+                </span>
+              ),
+            },
+          ]}
+        />
       </div>
 
       <div ref={listScrollRef} style={{ flex: 1, overflowY: 'auto' }}>

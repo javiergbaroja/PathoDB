@@ -1,7 +1,7 @@
 import { useState, useCallback } from 'react'
 import { useQuery, useMutation } from '@tanstack/react-query'
 import Layout from '../components/Layout'
-import { Btn, SpinnerPage, ErrorMsg, FormField, FormSelect, FormLabel } from '../components/ui'
+import { Btn, SpinnerPage, ErrorMsg, FormField, FormInput, FormSelect, FormLabel, SectionHeader } from '../components/ui'
 import { api } from '../api'
 import SlideTargetManager from '../components/SlideTargetManager'
 
@@ -123,7 +123,7 @@ export default function BatchAnalysis() {
 
         {/* STEP 1: Configuration */}
         <div style={{ background: 'var(--white)', borderRadius: 'var(--radius-xl)', padding: 24, border: '1px solid var(--border-l)', boxShadow: 'var(--shadow-s)' }}>
-          <h2 style={{ fontFamily: 'var(--font-serif)', fontSize: 18, color: 'var(--navy)', marginBottom: 16 }}>1. Configuration</h2>
+          <SectionHeader title="1. Configuration" />
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 24 }}>
 
             <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
@@ -140,12 +140,11 @@ export default function BatchAnalysis() {
               </FormField>
 
               <FormField label="Output Directory (Absolute Path)">
-                <input
+                <FormInput
                   type="text"
                   placeholder="/storage/research/results/..."
                   value={outputDir}
                   onChange={e => setOutputDir(e.target.value)}
-                  style={{ width: '100%', padding: '10px 12px', borderRadius: 'var(--radius-md)', border: '1px solid var(--border-l)', fontSize: 14, fontFamily: 'var(--font-sans)' }}
                 />
               </FormField>
             </div>
@@ -178,7 +177,7 @@ export default function BatchAnalysis() {
 
         {/* STEP 2: Target Slides */}
         <div style={{ background: 'var(--white)', borderRadius: 'var(--radius-xl)', padding: 24, border: '1px solid var(--border-l)', boxShadow: 'var(--shadow-s)' }}>
-          <h2 style={{ fontFamily: 'var(--font-serif)', fontSize: 18, color: 'var(--navy)', marginBottom: 16 }}>2. Target Slides</h2>
+          <SectionHeader title="2. Target Slides" />
           <SlideTargetManager
             cohorts={cohorts}
             requiredStains={selectedModelDef?.stain_compatibility || []}
