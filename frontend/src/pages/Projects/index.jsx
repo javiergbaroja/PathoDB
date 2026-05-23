@@ -2,8 +2,8 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import Layout from '../../components/Layout'
-import { Btn, SpinnerPage, ErrorMsg, ConfirmDialog, EmptyState, ProgressBar, CardGrid, CreateButton } from '../../components/ui'
+import ListPage from '../../components/ListPage'
+import { Btn, ConfirmDialog, EmptyState, ProgressBar, CardGrid, CreateButton } from '../../components/ui'
 import EntityCard from '../../components/EntityCard'
 import { api } from '../../api'
 import CreateProjectModal from './CreateProjectModal'
@@ -175,64 +175,8 @@ export default function Projects() {
   const sharedProjects = projects.filter(p => p.owner_id !== myUserId    && p.project_type !== 'tma')
   const targetProject = projects.find(p => p.id === aiTargetProjectId)
 
-  return (
-    <Layout title="Projects" actions={actions}>
-      <div style={{ height: '100%', overflowY: 'auto', padding: '20px 24px' }}>
-        <ErrorMsg message={error} />
-
-        {isLoading ? <SpinnerPage /> : projects.length === 0 ? (
-          <EmptyState 
-            icon={
-              <svg width="28" height="28" viewBox="0 0 16 16" fill="currentColor">
-                <path d="M2 2a2 2 0 012-2h8a2 2 0 012 2v12a2 2 0 01-2 2H4a2 2 0 01-2-2V2zm2 0v12h8V2H4zm1 2h2a.5.5 0 010 1H5a.5.5 0 010-1zm0 2h6a.5.5 0 010 1H5a.5.5 0 010-1zm0 2h6a.5.5 0 010 1H5a.5.5 0 010-1zm0 2h4a.5.5 0 010 1H5a.5.5 0 010-1z"/>
-              </svg>
-            }
-            title="No projects yet"
-            description="Create your first annotation project from a saved cohort or a list of slide paths."
-            action={
-              <Btn variant="primary" onClick={() => setShowCreate(true)}>
-                <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor" style={{ marginRight: 6 }}><path d="M8 2a.5.5 0 01.5.5v5h5a.5.5 0 010 1h-5v5a.5.5 0 01-1 0v-5h-5a.5.5 0 010-1h5v-5A.5.5 0 018 2z"/></svg>
-                Create first project
-              </Btn>
-            }
-          />
-        ) : (
-          <>
-            {/* Owned projects */}
-            {ownedProjects.length > 0 && (
-              <Section title="My projects" count={ownedProjects.length}>
-                {ownedProjects.map(p => (
-                  <ProjectCard key={p.id} project={p} isOwner={true}
-                    onOpen={id => navigate(`/projects/${id}`)}
-                    onShare={setShareTarget}
-                    onDelete={setDeleteTarget}
-                    onBatchAI={() => setAiTargetProjectId(p.id)} 
-                    onManageClasses={setManageClassesTarget}
-                  />
-                ))}
-              </Section>
-            )}
-
-            {/* Shared with me */}
-            {sharedProjects.length > 0 && (
-              <Section title="Shared with me" count={sharedProjects.length}>
-                {sharedProjects.map(p => (
-                  <ProjectCard key={p.id} project={p} isOwner={false}
-                    onOpen={id => navigate(`/projects/${id}`)}
-                    onShare={() => {}}
-                    onDelete={() => {}}
-                    onBatchAI={() => setAiTargetProjectId(p.id)}
-                    onManageClasses={setManageClassesTarget} 
-                  />
-                ))}
-              </Section>
-            )}
-          </>
-        )}
-      </div>
-
-      {/* --- MODALS --- */}
-
+  const after = (
+    <>
       {showCreate && (
         <CreateProjectModal
           cohorts={cohorts}
@@ -257,7 +201,7 @@ export default function Projects() {
       )}
 
       {/* Delete confirm using the shared primitive */}
-      <ConfirmDialog 
+      <ConfirmDialog
         isOpen={!!deleteTarget}
         onClose={() => setDeleteTarget(null)}
         onConfirm={() => handleDelete(deleteTarget)}
@@ -267,19 +211,73 @@ export default function Projects() {
         loading={deleting}
       />
 
-      <BatchAIModal 
+      <BatchAIModal
         isOpen={!!aiTargetProjectId}
         projectId={aiTargetProjectId}
         projectClasses={targetProject?.classes || []}
         onClose={() => setAiTargetProjectId(null)}
       />
-      
-      <ManageClassesModal 
-        isOpen={!!manageClassesTarget} 
-        onClose={() => setManageClassesTarget(null)} 
-        project={manageClassesTarget} 
+
+      <ManageClassesModal
+        isOpen={!!manageClassesTarget}
+        onClose={() => setManageClassesTarget(null)}
+        project={manageClassesTarget}
       />
-    </Layout>
+    </>
+  )
+
+  return (
+    <ListPage title="Projects" actions={actions} isLoading={isLoading} error={error} after={after}>
+      {projects.length === 0 ? (
+        <EmptyState
+          icon={
+            <svg width="28" height="28" viewBox="0 0 16 16" fill="currentColor">
+              <path d="M2 2a2 2 0 012-2h8a2 2 0 012 2v12a2 2 0 01-2 2H4a2 2 0 01-2-2V2zm2 0v12h8V2H4zm1 2h2a.5.5 0 010 1H5a.5.5 0 010-1zm0 2h6a.5.5 0 010 1H5a.5.5 0 010-1zm0 2h6a.5.5 0 010 1H5a.5.5 0 010-1zm0 2h4a.5.5 0 010 1H5a.5.5 0 010-1z"/>
+            </svg>
+          }
+          title="No projects yet"
+          description="Create your first annotation project from a saved cohort or a list of slide paths."
+          action={
+            <Btn variant="primary" onClick={() => setShowCreate(true)}>
+              <svg width="12" height="12" viewBox="0 0 16 16" fill="currentColor" style={{ marginRight: 6 }}><path d="M8 2a.5.5 0 01.5.5v5h5a.5.5 0 010 1h-5v5a.5.5 0 01-1 0v-5h-5a.5.5 0 010-1h5v-5A.5.5 0 018 2z"/></svg>
+              Create first project
+            </Btn>
+          }
+        />
+      ) : (
+        <>
+          {/* Owned projects */}
+          {ownedProjects.length > 0 && (
+            <Section title="My projects" count={ownedProjects.length}>
+              {ownedProjects.map(p => (
+                <ProjectCard key={p.id} project={p} isOwner={true}
+                  onOpen={id => navigate(`/projects/${id}`)}
+                  onShare={setShareTarget}
+                  onDelete={setDeleteTarget}
+                  onBatchAI={() => setAiTargetProjectId(p.id)}
+                  onManageClasses={setManageClassesTarget}
+                />
+              ))}
+            </Section>
+          )}
+
+          {/* Shared with me */}
+          {sharedProjects.length > 0 && (
+            <Section title="Shared with me" count={sharedProjects.length}>
+              {sharedProjects.map(p => (
+                <ProjectCard key={p.id} project={p} isOwner={false}
+                  onOpen={id => navigate(`/projects/${id}`)}
+                  onShare={() => {}}
+                  onDelete={() => {}}
+                  onBatchAI={() => setAiTargetProjectId(p.id)}
+                  onManageClasses={setManageClassesTarget}
+                />
+              ))}
+            </Section>
+          )}
+        </>
+      )}
+    </ListPage>
   )
 }
 

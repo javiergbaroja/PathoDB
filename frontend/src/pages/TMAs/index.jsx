@@ -3,8 +3,8 @@ import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import * as tmaApi from '../../api/tmas'
-import { Btn, EmptyState, ConfirmDialog, SpinnerPage, ProgressBar, CardGrid, CreateButton } from '../../components/ui'
-import Layout from '../../components/Layout'
+import { Btn, EmptyState, ConfirmDialog, ProgressBar, CardGrid, CreateButton } from '../../components/ui'
+import ListPage from '../../components/ListPage'
 import EntityCard from '../../components/EntityCard'
 import CreateTMAModal from './CreateTMAModal'
 import { useAuth } from '../../context/AuthContext'
@@ -127,42 +127,8 @@ export default function TMAsList() {
 
   const actions = <CreateButton label="New TMA" onClick={() => setShowCreate(true)} />
 
-  return (
-    <Layout title="Tissue Microarrays" actions={actions}>
-      <div style={{ height: '100%', overflowY: 'auto', padding: '20px 24px' }}>
-
-        {isLoading ? (
-          <SpinnerPage />
-        ) : tmas.length === 0 ? (
-          <EmptyState
-            icon={
-              <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
-                <rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/>
-                <rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/>
-              </svg>
-            }
-            title="No Tissue Microarrays"
-            description="Register a TMA to map patient blocks to array positions and manage multi-core WSI datasets."
-            action={
-              <Btn variant="primary" onClick={() => setShowCreate(true)}>
-                Register first TMA
-              </Btn>
-            }
-          />
-        ) : (
-          <CardGrid>
-            {tmas.map(tma => (
-              <TMACard
-                key={tma.id}
-                tma={tma}
-                onNavigate={id => navigate(`/tmas/${id}`)}
-                onDelete={setDeleteTarget}
-              />
-            ))}
-          </CardGrid>
-        )}
-      </div>
-
+  const after = (
+    <>
       {showCreate && (
         <CreateTMAModal
           onClose={() => setShowCreate(false)}
@@ -182,6 +148,39 @@ export default function TMAsList() {
         confirmLabel="Delete TMA"
         loading={deleting}
       />
-    </Layout>
+    </>
+  )
+
+  return (
+    <ListPage title="Tissue Microarrays" actions={actions} isLoading={isLoading} after={after}>
+      {tmas.length === 0 ? (
+        <EmptyState
+          icon={
+            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+              <rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/>
+              <rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/>
+            </svg>
+          }
+          title="No Tissue Microarrays"
+          description="Register a TMA to map patient blocks to array positions and manage multi-core WSI datasets."
+          action={
+            <Btn variant="primary" onClick={() => setShowCreate(true)}>
+              Register first TMA
+            </Btn>
+          }
+        />
+      ) : (
+        <CardGrid>
+          {tmas.map(tma => (
+            <TMACard
+              key={tma.id}
+              tma={tma}
+              onNavigate={id => navigate(`/tmas/${id}`)}
+              onDelete={setDeleteTarget}
+            />
+          ))}
+        </CardGrid>
+      )}
+    </ListPage>
   )
 }
