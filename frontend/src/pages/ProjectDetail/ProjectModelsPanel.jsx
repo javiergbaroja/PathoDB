@@ -11,6 +11,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { api } from '../../api'
+import { roiFeature, roiFeatureCollection } from '../../lib/roiGeoJSON'
 import { Spinner, ElapsedTimer } from '../../components/ui'
 
 // ── System class — reserved for ROI drawing ────────────────────────────────────
@@ -315,20 +316,10 @@ function buildRoiGeoJSON(annotations) {
 
     return rings
       .filter(ring => ring.length >= 3)
-      .map((ring, ri) => ({
-        type: 'Feature',
-        properties: { name: `ROI ${i + 1}.${ri + 1}`, classification: { name: 'user_roi' } },
-        geometry: {
-          type: 'Polygon',
-          coordinates: [
-            [...ring.map(p => [Math.round(p.x), Math.round(p.y)]),
-             [Math.round(ring[0].x), Math.round(ring[0].y)]],
-          ],
-        },
-      }))
+      .map((ring, ri) => roiFeature(ring, `ROI ${i + 1}.${ri + 1}`))
   })
 
-  return { type: 'FeatureCollection', features }
+  return roiFeatureCollection(features)
 }
 
 // ── Sub-components ─────────────────────────────────────────────────────────────
