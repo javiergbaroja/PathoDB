@@ -11,6 +11,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { api } from '../../api'
+import { Spinner, ElapsedTimer } from '../../components/ui'
 
 // ── System class — reserved for ROI drawing ────────────────────────────────────
 // Defined here as the single source of truth; imported by ClassPanel and index.jsx
@@ -509,7 +510,7 @@ function RunArea({ phase, job, importedCount, canRun, onRun, onReset }) {
     <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 10, color: 'rgba(255,255,255,0.48)' }}>
         <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-          <Spinner color={barColor} />
+          <Spinner size={9} color={barColor} trackColor={barColor + '30'} />
           {phaseLabel}
         </span>
         {job && <ElapsedTimer since={job.created_at} />}
@@ -529,28 +530,6 @@ function RunArea({ phase, job, importedCount, canRun, onRun, onReset }) {
         </div>
       )}
     </div>
-  )
-}
-
-function ElapsedTimer({ since }) {
-  const [elapsed, setElapsed] = useState(0)
-  useEffect(() => {
-    const start = new Date(since).getTime()
-    const tick  = () => setElapsed(Math.floor((Date.now() - start) / 1000))
-    tick()
-    const id = setInterval(tick, 1000)
-    return () => clearInterval(id)
-  }, [since])
-  return <span>{Math.floor(elapsed / 60)}m {String(elapsed % 60).padStart(2, '0')}s</span>
-}
-
-function Spinner({ color = '#1b998b' }) {
-  return (
-    <div style={{
-      width: 9, height: 9, borderRadius: '50%', flexShrink: 0,
-      border: `1.5px solid ${color}30`, borderTopColor: color,
-      animation: 'spin 0.7s linear infinite',
-    }} />
   )
 }
 
