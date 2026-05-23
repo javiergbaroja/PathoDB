@@ -713,3 +713,85 @@ export function CreateButton({ label, onClick }) {
     </Btn>
   )
 }
+
+// ============================================================
+// FORM MODAL / FILE DROP / RADIO CARDS
+// ============================================================
+
+// Modal + body + standard Cancel/submit footer + error banner. Wraps the
+// common "fill a form and submit" dialog shape.
+export function FormModal({
+  isOpen, onClose, title, subtitle, width,
+  onSubmit, submitLabel = 'Save', loadingLabel, submitVariant = 'primary',
+  loading = false, canSubmit = true, error, children,
+}) {
+  return (
+    <Modal isOpen={isOpen} onClose={onClose} title={title} subtitle={subtitle} width={width}>
+      <Modal.Body>
+        <ErrorMsg message={error} />
+        {children}
+      </Modal.Body>
+      <Modal.Footer>
+        <Btn variant="ghost" onClick={onClose} disabled={loading}>Cancel</Btn>
+        <Btn variant={submitVariant} onClick={onSubmit} disabled={loading || !canSubmit}>
+          {loading ? (loadingLabel || submitLabel) : submitLabel}
+        </Btn>
+      </Modal.Footer>
+    </Modal>
+  )
+}
+
+// Dashed click-or-drag file picker. `hint` is shown when no file is selected.
+export function FileDropZone({ file, onSelect, accept, hint, disabled, padding = 24, iconSize = 24, style }) {
+  return (
+    <div style={{
+      border: `2px dashed ${file ? 'var(--teal)' : 'var(--border)'}`,
+      borderRadius: 'var(--radius-lg)', padding, textAlign: 'center',
+      background: file ? 'var(--teal-10)' : 'rgba(0,0,0,0.02)',
+      transition: 'var(--transition-base)', position: 'relative',
+      cursor: disabled ? 'not-allowed' : 'pointer', ...style,
+    }}>
+      <input
+        type="file"
+        accept={accept}
+        disabled={disabled}
+        onChange={e => onSelect(e.target.files[0])}
+        style={{ position: 'absolute', inset: 0, opacity: 0, cursor: disabled ? 'not-allowed' : 'pointer' }}
+      />
+      {file ? (
+        <div style={{ color: 'var(--teal)', fontSize: 13, fontWeight: 500 }}>
+          <div style={{ fontSize: iconSize, marginBottom: 6 }}>📄</div>
+          {file.name}
+        </div>
+      ) : (
+        <div style={{ color: 'var(--text-3)', fontSize: 13 }}>{hint}</div>
+      )}
+    </div>
+  )
+}
+
+// Vertical list of radio "cards" (radio + title + description).
+export function RadioCardGroup({ name, value, onChange, options, disabled, accentColor = 'var(--teal)', gap = 12 }) {
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap }}>
+      {options.map(opt => (
+        <label key={opt.value} style={{
+          display: 'flex', gap: 10, alignItems: 'flex-start',
+          cursor: disabled ? 'not-allowed' : 'pointer', opacity: disabled ? 0.5 : 1,
+        }}>
+          <input
+            type="radio" name={name} value={opt.value}
+            checked={value === opt.value}
+            onChange={e => onChange(e.target.value)}
+            disabled={disabled}
+            style={{ accentColor, marginTop: 2 }}
+          />
+          <div>
+            <div style={{ fontSize: 13, color: 'var(--text-1)', fontWeight: 500 }}>{opt.title}</div>
+            <div style={{ fontSize: 'var(--text-sm)', color: 'var(--text-3)', marginTop: 2 }}>{opt.desc}</div>
+          </div>
+        </label>
+      ))}
+    </div>
+  )
+}
