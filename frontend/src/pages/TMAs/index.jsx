@@ -106,6 +106,7 @@ export default function TMAsList() {
   const [showCreate,     setShowCreate]     = useState(false)
   const [deleteTarget,   setDeleteTarget]   = useState(null)
   const [deleting,       setDeleting]       = useState(false)
+  const [error,          setError]          = useState('')
 
   const { data: tmas = [], isLoading, refetch } = useQuery({
     queryKey: ['tmas'],
@@ -114,12 +115,13 @@ export default function TMAsList() {
 
   async function handleDelete(tma) {
     setDeleting(true)
+    setError('')
     try {
       await tmaApi.deleteTMA(tma.id)
       await refetch()
       setDeleteTarget(null)
     } catch (e) {
-      console.error(e)
+      setError(e.message || 'Failed to delete TMA')
     } finally {
       setDeleting(false)
     }
@@ -152,7 +154,7 @@ export default function TMAsList() {
   )
 
   return (
-    <ListPage title="Tissue Microarrays" actions={actions} isLoading={isLoading} after={after}>
+    <ListPage title="Tissue Microarrays" actions={actions} isLoading={isLoading} error={error} after={after}>
       {tmas.length === 0 ? (
         <EmptyState
           icon={

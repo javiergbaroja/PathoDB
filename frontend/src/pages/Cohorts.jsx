@@ -4,7 +4,7 @@ import {
   Btn, Panel, ErrorMsg, SpinnerPage,
   Table, Th, Td, Tr,
   FormLabel, FormInput, FormSelect, FormTextarea, FormField,
-  SegmentedControl, MultiSelect,
+  SegmentedControl, MultiSelect, ConfirmDialog,
 } from '../components/ui'
 import { api } from '../api'
 
@@ -103,7 +103,7 @@ function GenericResultsTable({ rows }) {
 
 // ── Saved cohort card ─────────────────────────────────────────────────────────
 
-function SavedCohortCard({ c, onOpen, onExportCsv, onExportJson, onDelete, deleting }) {
+function SavedCohortCard({ c, onOpen, onExportCsv, onExportJson, onDelete }) {
   return (
     <div style={{
       padding: '10px 12px',
@@ -121,23 +121,13 @@ function SavedCohortCard({ c, onOpen, onExportCsv, onExportJson, onDelete, delet
         {c.last_run_at && ` · ${new Date(c.last_run_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}`}
       </div>
 
-      {deleting?.id === c.id ? (
-        <div style={{ background: 'var(--crimson-10)', border: '1px solid var(--crimson)', borderRadius: 'var(--radius-md)', padding: '8px 10px', fontSize: 12 }}>
-          <div style={{ color: 'var(--crimson)', fontWeight: 500, marginBottom: 6 }}>Delete "{c.name}"?</div>
-          <div style={{ display: 'flex', gap: 6 }}>
-            <Btn variant="danger"  small onClick={() => onDelete(c)}>Yes, delete</Btn>
-            <Btn variant="ghost"   small onClick={() => onDelete(null)}>Cancel</Btn>
-          </div>
-        </div>
-      ) : (
-        <div style={{ display: 'flex', gap: 6 }}>
-          <Btn variant="primary" small onClick={() => onOpen(c.id)}>Open ↗</Btn>
-          <Btn variant="ghost"   small onClick={() => onExportCsv(c)}>CSV</Btn>
-          <Btn variant="ghost"   small onClick={() => onExportJson(c)}>JSON</Btn>
-          <Btn variant="ghost"   small style={{ fontSize: 'var(--text-sm)', color: 'var(--crimson)', marginLeft: 'auto' }}
-            onClick={() => onDelete(c)}>Delete</Btn>
-        </div>
-      )}
+      <div style={{ display: 'flex', gap: 6 }}>
+        <Btn variant="primary" small onClick={() => onOpen(c.id)}>Open ↗</Btn>
+        <Btn variant="ghost"   small onClick={() => onExportCsv(c)}>CSV</Btn>
+        <Btn variant="ghost"   small onClick={() => onExportJson(c)}>JSON</Btn>
+        <Btn variant="ghost"   small style={{ fontSize: 'var(--text-sm)', color: 'var(--crimson)', marginLeft: 'auto' }}
+          onClick={() => onDelete(c)}>Delete</Btn>
+      </div>
     </div>
   )
 }
@@ -157,7 +147,8 @@ export default function Cohorts() {
   const [saveName, setSaveName] = useState('')
   const [saving,   setSaving]   = useState(false)
   const [saved,    setSaved]    = useState([])
-  const [deleting, setDeleting] = useState(null)
+  const [deleteTarget, setDeleteTarget] = useState(null)
+  const [deleteBusy,   setDeleteBusy]   = useState(false)
 
   useEffect(() => {
     api.getCohorts().then(setSaved).catch(() => {})
@@ -198,12 +189,14 @@ export default function Cohorts() {
   }
 
   async function deleteCohort(cohort) {
-    if (!cohort) { setDeleting(null); return }
+    if (!cohort) { setDeleteTarget(null); return }
+    setDeleteBusy(true)
     try {
       await api.deleteCohort(cohort.id)
       setSaved(await api.getCohorts())
+      setDeleteTarget(null)
     } catch (e) { setError(e.message) }
-    finally     { setDeleting(null) }
+    finally     { setDeleteBusy(false) }
   }
 
   function downloadCSV() {
@@ -411,29 +404,27 @@ export default function Cohorts() {
                     <SavedCohortCard
                       key={c.id}
                       c={c}
-                      deleting={deleting}
                       onOpen={id => window.open(`/saved-results/${id}`, '_blank')}
                       onExportCsv={c => api.exportCohort(c.id, 'csv', c.name).catch(e => setError(e.message))}
                       onExportJson={c => api.exportCohort(c.id, 'json', c.name).catch(e => setError(e.message))}
-                      onDelete={c => c ? setDeleting(c) : setDeleting(null)}
+                      onDelete={setDeleteTarget}
                     />
                   ))}
-                  {/* Trigger actual delete when confirmed */}
-                  {deleting && (
-                    <SavedCohortCard
-                      c={deleting}
-                      deleting={deleting}
-                      onOpen={() => {}}
-                      onExportCsv={() => {}}
-                      onExportJson={() => {}}
-                      onDelete={c => c ? deleteCohort(c) : setDeleting(null)}
-                    />
-                  )}
                 </div>
               )}
           </Panel>
         </div>
       </div>
+
+      <ConfirmDialog
+        isOpen={!!deleteTarget}
+        onClose={() => setDeleteTarget(null)}
+        onConfirm={() => deleteCohort(deleteTarget)}
+        title="Delete cohort?"
+        message={`This will permanently delete the saved cohort "${deleteTarget?.name}".`}
+        confirmLabel="Delete"
+        loading={deleteBusy}
+      />
     </Layout>
   )
 }
