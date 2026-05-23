@@ -1,49 +1,12 @@
 import { useState, useEffect, useRef } from 'react'
+import { imageToElement, elementToImage } from '../../hooks/useOSDViewer'
+import { toSVGPath, dist, VERTEX_R, FIRST_VERTEX_R, CLOSE_THRESH } from '../../lib/annotationMath'
 
 // ── Visual constants — chosen for contrast against H&E pink/purple ─────────────
-const FILL_COLOR      = 'rgba(255, 210, 0, 0.15)'
-const STROKE_COLOR    = '#ffd700'
-const VERTEX_COLOR    = '#ffd700'
+const FILL_COLOR         = 'rgba(255, 210, 0, 0.15)'
+const STROKE_COLOR       = '#ffd700'
+const VERTEX_COLOR       = '#ffd700'
 const FIRST_VERTEX_COLOR = '#ff7c00'  // orange ⟹ "click here to close"
-const VERTEX_R        = 5
-const FIRST_VERTEX_R  = 7
-const CLOSE_THRESHOLD = 14  // px — click within this of first vertex to close polygon
-
-
-// ── Coordinate helpers ─────────────────────────────────────────────────────────
-
-function imageToElement(viewer, ix, iy) {
-  if (!viewer?.viewport) return null
-  try {
-    const vp = viewer.viewport.imageToViewportCoordinates(
-      new window.OpenSeadragon.Point(ix, iy)
-    )
-    const el = viewer.viewport.viewportToViewerElementCoordinates(vp)
-    return { x: el.x, y: el.y }
-  } catch { return null }
-}
-
-function elementToImage(viewer, ex, ey) {
-  if (!viewer?.viewport) return null
-  try {
-    const vp = viewer.viewport.viewerElementToViewportCoordinates(
-      new window.OpenSeadragon.Point(ex, ey)
-    )
-    const img = viewer.viewport.viewportToImageCoordinates(vp)
-    return { x: img.x, y: img.y }
-  } catch { return null }
-}
-
-function dist2d(a, b) {
-  return Math.hypot(a.x - b.x, a.y - b.y)
-}
-
-function toSVGPath(pts, closed) {
-  if (!pts.length) return ''
-  return pts
-    .map((p, i) => `${i ? 'L' : 'M'}${p.x.toFixed(1)},${p.y.toFixed(1)}`)
-    .join(' ') + (closed ? ' Z' : '')
-}
 
 
 // ── Component ──────────────────────────────────────────────────────────────────
@@ -141,7 +104,7 @@ export default function PolygonTool({ viewer, isActive, polygons, setPolygons })
     if (!imgPos) return
 
     // Click near the first vertex (≥3 vertices already) → close polygon
-    if (projCurrent.length >= 3 && dist2d(elPos, projCurrent[0]) <= CLOSE_THRESHOLD) {
+    if (projCurrent.length >= 3 && dist(elPos, projCurrent[0]) <= CLOSE_THRESH) {
       closePolygon(currentRef.current)
       return
     }
@@ -165,7 +128,7 @@ export default function PolygonTool({ viewer, isActive, polygons, setPolygons })
   const hasPreview = isActive && projCurrent.length > 0 && mouse
   const nearFirst  = hasPreview &&
     projCurrent.length >= 3 &&
-    dist2d(mouse, projCurrent[0]) <= CLOSE_THRESHOLD
+    dist(mouse, projCurrent[0]) <= CLOSE_THRESH
 
 
   // ── Render ───────────────────────────────────────────────────────────────────

@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef, memo } from 'react'
 import ProjectModelsPanel, { AI_ROI_CLASS } from './ProjectModelsPanel'
-import { SegmentedControl } from '../../components/ui'
+import { SegmentedControl, ProgressBar } from '../../components/ui'
 
 export default memo(function ClassPanel({
   classes,
@@ -61,13 +61,13 @@ export default memo(function ClassPanel({
             {annotatedScans}/{totalScans}
           </span>
         </div>
-        <div style={{ height: 3, background: 'rgba(255,255,255,0.08)', borderRadius: 2 }}>
-          <div style={{
-            height: '100%', borderRadius: 2, background: '#1b998b',
-            width: `${totalScans > 0 ? (annotatedScans / totalScans) * 100 : 0}%`,
-            transition: 'width 0.3s',
-          }} />
-        </div>
+        <ProgressBar
+          value={annotatedScans}
+          max={totalScans || 1}
+          height={3}
+          color="#1b998b"
+          style={{ background: 'rgba(255,255,255,0.08)' }}
+        />
         <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.35)', marginTop: 4 }}>
           {annotationCount} annotation{annotationCount !== 1 ? 's' : ''} this slide
         </div>

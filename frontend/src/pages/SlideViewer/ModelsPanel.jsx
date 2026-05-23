@@ -5,6 +5,7 @@ import JobOutcomeDispatcher from '../../components/AnalysisOutcomes/JobOutcomeDi
 import { CATEGORY_COLORS } from '../../constants/viewer'
 import { ErrorBoundary } from '../../components/ErrorBoundary'
 import { useViewerStore } from '../../store/viewerStore'
+import { roiFeature, roiFeatureCollection } from '../../lib/roiGeoJSON'
 import {
   Btn, JobStatusBadge, ElapsedTimer, SliderRow,
   ProgressBar, SectionLabel, FormLabel, SegmentedControl,
@@ -13,20 +14,7 @@ import {
 // ── GeoJSON serialisers ────────────────────────────────────────────────────────
 
 function polygonsToGeoJSON(polygons) {
-  return {
-    type: 'FeatureCollection',
-    features: polygons.map((ring, i) => ({
-      type: 'Feature',
-      properties: { name: `ROI ${i + 1}`, classification: { name: 'user_roi' } },
-      geometry: {
-        type: 'Polygon',
-        coordinates: [
-          [...ring.map(pt => [Math.round(pt.x), Math.round(pt.y)]),
-           [Math.round(ring[0].x), Math.round(ring[0].y)]],
-        ],
-      },
-    })),
-  }
+  return roiFeatureCollection(polygons.map((ring, i) => roiFeature(ring, `ROI ${i + 1}`)))
 }
 
 function viewportToGeoJSON(viewer) {
@@ -40,16 +28,7 @@ function viewportToGeoJSON(viewer) {
       vp.viewportToImageCoordinates(b.getBottomRight()),
       vp.viewportToImageCoordinates(b.getBottomLeft()),
     ]
-    const coords = corners.map(pt => [Math.round(pt.x), Math.round(pt.y)])
-    coords.push(coords[0])
-    return {
-      type: 'FeatureCollection',
-      features: [{
-        type: 'Feature',
-        properties: { name: 'Visible Region', classification: { name: 'user_roi' } },
-        geometry: { type: 'Polygon', coordinates: [coords] },
-      }],
-    }
+    return roiFeatureCollection([roiFeature(corners, 'Visible Region')])
   } catch { return null }
 }
 

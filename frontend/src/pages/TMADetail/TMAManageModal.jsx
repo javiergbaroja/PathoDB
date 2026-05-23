@@ -1,6 +1,6 @@
 // frontend/src/pages/TMADetail/TMAManageModal.jsx
 import { useState } from 'react'
-import { Modal, Btn, ErrorMsg, Badge, SegmentedControl } from '../../components/ui'
+import { Modal, Btn, ErrorMsg, Badge, SegmentedControl, FileDropZone } from '../../components/ui'
 
 const CSV_SPECS = {
   cores: {
@@ -77,30 +77,15 @@ function UploadTab({ spec, onUpload, loading, error, result }) {
       <ErrorMsg message={error} />
 
       {/* File picker */}
-      <div style={{
-        border: `2px dashed ${file ? 'var(--teal)' : 'var(--border)'}`,
-        borderRadius: 'var(--radius-lg)', padding: 20, textAlign: 'center',
-        background: file ? 'var(--teal-10)' : 'rgba(0,0,0,0.01)',
-        transition: 'var(--transition-base)', position: 'relative', cursor: 'pointer',
-      }}>
-        <input
-          type="file"
-          accept={spec.accept}
-          onChange={e => { setFile(e.target.files[0]) }}
-          disabled={loading}
-          style={{ position: 'absolute', inset: 0, opacity: 0, cursor: 'pointer' }}
-        />
-        {file ? (
-          <div style={{ color: 'var(--teal)', fontSize: 13, fontWeight: 500 }}>
-            <div style={{ fontSize: 22, marginBottom: 6 }}>📄</div>
-            {file.name}
-          </div>
-        ) : (
-          <div style={{ color: 'var(--text-3)', fontSize: 13 }}>
-            Click or drag to select a <strong>.csv</strong> file
-          </div>
-        )}
-      </div>
+      <FileDropZone
+        file={file}
+        onSelect={f => setFile(f)}
+        accept={spec.accept}
+        disabled={loading}
+        padding={20}
+        iconSize={22}
+        hint={<>Click or drag to select a <strong>.csv</strong> file</>}
+      />
 
       <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
         <Btn variant="primary" onClick={handleSubmit} disabled={!file || loading}>

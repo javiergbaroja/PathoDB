@@ -1,5 +1,5 @@
 // frontend/src/pages/ProjectDetail/AnnotationToolbar.jsx
-import { SliderRow, Divider, ToolBtn } from '../../components/ui'
+import { ImageAdjustPopover, Divider, ToolBtn } from '../../components/ui'
 
 const TOOLS = [
   {
@@ -168,7 +168,7 @@ export default function AnnotationToolbar({
         </svg>
       </ToolBtn>
 
-      {/* Image adjust — uses shared SliderRow from ui/index.jsx */}
+      {/* Image adjust — uses shared ImageAdjustPopover from ui/index.jsx */}
       <div style={{ position: 'relative' }}>
         <ToolBtn
           active={showAdjust}
@@ -180,23 +180,12 @@ export default function AnnotationToolbar({
           </svg>
         </ToolBtn>
         {showAdjust && (
-          <div style={{
-            position: 'absolute', left: 'calc(100% + 8px)', top: 0, zIndex: 300,
-            background: 'var(--surface-dark-card)',
-            border: '1px solid var(--border-dark)',
-            borderRadius: 'var(--radius-lg)', padding: '12px 14px', width: 200,
-          }}>
-            {/* Shared SliderRow — override accent color for dark theme via inline style on the input */}
-            <SliderRow label="Brightness" value={brightness} min={50}  max={200} step={1}    unit="%" onChange={setBrightness} />
-            <SliderRow label="Contrast"   value={contrast}   min={50}  max={200} step={1}    unit="%" onChange={setContrast} />
-            <SliderRow label="Gamma"      value={gamma}      min={0.2} max={3.0} step={0.05} format={v => v.toFixed(2)} onChange={setGamma} />
-            <button
-              onClick={resetAdjustments}
-              style={{ marginTop: 6, width: '100%', background: 'rgba(255,255,255,0.05)', border: '1px solid var(--border-dark)', borderRadius: 'var(--radius-sm)', color: 'var(--text-dark-3)', fontSize: 11, padding: '4px 0', cursor: 'pointer' }}
-            >
-              Reset
-            </button>
-          </div>
+          <ImageAdjustPopover
+            brightness={brightness} contrast={contrast} gamma={gamma}
+            onBrightness={setBrightness} onContrast={setContrast} onGamma={setGamma}
+            onReset={resetAdjustments}
+            style={{ left: 'calc(100% + 8px)', top: 0 }}
+          />
         )}
       </div>
 
