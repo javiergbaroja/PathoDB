@@ -4,7 +4,7 @@ SQLAlchemy models mirroring the database schema.
 """
 from datetime import date, datetime
 from sqlalchemy import (
-      Boolean, Column, Date, ForeignKey, Integer, Numeric,
+      Boolean, Column, Date, ForeignKey, Integer, Numeric, Float,
       String, Text, TIMESTAMP, UniqueConstraint, ARRAY,
       func, Index
   )
@@ -292,3 +292,28 @@ class TMACore(Base):
 
     project     = relationship("Project", backref="tma_cores")
     donor_block = relationship("Block")
+
+
+class SlideRegistration(Base):
+    """A similarity transform aligning a moving slide onto a fixed slide.
+
+    Stored once per unordered scan pair; the transform maps moving-slide
+    full-resolution pixels -> fixed-slide full-resolution pixels.
+    """
+    __tablename__ = "slide_registrations"
+
+    id             = Column(Integer, primary_key=True)
+    fixed_scan_id  = Column(Integer, ForeignKey("scans.id", ondelete="CASCADE"), nullable=False)
+    moving_scan_id = Column(Integer, ForeignKey("scans.id", ondelete="CASCADE"), nullable=False)
+    scale          = Column(Float, nullable=False)
+    rotation       = Column(Float, nullable=False)   # radians, moving -> fixed
+    tx             = Column(Float, nullable=False)
+    ty             = Column(Float, nullable=False)
+    method         = Column(Text, nullable=False, default="manual")  # 'manual' | 'auto'
+    created_by     = Column(Integer, ForeignKey("users.id"), nullable=True)
+    created_at     = Column(TIMESTAMP(timezone=True), server_default=func.now())
+    updated_at     = Column(TIMESTAMP(timezone=True), server_default=func.now())
+
+    __table_args__ = (
+        UniqueConstraint("fixed_scan_id", "moving_scan_id"),
+    )

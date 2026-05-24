@@ -301,3 +301,28 @@ CREATE TABLE IF NOT EXISTS tma_cores (
 
 CREATE INDEX IF NOT EXISTS idx_tma_cores_project ON tma_cores (project_id);
 CREATE INDEX IF NOT EXISTS idx_tma_cores_donor_block ON tma_cores (donor_block_id);
+
+-- =============================================================================
+-- SLIDE REGISTRATIONS
+-- Similarity transform (scale, rotation, translation) aligning a "moving" slide
+-- onto a "fixed" slide for synchronized navigation in the compare viewer.
+-- The transform maps moving full-res pixels -> fixed full-res pixels.
+-- =============================================================================
+CREATE TABLE IF NOT EXISTS slide_registrations (
+    id             SERIAL      PRIMARY KEY,
+    fixed_scan_id  INTEGER     NOT NULL REFERENCES scans (id) ON DELETE CASCADE,
+    moving_scan_id INTEGER     NOT NULL REFERENCES scans (id) ON DELETE CASCADE,
+    scale          DOUBLE PRECISION NOT NULL,
+    rotation       DOUBLE PRECISION NOT NULL,   -- radians
+    tx             DOUBLE PRECISION NOT NULL,
+    ty             DOUBLE PRECISION NOT NULL,
+    method         TEXT        NOT NULL DEFAULT 'manual'
+                               CHECK (method IN ('manual', 'auto')),
+    created_by     INTEGER     REFERENCES users (id),
+    created_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE (fixed_scan_id, moving_scan_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_slide_registrations_fixed  ON slide_registrations (fixed_scan_id);
+CREATE INDEX IF NOT EXISTS idx_slide_registrations_moving ON slide_registrations (moving_scan_id);

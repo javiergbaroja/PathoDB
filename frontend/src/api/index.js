@@ -11,6 +11,7 @@ import { getStains, createStain, updateStain } from './stains'
 import { search, lookup, getStats } from './search'
 import { askAssistant } from './assistant'
 import { createTMA, uploadTMACoresCSV, uploadTMAScansCSV, getTMACores, getTMAs, getTMA, updateTMA, deleteTMA } from './tmas'
+import { getRegistration, autoRegister, saveRegistration, deleteRegistration } from './registration'
 import { 
   getProjects, getProject, createProject, updateProject, deleteProject,
   syncProject, getProjectProgress, createProjectFromFile,
@@ -51,4 +52,7 @@ export const api = {
 
   // TMAs
   createTMA, uploadTMACoresCSV, uploadTMAScansCSV, getTMACores, getTMAs, getTMA, updateTMA, deleteTMA,
+
+  // Slide registration
+  getRegistration, autoRegister, saveRegistration, deleteRegistration,
 }

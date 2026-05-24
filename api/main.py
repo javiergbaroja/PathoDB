@@ -13,7 +13,8 @@ from .config import get_settings
 from .database import check_db_connection
 from .routers import (
     auth, patients, scans, stains, cohorts, tmas,
-    stats, slides, search, assistant, analysis, summarize, projects
+    stats, slides, search, assistant, analysis, summarize, projects,
+    registration,
 )
 
 logging.basicConfig(level=logging.INFO)
@@ -68,6 +69,7 @@ api_router.include_router(analysis.router)
 api_router.include_router(summarize.router)
 api_router.include_router(projects.router)
 api_router.include_router(tmas.router)  # <-- Include TMA router
+api_router.include_router(registration.router)
 app.include_router(api_router)
 
 @api_router.get("/health")

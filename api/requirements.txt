@@ -9,3 +9,7 @@ pydantic>=2.0
 pydantic-settings>=2.0
 python-multipart>=0.0.9
 aiofiles>=23.0
+# Optional — enables automatic slide registration (/registration/auto).
+# Manual landmark registration works without these.
+numpy>=1.24
+opencv-python-headless>=4.8
