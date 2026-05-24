@@ -269,8 +269,14 @@ CREATE INDEX IF NOT EXISTS idx_annotations_project      ON annotations (project_
 
 -- 1. Update the project_type check constraint to include TMAs
 ALTER TABLE projects DROP CONSTRAINT IF EXISTS projects_project_type_check;
-ALTER TABLE projects ADD CONSTRAINT projects_project_type_check 
+ALTER TABLE projects ADD CONSTRAINT projects_project_type_check
     CHECK (project_type IN ('cell_detection', 'region_annotation', 'tma'));
+
+-- 1b. Update the source_type check constraint to include custom_list
+-- (projects built from an explicit scan-id list via the frontend SlideTargetManager).
+ALTER TABLE projects DROP CONSTRAINT IF EXISTS projects_source_type_check;
+ALTER TABLE projects ADD CONSTRAINT projects_source_type_check
+    CHECK (source_type IN ('cohort', 'file_import', 'custom_list'));
 
 -- 2. Make block_id nullable in scans (since TMA scans reflect multiple blocks)
 ALTER TABLE scans ALTER COLUMN block_id DROP NOT NULL;

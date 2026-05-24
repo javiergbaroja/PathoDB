@@ -17,6 +17,24 @@ from ..models import Project, TMACore, Block, Scan, ProjectScan, Stain, User, Pr
 router = APIRouter(prefix="/tmas", tags=["TMAs"])
 
 
+# ── Access control ─────────────────────────────────────────────────────────────
+
+def _get_owned_tma(tma_id: int, db: Session, user: User) -> Project:
+    """Fetch a TMA the current user owns, or raise 404.
+
+    TMAs are owner-scoped (see list/patch/delete), so returning 404 for
+    non-owned TMAs avoids leaking the existence of other users' data.
+    """
+    tma = db.query(Project).filter(
+        Project.id == tma_id,
+        Project.owner_id == user.id,
+        Project.project_type == 'tma',
+    ).first()
+    if not tma:
+        raise HTTPException(status_code=404, detail="TMA not found")
+    return tma
+
+
 # ── Serialization helper ───────────────────────────────────────────────────────
 
 def _serialize_tma(tma: Project, db: Session) -> dict:
@@ -93,9 +111,7 @@ def create_tma(
 
 @router.get("/{tma_id}")
 def get_tma(tma_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
-    tma = db.query(Project).filter(Project.id == tma_id, Project.project_type == 'tma').first()
-    if not tma:
-        raise HTTPException(status_code=404, detail="TMA not found")
+    tma = _get_owned_tma(tma_id, db, current_user)
     return _serialize_tma(tma, db)
 
 
@@ -125,9 +141,7 @@ def patch_tma(
 
 @router.get("/{tma_id}/cores")
 def get_tma_cores(tma_id: int, db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
-    tma = db.query(Project).filter(Project.id == tma_id, Project.project_type == 'tma').first()
-    if not tma:
-        raise HTTPException(status_code=404, detail="TMA not found")
+    _get_owned_tma(tma_id, db, current_user)
 
     cores = db.query(TMACore).filter(TMACore.project_id == tma_id).all()
     result = []
@@ -174,9 +188,7 @@ async def upload_tma_cores(
     db:     Session    = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    tma = db.query(Project).filter(Project.id == tma_id, Project.project_type == 'tma').first()
-    if not tma:
-        raise HTTPException(status_code=404, detail="TMA not found")
+    _get_owned_tma(tma_id, db, current_user)
 
     content = await file.read()
     try:
@@ -301,9 +313,7 @@ async def upload_tma_scans(
     db:     Session    = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    tma = db.query(Project).filter(Project.id == tma_id, Project.project_type == 'tma').first()
-    if not tma:
-        raise HTTPException(status_code=404, detail="TMA not found")
+    _get_owned_tma(tma_id, db, current_user)
 
     content = await file.read()
     try:

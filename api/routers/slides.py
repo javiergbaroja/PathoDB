@@ -113,7 +113,7 @@ def get_slide_info(
                 mpp_val = float(mpp_x_raw)
                 if mpp_val < 0.18:
                     obj_power = "80"
-                if mpp_val < 0.35:
+                elif mpp_val < 0.35:
                     obj_power = "40"
                 elif mpp_val < 0.75:
                     obj_power = "20"

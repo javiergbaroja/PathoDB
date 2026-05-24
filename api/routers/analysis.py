@@ -577,39 +577,6 @@ def get_job(
     return job
 
 
-@router.delete("/jobs/{job_id}", status_code=204)
-def cancel_job(
-    job_id: int,
-    db:     Session = Depends(get_db),
-    user:   User    = Depends(get_current_active_user),
-):
-    """
-    Cancel a queued or running job via scancel.
-    Has no effect on already-terminal jobs.
-    """
-    job = _get_job_or_404(job_id, db, user)
-
-    if job.status in ("done", "failed", "cancelled"):
-        return None     # already terminal — 204 with no body
-
-    if job.slurm_job_id:
-        try:
-            subprocess.run(
-                ["scancel", str(job.slurm_job_id)],
-                capture_output=True,
-                timeout=8,
-            )
-        except FileNotFoundError:
-            pass        # scancel not available locally — proceed anyway
-        except Exception as e:
-            log.warning(f"scancel error for job {job_id}: {e}")
-
-    job.status     = "cancelled"
-    job.updated_at = datetime.now(timezone.utc)
-    db.commit()
-    return None
-
-
 @router.get("/jobs/{job_id}/result")
 def get_job_result(
     job_id: int,

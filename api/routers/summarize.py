@@ -390,12 +390,6 @@ async def _sse_generator(ctx: dict, patient_id: int) -> AsyncIterator[bytes]:
             exc_info=True
         )
 
-    except Exception as exc:
-        log.error(
-            f"Failed to persist summary for patient {patient_id}: {exc}",
-            exc_info=True
-        )
-
     yield b"data: [DONE]\n\n"
 
 
@@ -471,7 +465,11 @@ async def summarize_patient(
 
 
 @router.get("/patient/{patient_id}/summary")
-def get_patient_summary(patient_id: int, db: Session = Depends(get_db)):
+def get_patient_summary(
+    patient_id: int,
+    db: Session = Depends(get_db),
+    _: User = Depends(get_current_active_user),
+):
     patient = db.get(Patient, patient_id)
     if not patient:
         raise HTTPException(404, "Patient not found")
