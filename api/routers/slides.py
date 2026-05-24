@@ -53,8 +53,14 @@ def _cache_set(key, value):
 # ─── Helpers ──────────────────────────────────────────────────────────────────
 
 def _auth_token(token: str = Query(...), db: Session = Depends(get_db)):
-    """Validate the ?token= query parameter used by OSD tile URLs."""
+    """Validate the ?token= query parameter used by OSD tile URLs.
+
+    Only access tokens are accepted — a refresh token must never be usable to
+    fetch slide imagery.
+    """
     payload = decode_token(token)
+    if payload.get("type") != "access":
+        raise HTTPException(status_code=401, detail="Invalid token type")
     return payload
 
 
@@ -113,7 +119,7 @@ def get_slide_info(
                 mpp_val = float(mpp_x_raw)
                 if mpp_val < 0.18:
                     obj_power = "80"
-                if mpp_val < 0.35:
+                elif mpp_val < 0.35:
                     obj_power = "40"
                 elif mpp_val < 0.75:
                     obj_power = "20"

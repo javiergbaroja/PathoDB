@@ -8,7 +8,8 @@ import ModelsPanel    from './ModelsPanel'
 import PolygonTool    from './PolygonTool'
 import { useViewerStore } from '../../store/viewerStore'
 import Toolbar from './Toolbar'
-import { useOSDViewer } from '../../hooks/useOSDViewer'
+import { useOSDViewer, elementToImage } from '../../hooks/useOSDViewer'
+import { estimateSimilarity, applyTransform, invertTransform, rmsResidual } from '../../lib/registrationMath'
 import { useGammaFilter } from '../../hooks/useGammaFilter'
 import { attachRuler } from '../../lib/rulerTool'
 import {
@@ -83,6 +84,17 @@ export default function SlideViewer() {
   const [levelPopover,     setLevelPopover]     = useState(null)
   const [activeOverlays,   setActiveOverlays]   = useState({})
 
+  // ── Registration (slide co-alignment) ───────────────────────────────────────
+  const [registration, setRegistration] = useState(null)   // {scale,rotation,tx,ty} moving->fixed
+  const [alignMode,     setAlignMode]    = useState(false)
+  const [landmarks,     setLandmarks]    = useState([])     // [{fixed:{x,y}, moving:{x,y}}]
+  const [pendingMarker, setPendingMarker] = useState(null)  // fixed-side point awaiting a moving click
+  const [autoBusy,      setAutoBusy]     = useState(false)
+  const [regError,      setRegError]     = useState('')
+  const pendingRef       = useRef(null)
+  const overlaysLeftRef  = useRef([])
+  const overlaysRightRef = useRef([])
+
   // ── Refs ───────────────────────────────────────────────────────────────────
   const leftViewerRef      = useRef(null)
   const rightViewerRef     = useRef(null)
@@ -133,19 +145,150 @@ export default function SlideViewer() {
   })
 
   // ── Sync engine ────────────────────────────────────────────────────────────
+  // Two modes:
+  //  • Registered: a similarity transform maps moving(right)<->fixed(left) image
+  //    pixels, so pan/zoom/rotation track tissue features.
+  //  • Fallback: the original fixed pan-offset + zoom-ratio link (no transform).
   useEffect(() => {
     if (!isSynced || !osdLeftRef.current || !osdRightRef.current) return
     const L = osdLeftRef.current, R = osdRightRef.current
+    const OSDPoint = window.OpenSeadragon.Point
+    let sl = false, sr = false
+
+    if (registration && leftInfo?.width && rightInfo?.width) {
+      const T    = registration                 // moving(right) -> fixed(left)
+      const Tinv = invertTransform(T)
+      const zoomFactor = T.scale * (rightInfo.width / leftInfo.width)  // zR = zL * factor
+      // Orient the moving pane so its tissue matches the fixed pane.
+      // ROT_SIGN isolates the OSD/image-axis sign convention — flip to -1 if a
+      // verified rotated pair appears mirrored in the browser.
+      const ROT_SIGN = 1
+      try {
+        const baseDeg = L.viewport.getRotation ? L.viewport.getRotation() : 0
+        R.viewport.setRotation(baseDeg + ROT_SIGN * T.rotation * 180 / Math.PI)
+      } catch (_) {}
+
+      const lh = () => {
+        if (sr) return; sl = true
+        try {
+          const c = L.viewport.viewportToImageCoordinates(L.viewport.getCenter())
+          const m = applyTransform(Tinv, c.x, c.y)
+          R.viewport.panTo(R.viewport.imageToViewportCoordinates(new OSDPoint(m.x, m.y)), true)
+          R.viewport.zoomTo(L.viewport.getZoom() * zoomFactor, null, true)
+        } catch (_) {}
+        sl = false
+      }
+      const rh = () => {
+        if (sl) return; sr = true
+        try {
+          const c = R.viewport.viewportToImageCoordinates(R.viewport.getCenter())
+          const f = applyTransform(T, c.x, c.y)
+          L.viewport.panTo(L.viewport.imageToViewportCoordinates(new OSDPoint(f.x, f.y)), true)
+          L.viewport.zoomTo(R.viewport.getZoom() / zoomFactor, null, true)
+        } catch (_) {}
+        sr = false
+      }
+      lh()  // snap right to the current left view immediately
+      L.addHandler('pan', lh); L.addHandler('zoom', lh)
+      R.addHandler('pan', rh); R.addHandler('zoom', rh)
+      return () => {
+        L.removeHandler('pan', lh); L.removeHandler('zoom', lh)
+        R.removeHandler('pan', rh); R.removeHandler('zoom', rh)
+        try { R.viewport.setRotation(0) } catch (_) {}
+      }
+    }
+
+    // Fallback link (no registration)
     const lc = L.viewport.getCenter(), rc = R.viewport.getCenter()
     const panOff = { x: rc.x - lc.x, y: rc.y - lc.y }
     const zRatio = R.viewport.getZoom() / L.viewport.getZoom()
-    let sl = false, sr = false
-    const lh = () => { if (sr) return; sl = true; const c = L.viewport.getCenter(); R.viewport.panTo(new window.OpenSeadragon.Point(c.x + panOff.x, c.y + panOff.y), true); R.viewport.zoomTo(L.viewport.getZoom() * zRatio, null, true); sl = false }
-    const rh = () => { if (sl) return; sr = true; const c = R.viewport.getCenter(); L.viewport.panTo(new window.OpenSeadragon.Point(c.x - panOff.x, c.y - panOff.y), true); L.viewport.zoomTo(R.viewport.getZoom() / zRatio, null, true); sr = false }
+    const lh = () => { if (sr) return; sl = true; const c = L.viewport.getCenter(); R.viewport.panTo(new OSDPoint(c.x + panOff.x, c.y + panOff.y), true); R.viewport.zoomTo(L.viewport.getZoom() * zRatio, null, true); sl = false }
+    const rh = () => { if (sl) return; sr = true; const c = R.viewport.getCenter(); L.viewport.panTo(new OSDPoint(c.x - panOff.x, c.y - panOff.y), true); L.viewport.zoomTo(R.viewport.getZoom() / zRatio, null, true); sr = false }
     L.addHandler('pan', lh); L.addHandler('zoom', lh)
     R.addHandler('pan', rh); R.addHandler('zoom', rh)
     return () => { L.removeHandler('pan', lh); L.removeHandler('zoom', lh); R.removeHandler('pan', rh); R.removeHandler('zoom', rh) }
-  }, [isSynced])
+  }, [isSynced, registration, leftInfo?.width, rightInfo?.width])
+
+  // ── Load any saved registration for the current pair ────────────────────────
+  useEffect(() => {
+    setRegistration(null); setLandmarks([]); setAlignMode(false); setRegError(''); pendingRef.current = null; setPendingMarker(null)
+    if (!compareMode || !leftScanId || !rightScanId) return
+    let cancelled = false
+    api.getRegistration(leftScanId, rightScanId)
+      .then(r => { if (!cancelled && r?.found && r.transform) {
+        const t = r.transform
+        setRegistration({ scale: t.scale, rotation: t.rotation, tx: t.tx, ty: t.ty })
+      }})
+      .catch(() => {})
+    return () => { cancelled = true }
+  }, [leftScanId, rightScanId, compareMode])
+
+  // ── Landmark picking: capture clicks on each pane while aligning ─────────────
+  useEffect(() => {
+    if (!alignMode) return
+    const L = osdLeftRef.current, R = osdRightRef.current
+    if (!L || !R) return
+    const prevL = L.gestureSettingsMouse?.clickToZoom
+    const prevR = R.gestureSettingsMouse?.clickToZoom
+    if (L.gestureSettingsMouse) L.gestureSettingsMouse.clickToZoom = false
+    if (R.gestureSettingsMouse) R.gestureSettingsMouse.clickToZoom = false
+
+    const onLeft = (e) => {
+      if (!e.quick) return
+      const p = elementToImage(L, e.position.x, e.position.y)
+      if (!p) return
+      pendingRef.current = p; setPendingMarker(p)   // wait for the matching right click
+    }
+    const onRight = (e) => {
+      if (!e.quick || !pendingRef.current) return
+      const p = elementToImage(R, e.position.x, e.position.y)
+      if (!p) return
+      const fixed = pendingRef.current
+      pendingRef.current = null; setPendingMarker(null)
+      setLandmarks(prev => [...prev, { fixed, moving: p }])
+    }
+    L.addHandler('canvas-click', onLeft)
+    R.addHandler('canvas-click', onRight)
+    return () => {
+      L.removeHandler('canvas-click', onLeft); R.removeHandler('canvas-click', onRight)
+      if (L.gestureSettingsMouse) L.gestureSettingsMouse.clickToZoom = prevL
+      if (R.gestureSettingsMouse) R.gestureSettingsMouse.clickToZoom = prevR
+      pendingRef.current = null; setPendingMarker(null)
+    }
+  }, [alignMode, leftScanId, rightScanId])
+
+  // ── Render landmark markers as OSD overlays (auto-tracked on pan/zoom) ───────
+  useEffect(() => {
+    const L = osdLeftRef.current, R = osdRightRef.current
+    const OSD = window.OpenSeadragon
+    const clear = (viewer, store) => {
+      if (viewer) store.current.forEach(el => { try { viewer.removeOverlay(el) } catch (_) {} })
+      store.current = []
+    }
+    clear(L, overlaysLeftRef); clear(R, overlaysRightRef)
+    if (!alignMode || !OSD) return
+
+    const addMarker = (viewer, store, pt, label, color) => {
+      if (!viewer?.viewport || !pt) return
+      try {
+        const el = document.createElement('div')
+        el.textContent = label
+        Object.assign(el.style, {
+          width: '18px', height: '18px', borderRadius: '50%', background: color,
+          color: '#fff', font: '600 11px sans-serif', display: 'flex',
+          alignItems: 'center', justifyContent: 'center', border: '2px solid #fff',
+          boxShadow: '0 0 4px rgba(0,0,0,0.6)', pointerEvents: 'none',
+        })
+        viewer.addOverlay({ element: el, location: viewer.viewport.imageToViewportCoordinates(new OSD.Point(pt.x, pt.y)), placement: 'CENTER' })
+        store.current.push(el)
+      } catch (_) {}
+    }
+    landmarks.forEach((lm, i) => {
+      addMarker(L, overlaysLeftRef,  lm.fixed,  String(i + 1), '#1b998b')
+      addMarker(R, overlaysRightRef, lm.moving, String(i + 1), '#1b998b')
+    })
+    if (pendingMarker) addMarker(L, overlaysLeftRef, pendingMarker, '?', '#e69a00')
+  }, [landmarks, pendingMarker, alignMode, leftScanId, rightScanId])
 
   // ── Ruler tool ─────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -185,6 +328,7 @@ export default function SlideViewer() {
         return
       }
       if (e.key === 'Escape') {
+        if (alignMode)        { setAlignMode(false); pendingRef.current = null; setPendingMarker(null); return }
         if (isPolygonActive)  { setIsPolygonActive(false);  return }
         if (isRulerActive)    { setIsRulerActive(false);     return }
         if (showBrightness)   { setShowBrightness(false);    return }
@@ -195,7 +339,7 @@ export default function SlideViewer() {
     }
     document.addEventListener('keydown', handler)
     return () => document.removeEventListener('keydown', handler)
-  }, [isPolygonActive, isRulerActive, rightScanId, showBrightness, showShortcuts, showModels])
+  }, [isPolygonActive, isRulerActive, rightScanId, showBrightness, showShortcuts, showModels, alignMode])
 
   // ── Auto-scroll filmstrip ──────────────────────────────────────────────────
   useEffect(() => {
@@ -240,6 +384,46 @@ export default function SlideViewer() {
     else             { setCompareMode(true) }
   }
 
+  // ── Registration handlers ────────────────────────────────────────────────────
+  function enterAlignMode() { setRegError(''); setIsSynced(false); setAlignMode(true) }
+  function exitAlignMode()  { setAlignMode(false); pendingRef.current = null; setPendingMarker(null) }
+  function clearLandmarks() { setLandmarks([]); pendingRef.current = null; setPendingMarker(null); setRegError('') }
+  function undoLastLandmark() { setLandmarks(prev => prev.slice(0, -1)); pendingRef.current = null; setPendingMarker(null) }
+
+  function applyLandmarks() {
+    try {
+      const src = landmarks.map(l => l.moving)   // moving (right)
+      const dst = landmarks.map(l => l.fixed)    // fixed (left)
+      const T   = estimateSimilarity(src, dst)
+      const rms = rmsResidual(T, src, dst)
+      setRegistration(T); setAlignMode(false); setIsSynced(true)
+      pendingRef.current = null; setPendingMarker(null)
+      api.saveRegistration({ fixedScanId: leftScanId, movingScanId: rightScanId,
+        scale: T.scale, rotation: T.rotation, tx: T.tx, ty: T.ty, method: 'manual' }).catch(() => {})
+      setRegError(rms > 50 ? `Aligned, but the landmark fit is loose (RMS ${Math.round(rms)} px). Add or re-place points for a tighter result.` : '')
+    } catch (e) { setRegError(e.message || 'Could not compute alignment') }
+  }
+
+  async function handleAutoAlign() {
+    setAutoBusy(true); setRegError('')
+    try {
+      const res = await api.autoRegister(leftScanId, rightScanId)
+      if (res?.found && res.transform) {
+        const t = res.transform
+        const T = { scale: t.scale, rotation: t.rotation, tx: t.tx, ty: t.ty }
+        setRegistration(T); setAlignMode(false); setIsSynced(true)
+        api.saveRegistration({ fixedScanId: leftScanId, movingScanId: rightScanId,
+          scale: T.scale, rotation: T.rotation, tx: T.tx, ty: T.ty, method: 'auto' }).catch(() => {})
+      } else { setRegError('Automatic alignment did not return a transform.') }
+    } catch (e) { setRegError(e.message || 'Automatic alignment failed (try manual landmarks).') }
+    finally { setAutoBusy(false) }
+  }
+
+  function removeRegistration() {
+    setRegistration(null); clearLandmarks()
+    api.deleteRegistration(leftScanId, rightScanId).catch(() => {})
+  }
+
   async function handleToggleOverlay(jobId) {
     const viewer = osdLeftRef.current
     if (!viewer) return
@@ -262,6 +446,20 @@ export default function SlideViewer() {
   // ── Derived ────────────────────────────────────────────────────────────────
   const displayInfo = (panelSide === 'right' && rightInfo) ? rightInfo : leftInfo
   const filterStr   = `brightness(${brightness}%) contrast(${contrast}%) url(#sv-gamma)`
+
+  const pillStyle = (active) => ({
+    background: active ? '#1b998b' : 'rgba(3,8,25,0.9)',
+    border: `1px solid ${active ? '#1b998b' : 'rgba(255,255,255,0.22)'}`,
+    color: 'white', padding: '5px 14px', borderRadius: 20, cursor: 'pointer',
+    fontSize: 11, fontWeight: 600,
+  })
+  const miniBtn = (enabled) => ({
+    background: enabled ? 'rgba(27,153,139,0.18)' : 'rgba(255,255,255,0.05)',
+    border: '1px solid rgba(255,255,255,0.18)',
+    color: enabled ? '#6ee7b7' : 'rgba(255,255,255,0.4)',
+    padding: '4px 10px', borderRadius: 6, cursor: enabled ? 'pointer' : 'not-allowed',
+    fontSize: 11, fontWeight: 600,
+  })
 
   // ─────────────────────────────────────────────────────────────────────────
   // RENDER
@@ -326,11 +524,43 @@ export default function SlideViewer() {
               )}
             </div>
 
-            {/* Sync button */}
+            {/* Compare controls: link + registration */}
             {compareMode && rightScanId && (
-              <button onClick={() => setIsSynced(o => !o)} style={{ position: 'absolute', left: '50%', top: 14, transform: 'translateX(-50%)', zIndex: 60, background: isSynced ? '#1b998b' : 'rgba(3,8,25,0.9)', border: `1px solid ${isSynced ? '#1b998b' : 'rgba(255,255,255,0.22)'}`, color: 'white', padding: '5px 14px', borderRadius: 20, cursor: 'pointer', fontSize: 11, fontWeight: 600 }}>
-                {isSynced ? 'Viewers linked' : 'Link viewers'}
-              </button>
+              <div style={{ position: 'absolute', left: '50%', top: 14, transform: 'translateX(-50%)', zIndex: 60, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8 }}>
+                <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                  <button onClick={() => setIsSynced(o => !o)} style={pillStyle(isSynced)} title="Lock the two viewers together">
+                    {isSynced ? (registration ? 'Aligned · linked' : 'Viewers linked') : 'Link viewers'}
+                  </button>
+                  {!alignMode && (
+                    <button onClick={enterAlignMode} style={pillStyle(false)} title="Co-register the two slides by tissue features">
+                      {registration ? 'Re-align…' : 'Align…'}
+                    </button>
+                  )}
+                  {registration && !alignMode && (
+                    <button onClick={removeRegistration} style={pillStyle(false)} title="Remove the saved alignment">Clear alignment</button>
+                  )}
+                </div>
+
+                {alignMode && (
+                  <div style={{ background: 'rgba(3,8,25,0.96)', border: '1px solid rgba(255,255,255,0.18)', borderRadius: 10, padding: '10px 12px', width: 310, color: 'rgba(255,255,255,0.85)', fontSize: 12, fontFamily: 'sans-serif', boxShadow: '0 6px 24px rgba(0,0,0,0.5)' }}>
+                    <div style={{ fontWeight: 700, marginBottom: 6 }}>Align slides</div>
+                    <div style={{ opacity: 0.75, lineHeight: 1.45, marginBottom: 8 }}>
+                      Click a feature on the <b>left</b>, then the same feature on the <b>right</b>. Add at least 2 pairs (3+ gives a tighter fit). Or use <b>Auto-align</b>.
+                    </div>
+                    <div style={{ marginBottom: 8 }}>
+                      Landmark pairs: <b>{landmarks.length}</b>{pendingMarker ? ' — now click the match on the right' : ''}
+                    </div>
+                    {regError && <div style={{ color: '#ffb4a2', marginBottom: 8, lineHeight: 1.4 }}>{regError}</div>}
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                      <button onClick={applyLandmarks} disabled={landmarks.length < 2} style={miniBtn(landmarks.length >= 2)}>Apply</button>
+                      <button onClick={handleAutoAlign} disabled={autoBusy} style={miniBtn(!autoBusy)}>{autoBusy ? 'Auto…' : 'Auto-align'}</button>
+                      <button onClick={undoLastLandmark} disabled={!landmarks.length} style={miniBtn(!!landmarks.length)}>Undo point</button>
+                      <button onClick={clearLandmarks} style={miniBtn(true)}>Clear</button>
+                      <button onClick={exitAlignMode} style={miniBtn(true)}>Done</button>
+                    </div>
+                  </div>
+                )}
+              </div>
             )}
 
             {/* ── RIGHT VIEWER ── */}

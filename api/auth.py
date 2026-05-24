@@ -2,6 +2,7 @@
 PathoDB API — Auth Utilities
 JWT creation/verification and password hashing.
 """
+import secrets
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 import bcrypt
@@ -16,6 +17,10 @@ from .models import User
 
 settings    = get_settings()
 oauth2      = OAuth2PasswordBearer(tokenUrl="/auth/login")
+# Non-erroring variant for endpoints that accept *either* a bearer token or an
+# API key. With auto_error=True the bearer dependency rejects the request before
+# the API-key branch can run, breaking scanner ingestion.
+oauth2_optional = OAuth2PasswordBearer(tokenUrl="/auth/login", auto_error=False)
 api_key_hdr = APIKeyHeader(name="X-API-Key", auto_error=False)
 
 def hash_password(password: str) -> str:
@@ -71,11 +76,13 @@ def require_admin(user: User = Depends(get_current_user)) -> User:
     return user
 
 def get_user_or_scanner(
-    token: Optional[str] = Depends(oauth2),
+    token: Optional[str] = Depends(oauth2_optional),
     api_key: Optional[str] = Security(api_key_hdr),
     db: Session = Depends(get_db),
 ) -> Optional[User]:
-    if api_key and api_key == settings.scanner_api_key:
+    if api_key and settings.scanner_api_key and secrets.compare_digest(
+        api_key, settings.scanner_api_key
+    ):
         return None
     if token:
         return get_current_user(token, db)

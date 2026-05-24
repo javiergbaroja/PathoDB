@@ -6,6 +6,7 @@ from decimal import Decimal
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session, joinedload
 from sqlalchemy import and_
+from sqlalchemy.exc import IntegrityError
 
 from ..database import get_db
 from ..models import Scan, Block, Probe, Submission, Patient, Stain, User
@@ -223,9 +224,21 @@ def delete_scan(
     db: Session = Depends(get_db),
     _: User = Depends(require_admin),
 ):
-    """Soft-delete: removes the database record. Does NOT delete the file on disk."""
+    """Delete the scan's database record. Does NOT delete the file on disk.
+
+    Scans are referenced (without ON DELETE rules) by project_scans, annotations
+    and analysis_jobs, so deleting one that is still in use would raise a raw
+    integrity error. Surface that as a clear 409 instead of a 500.
+    """
     sc = db.get(Scan, scan_id)
     if not sc:
         raise HTTPException(status_code=404, detail="Scan not found")
-    db.delete(sc)
-    db.commit()
+    try:
+        db.delete(sc)
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(
+            status_code=409,
+            detail="Scan is referenced by projects, annotations, or analysis jobs and cannot be deleted.",
+        )

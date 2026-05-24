@@ -22,6 +22,11 @@ class Settings(BaseSettings):
     api_title: str = "PathoDB API"
     api_version: str = "1.0.0"
 
+    # CORS — comma-separated list of allowed browser origins. Override in
+    # production with the deployed frontend origin(s), e.g.
+    #   cors_allow_origins=https://pathodb.example.org
+    cors_allow_origins: str = "http://localhost:3000,http://localhost:5173,http://127.0.0.1:5173"
+
     # Scanner service account
     scanner_api_key: str = ""
 
@@ -30,6 +35,13 @@ class Settings(BaseSettings):
     # models_dir: absolute path to the directory containing catalog.json and model scripts
     analysis_results_dir: str = "/storage/research/igmp_dp_workspace/garciabaroja_javier/PW_reports/database/pathodb/analysis_results"
     models_dir: str = "/storage/research/igmp_dp_workspace/garciabaroja_javier/PW_reports/database/pathodb/models"
+
+    # analysis_output_base_dirs: comma-separated list of absolute directory
+    # prefixes under which batch jobs are permitted to write their output.
+    # Custom `output_directory` values are only accepted if they resolve to a
+    # path inside one of these bases. Leave empty to disable custom output
+    # directories entirely (batch output then stays in analysis_results_dir).
+    analysis_output_base_dirs: str = ""
 
     # ── Ollama / Patient Summary ───────────────────────────────────────────────
     # ollama_base_url: HTTP address of the running Ollama daemon.

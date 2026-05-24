@@ -68,6 +68,86 @@ def _models_dir() -> Path:
     return Path(settings.models_dir)
 
 
+def _allowed_output_bases() -> List[Path]:
+    """Configured absolute base directories under which batch output may live."""
+    raw = getattr(settings, "analysis_output_base_dirs", "") or ""
+    bases = []
+    for part in raw.split(","):
+        part = part.strip()
+        if part:
+            try:
+                bases.append(Path(part).resolve())
+            except Exception:
+                continue
+    return bases
+
+
+def _is_within(path: Path, base: Path) -> bool:
+    try:
+        path.relative_to(base)
+        return True
+    except ValueError:
+        return False
+
+
+# System locations a batch job must never be allowed to write into / delete.
+_FORBIDDEN_OUTPUT_ROOTS = (
+    "/bin", "/boot", "/dev", "/etc", "/lib", "/lib64", "/proc",
+    "/root", "/run", "/sbin", "/sys", "/usr", "/var",
+)
+
+
+def _validate_output_directory(output_directory: str) -> Path:
+    """Resolve and authorize a user-supplied batch output directory.
+
+    - When `analysis_output_base_dirs` is configured, the path must resolve
+      inside one of those bases (recommended for production).
+    - Otherwise, the path must be absolute and must not fall in a sensitive
+      system location. This closes the worst case (creating/deleting arbitrary
+      system directories) without forcing every deployment to pre-register its
+      NFS research roots.
+    """
+    candidate = Path(output_directory)
+    if not candidate.is_absolute():
+        raise HTTPException(status_code=400, detail="output_directory must be an absolute path")
+    resolved = candidate.resolve()
+
+    bases = _allowed_output_bases()
+    if bases:
+        if not any(_is_within(resolved, b) for b in bases):
+            raise HTTPException(
+                status_code=400,
+                detail="output_directory is not within an allowed base directory",
+            )
+        return resolved
+
+    # No allow-list configured — apply a system-path safety net.
+    if resolved == Path(resolved.anchor):
+        raise HTTPException(status_code=400, detail="output_directory cannot be the filesystem root")
+    s = str(resolved)
+    if any(s == root or s.startswith(root + "/") for root in _FORBIDDEN_OUTPUT_ROOTS):
+        raise HTTPException(
+            status_code=400,
+            detail="output_directory points to a protected system location",
+        )
+    return resolved
+
+
+def _is_deletable_output_dir(path: Path) -> bool:
+    """Whether `path` may be rmtree'd during purge — mirrors submit-time policy."""
+    safe_roots = [_results_dir().resolve()] + _allowed_output_bases()
+    if any(_is_within(path, root) for root in safe_roots):
+        return True
+    if _allowed_output_bases():
+        # Strict mode: only managed results dir or allow-listed bases.
+        return False
+    # Lenient mode: permit any non-system absolute path (dirs we accepted at submit).
+    if path == Path(path.anchor):
+        return False
+    s = str(path)
+    return not any(s == root or s.startswith(root + "/") for root in _FORBIDDEN_OUTPUT_ROOTS)
+
+
 def _job_result_dir(job_id: int) -> Path:
     return _results_dir() / str(job_id)
 
@@ -117,6 +197,51 @@ def _slurm_state(slurm_job_id: int) -> Optional[str]:
         return None
 
 
+def _slurm_states_batch(slurm_job_ids: List[int]) -> tuple[dict, bool]:
+    """
+    Query SLURM for many jobs in a single squeue call.
+
+    Returns (states, available) where:
+      - states maps slurm_job_id -> raw state string for jobs still in the queue.
+        IDs absent from the result are finished/purged (treat as None).
+      - available is False when squeue could not be run (not installed, timeout,
+        error). In that case callers must NOT infer completion from a missing id.
+    """
+    if not slurm_job_ids:
+        return {}, True
+    try:
+        result = subprocess.run(
+            ["squeue", "-j", ",".join(str(i) for i in slurm_job_ids),
+             "-h", "-o", "%i %T"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+    except FileNotFoundError:
+        return {}, False
+    except subprocess.TimeoutExpired:
+        log.warning("squeue batch query timed out")
+        return {}, False
+    except Exception as e:
+        log.warning(f"squeue batch error: {e}")
+        return {}, False
+
+    states: dict = {}
+    for line in result.stdout.strip().splitlines():
+        parts = line.split()
+        if len(parts) >= 2:
+            try:
+                states[int(parts[0])] = parts[1]
+            except ValueError:
+                pass
+    return states, True
+
+
+# Sentinel: tells _sync_job_status to fetch the SLURM state itself (single-job
+# path). Distinct from None, which is a valid state meaning "not in the queue".
+_FETCH_STATE = object()
+
+
 def _read_progress(job_id: int) -> tuple[int, Optional[str]]:
     """
     Read progress.json written by the model script.
@@ -133,10 +258,14 @@ def _read_progress(job_id: int) -> tuple[int, Optional[str]]:
         return 0, None
 
 
-def _sync_job_status(job: AnalysisJob, db: Session) -> AnalysisJob:
+def _sync_job_status(job: AnalysisJob, db: Session, slurm_state=_FETCH_STATE) -> AnalysisJob:
     """
     Sync a job's status from SLURM and the progress file.
     Mutates and commits the DB record if anything changed.
+
+    slurm_state may be supplied by a caller that already queried SLURM in bulk
+    (see list_jobs). When left as the _FETCH_STATE sentinel, this function issues
+    its own per-job squeue call (single-job polling path).
     """
     if job.status in ("done", "failed", "cancelled"):
         return job                           # terminal states — nothing to update
@@ -152,7 +281,8 @@ def _sync_job_status(job: AnalysisJob, db: Session) -> AnalysisJob:
 
     # ── SLURM state ───────────────────────────────────────────────────────────
     if job.slurm_job_id:
-        slurm_state = _slurm_state(job.slurm_job_id)
+        if slurm_state is _FETCH_STATE:
+            slurm_state = _slurm_state(job.slurm_job_id)
 
         if slurm_state == "UNAVAILABLE":
             # Running locally without SLURM — leave status as-is
@@ -356,10 +486,18 @@ def cancel_or_delete_job(
         if context_file.exists():
             try:
                 ctx = json.loads(context_file.read_text())
-                custom_out_dir = Path(ctx.get("output_dir", ""))
-                if custom_out_dir.exists() and custom_out_dir.is_dir():
-                    shutil.rmtree(custom_out_dir)
-                    log.info(f"Deleted custom batch output at {custom_out_dir}")
+                raw_out = ctx.get("output_dir", "")
+                custom_out_dir = Path(raw_out).resolve() if raw_out else None
+                # Never rmtree an arbitrary path read from the context file.
+                if custom_out_dir is not None and _is_deletable_output_dir(custom_out_dir):
+                    if custom_out_dir.exists() and custom_out_dir.is_dir():
+                        shutil.rmtree(custom_out_dir)
+                        log.info(f"Deleted custom batch output at {custom_out_dir}")
+                elif custom_out_dir is not None:
+                    log.warning(
+                        f"Refusing to delete out-of-policy output dir for job "
+                        f"{job_id}: {custom_out_dir}"
+                    )
             except Exception as e:
                 log.error(f"Failed to read context or delete custom output for job {job_id}: {e}")
 
@@ -554,10 +692,20 @@ def list_jobs(
         
     jobs = q.order_by(AnalysisJob.created_at.desc()).all()
 
-    # Sync status for any non-terminal jobs (this queries SLURM)
-    for job in jobs:
-        if job.status not in ("done", "failed", "cancelled"):
-            _sync_job_status(job, db)
+    # Sync status for any non-terminal jobs. SLURM is queried ONCE for all jobs
+    # rather than spawning a squeue subprocess per job.
+    non_terminal = [j for j in jobs if j.status not in ("done", "failed", "cancelled")]
+    slurm_ids    = [j.slurm_job_id for j in non_terminal if j.slurm_job_id]
+    states, available = _slurm_states_batch(slurm_ids)
+
+    for job in non_terminal:
+        if job.slurm_job_id and available:
+            # None here means "not in the queue" → finished/purged.
+            _sync_job_status(job, db, slurm_state=states.get(job.slurm_job_id))
+        else:
+            # No SLURM id (dev mode) or squeue unavailable → don't infer
+            # completion; only refresh the progress sidecar.
+            _sync_job_status(job, db, slurm_state="UNAVAILABLE")
 
     return jobs
 
@@ -575,39 +723,6 @@ def get_job(
     job = _get_job_or_404(job_id, db, user)
     job = _sync_job_status(job, db)
     return job
-
-
-@router.delete("/jobs/{job_id}", status_code=204)
-def cancel_job(
-    job_id: int,
-    db:     Session = Depends(get_db),
-    user:   User    = Depends(get_current_active_user),
-):
-    """
-    Cancel a queued or running job via scancel.
-    Has no effect on already-terminal jobs.
-    """
-    job = _get_job_or_404(job_id, db, user)
-
-    if job.status in ("done", "failed", "cancelled"):
-        return None     # already terminal — 204 with no body
-
-    if job.slurm_job_id:
-        try:
-            subprocess.run(
-                ["scancel", str(job.slurm_job_id)],
-                capture_output=True,
-                timeout=8,
-            )
-        except FileNotFoundError:
-            pass        # scancel not available locally — proceed anyway
-        except Exception as e:
-            log.warning(f"scancel error for job {job_id}: {e}")
-
-    job.status     = "cancelled"
-    job.updated_at = datetime.now(timezone.utc)
-    db.commit()
-    return None
 
 
 @router.get("/jobs/{job_id}/result")
@@ -788,15 +903,18 @@ def submit_batch_job(
 
     # 2. CONTEXT & DIRECTORY ROUTING
     req.params["is_batch"] = True
-    
-    # Treat empty string "" (from UI) and None exactly the same
-    is_auto_ingest = not bool(req.output_directory) 
 
+    # Treat empty string "" (from UI) and None exactly the same
+    is_auto_ingest = not bool(req.output_directory)
+
+    validated_out_base = None
     if not is_auto_ingest:
-        req.params["output_directory"] = req.output_directory
+        # Authorize the user-supplied output directory before creating any job.
+        validated_out_base = _validate_output_directory(req.output_directory)
+        req.params["output_directory"] = str(validated_out_base)
     else:
-        req.params["auto_ingest"] = True 
-    
+        req.params["auto_ingest"] = True
+
     job = AnalysisJob(
         scan_id=req.scan_ids[0],
         model_id=req.model_id,
@@ -814,7 +932,7 @@ def submit_batch_job(
     result_dir.mkdir(parents=True, exist_ok=True)
 
     if not is_auto_ingest:
-        custom_out_dir = Path(req.output_directory) / f"batch_job_{job.id}"
+        custom_out_dir = validated_out_base / f"batch_job_{job.id}"
         try:
             custom_out_dir.mkdir(parents=True, exist_ok=True)
         except Exception as e:

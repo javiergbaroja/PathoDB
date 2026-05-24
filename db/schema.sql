@@ -269,8 +269,14 @@ CREATE INDEX IF NOT EXISTS idx_annotations_project      ON annotations (project_
 
 -- 1. Update the project_type check constraint to include TMAs
 ALTER TABLE projects DROP CONSTRAINT IF EXISTS projects_project_type_check;
-ALTER TABLE projects ADD CONSTRAINT projects_project_type_check 
+ALTER TABLE projects ADD CONSTRAINT projects_project_type_check
     CHECK (project_type IN ('cell_detection', 'region_annotation', 'tma'));
+
+-- 1b. Update the source_type check constraint to include custom_list
+-- (projects built from an explicit scan-id list via the frontend SlideTargetManager).
+ALTER TABLE projects DROP CONSTRAINT IF EXISTS projects_source_type_check;
+ALTER TABLE projects ADD CONSTRAINT projects_source_type_check
+    CHECK (source_type IN ('cohort', 'file_import', 'custom_list'));
 
 -- 2. Make block_id nullable in scans (since TMA scans reflect multiple blocks)
 ALTER TABLE scans ALTER COLUMN block_id DROP NOT NULL;
@@ -295,3 +301,28 @@ CREATE TABLE IF NOT EXISTS tma_cores (
 
 CREATE INDEX IF NOT EXISTS idx_tma_cores_project ON tma_cores (project_id);
 CREATE INDEX IF NOT EXISTS idx_tma_cores_donor_block ON tma_cores (donor_block_id);
+
+-- =============================================================================
+-- SLIDE REGISTRATIONS
+-- Similarity transform (scale, rotation, translation) aligning a "moving" slide
+-- onto a "fixed" slide for synchronized navigation in the compare viewer.
+-- The transform maps moving full-res pixels -> fixed full-res pixels.
+-- =============================================================================
+CREATE TABLE IF NOT EXISTS slide_registrations (
+    id             SERIAL      PRIMARY KEY,
+    fixed_scan_id  INTEGER     NOT NULL REFERENCES scans (id) ON DELETE CASCADE,
+    moving_scan_id INTEGER     NOT NULL REFERENCES scans (id) ON DELETE CASCADE,
+    scale          DOUBLE PRECISION NOT NULL,
+    rotation       DOUBLE PRECISION NOT NULL,   -- radians
+    tx             DOUBLE PRECISION NOT NULL,
+    ty             DOUBLE PRECISION NOT NULL,
+    method         TEXT        NOT NULL DEFAULT 'manual'
+                               CHECK (method IN ('manual', 'auto')),
+    created_by     INTEGER     REFERENCES users (id),
+    created_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE (fixed_scan_id, moving_scan_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_slide_registrations_fixed  ON slide_registrations (fixed_scan_id);
+CREATE INDEX IF NOT EXISTS idx_slide_registrations_moving ON slide_registrations (moving_scan_id);
