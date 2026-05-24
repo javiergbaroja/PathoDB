@@ -11,7 +11,7 @@ import json
 import math
 import os
 from datetime import datetime, timezone
-from typing import List, Optional, Literal
+from typing import List, Optional, Literal, Union
 
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
 from fastapi.responses import StreamingResponse
@@ -72,8 +72,14 @@ class AnnotationUpdate(BaseModel):
     geometry:   Optional[dict] = None
     notes:      Optional[str] = None
 
+class BulkAnnotationItem(AnnotationCreate):
+    # Stable identifier sent back by the client. Integers reference an existing
+    # DB row (update in place, preserving provenance); anything else (temp ids,
+    # null) is treated as a new annotation.
+    id: Optional[Union[int, str]] = None
+
 class BulkAnnotationUpsert(BaseModel):
-    annotations: List[AnnotationCreate]
+    annotations: List[BulkAnnotationItem]
 
 
 # ─── Geometry helpers ─────────────────────────────────────────────────────────
@@ -149,6 +155,16 @@ def _check_access(project: Project, user: User, require_edit: bool = False):
         raise HTTPException(403, "Access denied")
     if require_edit and share.access_level != "edit":
         raise HTTPException(403, "Edit access required")
+
+
+def _ensure_scan_in_project(project_id: int, scan_id: int, db: Session):
+    """Guard against writing annotations for a scan that is not in the project."""
+    in_project = db.query(ProjectScan.id).filter(
+        ProjectScan.project_id == project_id,
+        ProjectScan.scan_id == scan_id,
+    ).first()
+    if not in_project:
+        raise HTTPException(404, "Scan is not part of this project")
 
 
 def _serialize(project: Project, user_id: int, db: Session) -> dict:
@@ -463,13 +479,22 @@ def list_project_scans(project_id: int, db: Session = Depends(get_db),
         .group_by(Annotation.scan_id).all()
     )
 
+    # Single query with outer joins instead of per-scan db.get() lookups.
+    # Block/Probe/Submission are outer-joined because TMA scans have no block.
+    rows = (
+        db.query(ProjectScan, Scan, Stain, Block, Probe, Submission)
+        .join(Scan, ProjectScan.scan_id == Scan.id)
+        .outerjoin(Stain, Scan.stain_id == Stain.id)
+        .outerjoin(Block, Scan.block_id == Block.id)
+        .outerjoin(Probe, Block.probe_id == Probe.id)
+        .outerjoin(Submission, Probe.submission_id == Submission.id)
+        .filter(ProjectScan.project_id == project_id)
+        .order_by(ProjectScan.sort_order)
+        .all()
+    )
+
     result = []
-    for ps in proj.scans:
-        sc = ps.scan
-        if not sc: continue
-        block = db.get(Block, sc.block_id) if sc.block_id else None
-        probe = db.get(Probe, block.probe_id) if block else None
-        sub   = db.get(Submission, probe.submission_id) if probe else None
+    for ps, sc, stain, block, probe, sub in rows:
         result.append({
             "project_scan_id":   ps.id,
             "scan_id":           sc.id,
@@ -477,8 +502,8 @@ def list_project_scans(project_id: int, db: Session = Depends(get_db),
             "file_path":         sc.file_path,
             "file_format":       sc.file_format,
             "magnification":     float(sc.magnification) if sc.magnification else None,
-            "stain_name":        sc.stain.stain_name     if sc.stain else None,
-            "stain_category":    sc.stain.stain_category if sc.stain else None,
+            "stain_name":        stain.stain_name     if stain else None,
+            "stain_category":    stain.stain_category if stain else None,
             "block_label":       block.block_label       if block else None,
             "lis_probe_id":      probe.lis_probe_id      if probe else None,
             "topo_description":  probe.topo_description  if probe else None,
@@ -577,6 +602,7 @@ def create_annotation(project_id: int, scan_id: int, req: AnnotationCreate,
     proj = db.get(Project, project_id)
     if not proj: raise HTTPException(404, "Project not found")
     _check_access(proj, user, require_edit=True)
+    _ensure_scan_in_project(project_id, scan_id, db)
     bx, by, bw, bh = _bbox(req.annotation_type, req.geometry)
     ann = Annotation(project_id=project_id, scan_id=scan_id, created_by=user.id,
                      class_id=req.class_id, class_name=req.class_name,
@@ -625,24 +651,62 @@ def delete_annotation(project_id: int, scan_id: int, ann_id: int,
 @router.put("/{project_id}/scans/{scan_id}/annotations")
 def bulk_save_annotations(project_id: int, scan_id: int, req: BulkAnnotationUpsert,
                           db: Session = Depends(get_db), user: User = Depends(get_current_active_user)):
-    """Full replacement — used by auto-save on slide navigation."""
+    """Reconcile the scan's annotations against the submitted set.
+
+    Used by auto-save on slide navigation. Rows are matched by id so that
+    unchanged/edited annotations keep their original author and created_at
+    (provenance) instead of being wiped and re-created on every save. Rows
+    absent from the payload are deleted; rows without a matching DB id are
+    inserted as new.
+    """
     proj = db.get(Project, project_id)
     if not proj: raise HTTPException(404, "Project not found")
     _check_access(proj, user, require_edit=True)
+    _ensure_scan_in_project(project_id, scan_id, db)
 
-    db.query(Annotation).filter(
-        Annotation.project_id == project_id, Annotation.scan_id == scan_id
-    ).delete(synchronize_session="fetch")
+    existing = {
+        a.id: a for a in db.query(Annotation).filter(
+            Annotation.project_id == project_id, Annotation.scan_id == scan_id
+        ).all()
+    }
+    now = datetime.now(timezone.utc)
+    seen_ids = set()
 
     for item in req.annotations:
         bx, by, bw, bh = _bbox(item.annotation_type, item.geometry)
-        db.add(Annotation(
-            project_id=project_id, scan_id=scan_id, created_by=user.id,
-            class_id=item.class_id, class_name=item.class_name,
-            annotation_type=item.annotation_type, geometry=item.geometry,
-            bbox_x=bx, bbox_y=by, bbox_w=bw, bbox_h=bh,
-            area_px=_area(item.annotation_type, item.geometry), notes=item.notes,
-        ))
+        area = _area(item.annotation_type, item.geometry)
+
+        current = existing.get(item.id) if isinstance(item.id, int) else None
+        if current is not None:
+            seen_ids.add(current.id)
+            changed = (
+                current.class_id        != item.class_id or
+                current.class_name      != item.class_name or
+                current.annotation_type != item.annotation_type or
+                current.geometry        != item.geometry or
+                current.notes           != item.notes
+            )
+            if changed:
+                current.class_id        = item.class_id
+                current.class_name      = item.class_name
+                current.annotation_type = item.annotation_type
+                current.geometry        = item.geometry
+                current.bbox_x, current.bbox_y, current.bbox_w, current.bbox_h = bx, by, bw, bh
+                current.area_px         = area
+                current.notes           = item.notes
+                current.updated_at      = now
+        else:
+            db.add(Annotation(
+                project_id=project_id, scan_id=scan_id, created_by=user.id,
+                class_id=item.class_id, class_name=item.class_name,
+                annotation_type=item.annotation_type, geometry=item.geometry,
+                bbox_x=bx, bbox_y=by, bbox_w=bw, bbox_h=bh,
+                area_px=area, notes=item.notes,
+            ))
+
+    for ann_id, ann in existing.items():
+        if ann_id not in seen_ids:
+            db.delete(ann)
 
     db.commit()
     return {"saved": len(req.annotations)}
@@ -750,6 +814,7 @@ async def import_annotations(
     proj = db.get(Project, project_id)
     if not proj: raise HTTPException(404, "Project not found")
     _check_access(proj, user, require_edit=True)
+    _ensure_scan_in_project(project_id, scan_id, db)
 
     content = await file.read()
     try:

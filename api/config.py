@@ -31,6 +31,13 @@ class Settings(BaseSettings):
     analysis_results_dir: str = "/storage/research/igmp_dp_workspace/garciabaroja_javier/PW_reports/database/pathodb/analysis_results"
     models_dir: str = "/storage/research/igmp_dp_workspace/garciabaroja_javier/PW_reports/database/pathodb/models"
 
+    # analysis_output_base_dirs: comma-separated list of absolute directory
+    # prefixes under which batch jobs are permitted to write their output.
+    # Custom `output_directory` values are only accepted if they resolve to a
+    # path inside one of these bases. Leave empty to disable custom output
+    # directories entirely (batch output then stays in analysis_results_dir).
+    analysis_output_base_dirs: str = ""
+
     # ── Ollama / Patient Summary ───────────────────────────────────────────────
     # ollama_base_url: HTTP address of the running Ollama daemon.
     #   - Local dev / single-node HPC:  http://localhost:11434

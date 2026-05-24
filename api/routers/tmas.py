@@ -324,56 +324,62 @@ async def upload_tma_scans(
     delimiter = ';' if ';' in text.split('\n')[0] else ','
     csvReader = csv.DictReader(io.StringIO(text), delimiter=delimiter)
 
-    all_stains      = db.query(Stain).all()
-    processed_count = 0
-    added_scans     = 0
+    # Build a stain lookup (canonical name + aliases) once.
+    stain_by_name = {}
+    for s in db.query(Stain).all():
+        stain_by_name[s.stain_name.lower()] = s.id
+        for alias in (s.aliases or []):
+            stain_by_name[alias.lower()] = s.id
 
+    # 1. Parse + validate every row up front. A single unregistered stain
+    #    aborts the whole upload BEFORE any write, so we never leave partial state.
+    parsed = []
     for row in csvReader:
         clean_row  = {str(k).strip().lower(): str(v).strip() for k, v in row.items() if k is not None}
         file_path  = clean_row.get('file_path', '')
         stain_name = clean_row.get('stain_name', '')
         if not file_path or not stain_name:
             continue
-
-        processed_count += 1
-        stain_id = None
-        for s in all_stains:
-            if s.stain_name.lower() == stain_name.lower():
-                stain_id = s.id
-                break
-            if s.aliases and any(a.lower() == stain_name.lower() for a in s.aliases):
-                stain_id = s.id
-                break
-
+        stain_id = stain_by_name.get(stain_name.lower())
         if not stain_id:
             raise HTTPException(status_code=400, detail=f"Stain '{stain_name}' not registered.")
+        parsed.append((file_path, stain_id))
 
-        existing_scan = db.query(Scan).filter(Scan.file_path == file_path).first()
-        if not existing_scan:
-            existing_scan = Scan(
-                stain_id=stain_id,
-                file_path=file_path,
-                block_id=None,
-                registered_by=current_user.id
-            )
-            db.add(existing_scan)
-            db.commit()
-            db.refresh(existing_scan)
-
-        if not db.query(ProjectScan).filter_by(project_id=tma_id, scan_id=existing_scan.id).first():
-            new_link = ProjectScan(
-                project_id=tma_id,
-                scan_id=existing_scan.id,
-                sort_order=db.query(func.max(ProjectScan.sort_order)).filter_by(project_id=tma_id).scalar() or 1
-            )
-            db.add(new_link)
-            added_scans += 1
-
-    db.commit()
-
-    if processed_count == 0:
+    if not parsed:
         return {"message": "Registered 0 WSI scans.", "total": 0, "added": 0}
-    return {"message": f"Processed {processed_count} valid scans.", "total": processed_count, "added": added_scans}
+
+    # 2. Apply all changes in one transaction with monotonically increasing
+    #    sort_order. flush() (not commit) gives new scans their ids while keeping
+    #    everything rollback-safe.
+    existing_links = {
+        r[0] for r in db.query(ProjectScan.scan_id).filter_by(project_id=tma_id).all()
+    }
+    next_order = (db.query(func.max(ProjectScan.sort_order))
+                  .filter_by(project_id=tma_id).scalar() or 0) + 1
+    added_scans = 0
+
+    try:
+        for file_path, stain_id in parsed:
+            scan = db.query(Scan).filter(Scan.file_path == file_path).first()
+            if not scan:
+                scan = Scan(stain_id=stain_id, file_path=file_path,
+                            block_id=None, registered_by=current_user.id)
+                db.add(scan)
+                db.flush()
+
+            if scan.id not in existing_links:
+                db.add(ProjectScan(project_id=tma_id, scan_id=scan.id, sort_order=next_order))
+                existing_links.add(scan.id)
+                next_order += 1
+                added_scans += 1
+
+        db.commit()
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+
+    return {"message": f"Processed {len(parsed)} valid scans.",
+            "total": len(parsed), "added": added_scans}
 
 
 @router.delete("/{tma_id}", status_code=status.HTTP_204_NO_CONTENT)
