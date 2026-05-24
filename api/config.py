@@ -22,6 +22,11 @@ class Settings(BaseSettings):
     api_title: str = "PathoDB API"
     api_version: str = "1.0.0"
 
+    # CORS — comma-separated list of allowed browser origins. Override in
+    # production with the deployed frontend origin(s), e.g.
+    #   cors_allow_origins=https://pathodb.example.org
+    cors_allow_origins: str = "http://localhost:3000,http://localhost:5173,http://127.0.0.1:5173"
+
     # Scanner service account
     scanner_api_key: str = ""
 

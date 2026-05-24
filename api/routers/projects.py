@@ -22,7 +22,8 @@ from sqlalchemy import func
 from ..database import get_db
 from ..models import (
     User, Project, ProjectScan, ProjectShare, Annotation,
-    Scan, Block, Probe, Submission, Cohort, Stain, Patient
+    Scan, Block, Probe, Submission, Cohort, Stain, Patient,
+    PROJECT_TYPE_TMA,
 )
 from ..auth import get_current_active_user
 
@@ -328,11 +329,19 @@ def _resolve_file_import(lines: List[str], db: Session) -> List[int]:
 
 @router.get("")
 def list_projects(db: Session = Depends(get_db), user: User = Depends(get_current_active_user)):
-    owned = db.query(Project).filter(Project.owner_id == user.id).all()
+    # TMAs are also stored in the projects table but are a distinct sub-type with
+    # their own /tmas API and page; they must not appear in the annotation
+    # project list. (See PROJECT_TYPES / docs/GLOSSARY.md.)
+    owned = db.query(Project).filter(
+        Project.owner_id == user.id,
+        Project.project_type != PROJECT_TYPE_TMA,
+    ).all()
     shared_ids = [r[0] for r in db.query(ProjectShare.project_id).filter(
         ProjectShare.shared_with_user_id == user.id).all()]
     shared = db.query(Project).filter(
-        Project.id.in_(shared_ids), Project.owner_id != user.id
+        Project.id.in_(shared_ids),
+        Project.owner_id != user.id,
+        Project.project_type != PROJECT_TYPE_TMA,
     ).all() if shared_ids else []
     return [_serialize(p, user.id, db) for p in owned + shared]
 

@@ -12,7 +12,10 @@ import io
 
 from ..database import get_db
 from ..auth import get_current_user
-from ..models import Project, TMACore, Block, Scan, ProjectScan, Stain, User, Probe, Submission
+from ..models import (
+    Project, TMACore, Block, Scan, ProjectScan, Stain, User, Probe, Submission,
+    PROJECT_TYPE_TMA,
+)
 
 router = APIRouter(prefix="/tmas", tags=["TMAs"])
 
@@ -28,7 +31,7 @@ def _get_owned_tma(tma_id: int, db: Session, user: User) -> Project:
     tma = db.query(Project).filter(
         Project.id == tma_id,
         Project.owner_id == user.id,
-        Project.project_type == 'tma',
+        Project.project_type == PROJECT_TYPE_TMA,
     ).first()
     if not tma:
         raise HTTPException(status_code=404, detail="TMA not found")
@@ -83,7 +86,7 @@ class TMAPatchRequest(PydanticModel):
 @router.get("")
 def list_tmas(db: Session = Depends(get_db), current_user: User = Depends(get_current_user)):
     tmas = db.query(Project).filter(
-        Project.project_type == 'tma',
+        Project.project_type == PROJECT_TYPE_TMA,
         Project.owner_id == current_user.id
     ).order_by(Project.updated_at.desc()).all()
     return [_serialize_tma(t, db) for t in tmas]
@@ -100,7 +103,7 @@ def create_tma(
         owner_id=current_user.id,
         name=name,
         description=description,
-        project_type='tma',
+        project_type=PROJECT_TYPE_TMA,
         source_type='file_import'
     )
     db.add(new_tma)
@@ -125,7 +128,7 @@ def patch_tma(
     tma = db.query(Project).filter(
         Project.id == tma_id,
         Project.owner_id == current_user.id,
-        Project.project_type == 'tma'
+        Project.project_type == PROJECT_TYPE_TMA
     ).first()
     if not tma:
         raise HTTPException(status_code=404, detail="TMA not found or unauthorized")
@@ -391,7 +394,7 @@ def delete_tma(
     tma = db.query(Project).filter(
         Project.id == tma_id,
         Project.owner_id == current_user.id,
-        Project.project_type == 'tma'
+        Project.project_type == PROJECT_TYPE_TMA
     ).first()
     if not tma:
         raise HTTPException(status_code=404, detail="TMA not found or unauthorized")

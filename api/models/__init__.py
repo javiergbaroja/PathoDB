@@ -13,6 +13,24 @@ from sqlalchemy.orm import relationship
 from ..database import Base
 
 
+# ── Canonical vocabulary ─────────────────────────────────────────────────────
+# Single source of truth for the enumerated string values used across routers.
+# See docs/GLOSSARY.md for the user-facing terminology these map to.
+PROJECT_TYPE_CELL_DETECTION    = "cell_detection"
+PROJECT_TYPE_REGION_ANNOTATION = "region_annotation"
+PROJECT_TYPE_TMA               = "tma"
+PROJECT_TYPES = (
+    PROJECT_TYPE_CELL_DETECTION,
+    PROJECT_TYPE_REGION_ANNOTATION,
+    PROJECT_TYPE_TMA,
+)
+
+SOURCE_TYPE_COHORT      = "cohort"
+SOURCE_TYPE_FILE_IMPORT = "file_import"
+SOURCE_TYPE_CUSTOM_LIST = "custom_list"
+SOURCE_TYPES = (SOURCE_TYPE_COHORT, SOURCE_TYPE_FILE_IMPORT, SOURCE_TYPE_CUSTOM_LIST)
+
+
 class User(Base):
     __tablename__ = "users"
 
