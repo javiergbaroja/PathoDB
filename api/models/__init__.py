@@ -317,3 +317,47 @@ class SlideRegistration(Base):
     __table_args__ = (
         UniqueConstraint("fixed_scan_id", "moving_scan_id"),
     )
+
+
+# ── Conversational agent persistence ─────────────────────────────────────────
+# (The pgvector-dependent ReportEmbedding model lives in api/agent/models.py so
+#  the core models module keeps no hard dependency on pgvector.)
+
+class ChatSession(Base):
+    __tablename__ = "chat_session"
+
+    id         = Column(Integer, primary_key=True)
+    user_id    = Column(Integer, ForeignKey("users.id"), nullable=False)
+    title      = Column(Text, nullable=True)
+    created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
+    updated_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
+
+    user     = relationship("User")
+    messages = relationship("ChatMessage", back_populates="session",
+                            cascade="all, delete-orphan", order_by="ChatMessage.id")
+
+
+class ChatMessage(Base):
+    __tablename__ = "chat_message"
+
+    id         = Column(Integer, primary_key=True)
+    session_id = Column(Integer, ForeignKey("chat_session.id", ondelete="CASCADE"), nullable=False)
+    role       = Column(Text, nullable=False)   # 'user' | 'assistant' | 'tool' | 'system'
+    content    = Column(Text, nullable=True)
+    tool_calls = Column(JSONB, nullable=True)
+    citations  = Column(JSONB, nullable=True)
+    created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
+
+    session = relationship("ChatSession", back_populates="messages")
+
+
+class AgentAudit(Base):
+    __tablename__ = "agent_audit"
+
+    id         = Column(Integer, primary_key=True)
+    user_id    = Column(Integer, ForeignKey("users.id"), nullable=False)
+    session_id = Column(Integer, ForeignKey("chat_session.id"), nullable=True)
+    event_type = Column(Text, nullable=False)   # query | tool_call | safe_action_requested|approved|rejected
+    tool_name  = Column(Text, nullable=True)
+    payload    = Column(JSONB, nullable=True)
+    created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())

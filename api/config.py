@@ -57,6 +57,31 @@ class Settings(BaseSettings):
     ollama_model: str = "llama3.2:3b"
     ollama_num_threads: int = 20
 
+    # ── Conversational agent (vLLM, OpenAI-compatible) ─────────────────────────
+    # vLLM is served out-of-process (see docs/AGENT_SERVING.md). The agent talks
+    # to it via an OpenAI-compatible client. Defaults target one RTX-4090.
+    agent_enabled: bool = True
+    vllm_base_url: str = "http://localhost:8001/v1"
+    vllm_api_key: str = "EMPTY"            # vLLM ignores it; ChatOpenAI requires a value
+    vllm_model: str = "Qwen/Qwen2.5-14B-Instruct-AWQ"
+    vllm_temperature: float = 0.1
+    vllm_max_tokens: int = 1024
+    vllm_request_timeout: float = 120.0
+    agent_max_iterations: int = 8          # tool-call loop ceiling (guardrail)
+    agent_max_input_chars: int = 4000      # per-message user input cap
+    agent_max_tool_rows: int = 25          # rows from a query surfaced to the model
+    agent_checkpointer_dsn: str = ""       # falls back to database_url when empty
+
+    # ── Report RAG (pgvector) ──────────────────────────────────────────────────
+    rag_enabled: bool = True
+    embedding_model: str = "BAAI/bge-base-en-v1.5"   # 768-dim → matches schema
+    embedding_dim: int = 768
+    embedding_device: str = "cpu"          # "cuda" if a GPU slot is free
+    embedding_batch_size: int = 32
+    rag_top_k: int = 6
+    rag_max_chunk_chars: int = 1200
+    rag_chunk_overlap_chars: int = 150
+
     class Config:
         env_file = ".env"
         env_file_encoding = "utf-8"
