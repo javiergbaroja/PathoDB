@@ -9,7 +9,7 @@ import { getSlideInfo, getThumbnailUrl, getRelatedScans, matchSlides } from './s
 import { getScansForBlock, registerScan, deleteScan } from './scans'
 import { getStains, createStain, updateStain } from './stains'
 import { search, lookup, getStats } from './search'
-import { askAssistant } from './assistant'
+import { createChatSession, listChatSessions, getChatSession, getAssistantHealth, streamChat, confirmAction } from './assistant'
 import { createTMA, uploadTMACoresCSV, uploadTMAScansCSV, getTMACores, getTMAs, getTMA, updateTMA, deleteTMA } from './tmas'
 import { getRegistration, autoRegister, saveRegistration, deleteRegistration } from './registration'
 import { 
@@ -39,7 +39,7 @@ export const api = {
   // Search & Stats
   search, lookup, getStats,
   // Assistant
-  askAssistant,
+  createChatSession, listChatSessions, getChatSession, getAssistantHealth, streamChat, confirmAction,
   // Projects
   getProjects, getProject, createProject, updateProject, deleteProject,
   syncProject, getProjectProgress, createProjectFromFile,

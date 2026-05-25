@@ -89,13 +89,13 @@ def _get_dimensions(slide: openslide.OpenSlide):
 
 # ─── Slide info ───────────────────────────────────────────────────────────────
 
-@router.get("/{scan_id}/info")
-def get_slide_info(
-    scan_id: int,
-    token:   str     = Query(...),
-    db:      Session = Depends(get_db),
-    _payload          = Depends(_auth_token),
-):
+def _slide_info(scan_id: int, db: Session, include_technical: bool = True) -> dict:
+    """Clinical + (optional) technical metadata for a scan.
+
+    Shared by the HTTP endpoint and the chatbot agent's slide_info tool. When
+    ``include_technical`` is False the slide file is not opened (no openslide
+    IO), so the agent can answer clinical questions even if the WSI is offline.
+    """
     scan  = _get_scan_or_404(scan_id, db)
     block = db.get(Block, scan.block_id)
     probe = db.get(Probe, block.probe_id) if block else None
@@ -107,42 +107,43 @@ def get_slide_info(
         for r in db.query(Report).filter(Report.submission_id == sub.id).all():
             reports[r.report_type] = r.report_text
 
-    # Slide technical metadata
-    slide = _open_slide(scan.file_path)
-    try:
-        w, h = _get_dimensions(slide)
-        props = dict(slide.properties)
-        mpp_x_raw = props.get("openslide.mpp-x")
-        obj_power = props.get("openslide.objective-power")
-        if mpp_x_raw:
-            try:
-                mpp_val = float(mpp_x_raw)
-                if mpp_val < 0.18:
-                    obj_power = "80"
-                elif mpp_val < 0.35:
-                    obj_power = "40"
-                elif mpp_val < 0.75:
-                    obj_power = "20"
-                elif mpp_val < 1.5:
-                    obj_power = "10"
-                else:
-                    obj_power = "5"
-            except ValueError:
-                pass
-            
-        tech  = {
-            "width":           w,
-            "height":          h,
-            "level_count":     slide.level_count,
-            "mpp_x":           props.get("openslide.mpp-x"),
-            "mpp_y":           props.get("openslide.mpp-y"),
-            "objective_power": obj_power,
-            "vendor":          props.get("openslide.vendor"),
-            "bounds_x":        int(props.get("openslide.bounds-x", 0) or 0),
-            "bounds_y":        int(props.get("openslide.bounds-y", 0) or 0),
-        }
-    finally:
-        slide.close()
+    tech = {}
+    if include_technical:
+        slide = _open_slide(scan.file_path)
+        try:
+            w, h = _get_dimensions(slide)
+            props = dict(slide.properties)
+            mpp_x_raw = props.get("openslide.mpp-x")
+            obj_power = props.get("openslide.objective-power")
+            if mpp_x_raw:
+                try:
+                    mpp_val = float(mpp_x_raw)
+                    if mpp_val < 0.18:
+                        obj_power = "80"
+                    elif mpp_val < 0.35:
+                        obj_power = "40"
+                    elif mpp_val < 0.75:
+                        obj_power = "20"
+                    elif mpp_val < 1.5:
+                        obj_power = "10"
+                    else:
+                        obj_power = "5"
+                except ValueError:
+                    pass
+
+            tech = {
+                "width":           w,
+                "height":          h,
+                "level_count":     slide.level_count,
+                "mpp_x":           props.get("openslide.mpp-x"),
+                "mpp_y":           props.get("openslide.mpp-y"),
+                "objective_power": obj_power,
+                "vendor":          props.get("openslide.vendor"),
+                "bounds_x":        int(props.get("openslide.bounds-x", 0) or 0),
+                "bounds_y":        int(props.get("openslide.bounds-y", 0) or 0),
+            }
+        finally:
+            slide.close()
 
     return {
         # Technical
@@ -178,6 +179,16 @@ def get_slide_info(
         "report_macro":       reports.get("macro"),
         "report_microscopy":  reports.get("microscopy"),
     }
+
+
+@router.get("/{scan_id}/info")
+def get_slide_info(
+    scan_id: int,
+    token:   str     = Query(...),
+    db:      Session = Depends(get_db),
+    _payload          = Depends(_auth_token),
+):
+    return _slide_info(scan_id, db)
 
 
 # ─── DZI descriptor ───────────────────────────────────────────────────────────

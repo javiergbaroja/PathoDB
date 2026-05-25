@@ -326,3 +326,60 @@ CREATE TABLE IF NOT EXISTS slide_registrations (
 
 CREATE INDEX IF NOT EXISTS idx_slide_registrations_fixed  ON slide_registrations (fixed_scan_id);
 CREATE INDEX IF NOT EXISTS idx_slide_registrations_moving ON slide_registrations (moving_scan_id);
+
+-- =============================================================================
+-- REPORT EMBEDDINGS  (RAG over pathology reports — requires pgvector)
+-- Populated by api/workers/embed_reports.py. embedding dimension must match
+-- Settings.embedding_dim (default 768 = BAAI/bge-base-en-v1.5).
+-- =============================================================================
+CREATE EXTENSION IF NOT EXISTS vector;
+
+CREATE TABLE IF NOT EXISTS report_embeddings (
+    id            SERIAL      PRIMARY KEY,
+    report_id     INTEGER     NOT NULL REFERENCES reports (id) ON DELETE CASCADE,
+    submission_id INTEGER     NOT NULL REFERENCES submissions (id),  -- denormalized for citation/scoping
+    chunk_index   INTEGER     NOT NULL DEFAULT 0,
+    chunk_text    TEXT        NOT NULL,
+    embedding     vector(768),
+    created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE (report_id, chunk_index)
+);
+CREATE INDEX IF NOT EXISTS idx_report_embeddings_report_id  ON report_embeddings (report_id);
+CREATE INDEX IF NOT EXISTS idx_report_embeddings_submission ON report_embeddings (submission_id);
+CREATE INDEX IF NOT EXISTS idx_report_embeddings_vec
+    ON report_embeddings USING hnsw (embedding vector_cosine_ops);
+
+-- =============================================================================
+-- CHAT SESSIONS / MESSAGES / AGENT AUDIT  (conversational pathology agent)
+-- =============================================================================
+CREATE TABLE IF NOT EXISTS chat_session (
+    id         SERIAL      PRIMARY KEY,
+    user_id    INTEGER     NOT NULL REFERENCES users (id),
+    title      TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_chat_session_user ON chat_session (user_id);
+
+CREATE TABLE IF NOT EXISTS chat_message (
+    id         SERIAL      PRIMARY KEY,
+    session_id INTEGER     NOT NULL REFERENCES chat_session (id) ON DELETE CASCADE,
+    role       TEXT        NOT NULL CHECK (role IN ('user', 'assistant', 'tool', 'system')),
+    content    TEXT,
+    tool_calls JSONB,
+    citations  JSONB,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_chat_message_session ON chat_message (session_id);
+
+CREATE TABLE IF NOT EXISTS agent_audit (
+    id         SERIAL      PRIMARY KEY,
+    user_id    INTEGER     NOT NULL REFERENCES users (id),
+    session_id INTEGER     REFERENCES chat_session (id),
+    event_type TEXT        NOT NULL,
+    tool_name  TEXT,
+    payload    JSONB,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_agent_audit_user  ON agent_audit (user_id);
+CREATE INDEX IF NOT EXISTS idx_agent_audit_event ON agent_audit (event_type);
