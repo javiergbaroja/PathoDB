@@ -680,6 +680,9 @@ def bulk_save_annotations(project_id: int, scan_id: int, req: BulkAnnotationUpse
     }
     now = datetime.now(timezone.utc)
     seen_ids = set()
+    # Row resulting from each payload item, kept 1:1 and in request order so the
+    # client can map the (possibly temporary) id it sent to the real DB id.
+    result_rows: list[Annotation] = []
 
     for item in req.annotations:
         bx, by, bw, bh = _bbox(item.annotation_type, item.geometry)
@@ -704,21 +707,31 @@ def bulk_save_annotations(project_id: int, scan_id: int, req: BulkAnnotationUpse
                 current.area_px         = area
                 current.notes           = item.notes
                 current.updated_at      = now
+            result_rows.append(current)
         else:
-            db.add(Annotation(
+            new_ann = Annotation(
                 project_id=project_id, scan_id=scan_id, created_by=user.id,
                 class_id=item.class_id, class_name=item.class_name,
                 annotation_type=item.annotation_type, geometry=item.geometry,
                 bbox_x=bx, bbox_y=by, bbox_w=bw, bbox_h=bh,
                 area_px=area, notes=item.notes,
-            ))
+            )
+            db.add(new_ann)
+            result_rows.append(new_ann)
 
     for ann_id, ann in existing.items():
         if ann_id not in seen_ids:
             db.delete(ann)
 
+    # Flush so freshly-inserted rows receive their primary keys before we build
+    # the id map, then commit the whole reconcile atomically.
+    db.flush()
+    id_map = [
+        {"client_id": item.id, "id": row.id}
+        for item, row in zip(req.annotations, result_rows)
+    ]
     db.commit()
-    return {"saved": len(req.annotations)}
+    return {"saved": len(req.annotations), "id_map": id_map}
 
 
 # ─── Progress ─────────────────────────────────────────────────────────────────

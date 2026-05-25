@@ -28,6 +28,29 @@ if (!document.getElementById('pd-styles')) {
   document.head.appendChild(s)
 }
 
+// Build a {client_id → server_id} map from a bulk-save response.
+function buildSavedIdMap(result) {
+  const map = result?.id_map
+  const idMap = new Map()
+  if (Array.isArray(map)) {
+    for (const e of map) {
+      if (e && e.client_id != null && e.client_id !== e.id) idMap.set(e.client_id, e.id)
+    }
+  }
+  return idMap
+}
+
+// Return a copy of `list` with any temporary ids replaced by their server ids.
+function remapAnnotationIds(list, idMap) {
+  if (!idMap.size) return list
+  let changed = false
+  const next = list.map(a => {
+    if (idMap.has(a.id)) { changed = true; return { ...a, id: idMap.get(a.id) } }
+    return a
+  })
+  return changed ? next : list
+}
+
 export default function ProjectDetail() {
   const { projectId } = useParams()
   const [showBatchAIModal, setShowBatchAIModal] = useState(false)
@@ -126,17 +149,30 @@ export default function ProjectDetail() {
   }, [localAnnotations])
 
   const initializedScanRef = useRef(null)
-  const [loadedData, setLoadedData] = useState(null)
+  const loadedDataRef      = useRef(null)
+  // The exact array reference we last wrote into the React-Query cache after a
+  // save. The re-init effect uses it to distinguish our own optimistic writes
+  // (which must NOT clobber local state / clear the selection) from genuine
+  // server reloads (initial load, slide switch, import, class edits).
+  const lastSyncedCacheRef = useRef(null)
 
   useEffect(() => {
     if (!rawAnnotations || isFetching) return
-    if (initializedScanRef.current !== activeScanId || loadedData !== rawAnnotations) {
+    // Cache update that we wrote ourselves after a save: just record it as the
+    // loaded baseline and leave local edits + selection untouched.
+    if (rawAnnotations === lastSyncedCacheRef.current) {
       initializedScanRef.current = activeScanId
-      setLoadedData(rawAnnotations)
+      loadedDataRef.current      = rawAnnotations
+      return
+    }
+    if (initializedScanRef.current !== activeScanId || loadedDataRef.current !== rawAnnotations) {
+      initializedScanRef.current = activeScanId
+      loadedDataRef.current      = rawAnnotations
       const merged = rawAnnotations.map(a => ({
         ...a,
         _color: classMap[a.class_id]?.color || '#94a3b8',
       }))
+      localAnnotationsRef.current = merged
       setLocalAnnotations(merged)
       setSelectedAnnIds(new Set())
     }
@@ -167,58 +203,130 @@ export default function ProjectDetail() {
 
   const readOnly = project?.access === 'read'
 
-  // ── Auto-save helper ───────────────────────────────────────────────────────
-  const triggerSave = useCallback((anns) => {
+  // ── Undo / redo history ────────────────────────────────────────────────────
+  const historyPastRef   = useRef([])
+  const historyFutureRef = useRef([])
+
+  // Keep the active scan id reachable from async save callbacks without making
+  // them re-create on every change.
+  const activeScanIdRef = useRef(null)
+  useEffect(() => { activeScanIdRef.current = activeScanId }, [activeScanId])
+
+  // ── Serialized auto-save ─────────────────────────────────────────────────────
+  // All saves run through a single promise chain so two PUTs for the same scan
+  // can never overlap (overlapping PUTs made the backend reconcile double-insert,
+  // producing duplicate annotations). After each save we adopt the server-assigned
+  // ids so the client stops re-sending temporary ids, and mirror the result into
+  // the query cache tagged via lastSyncedCacheRef so the re-init effect knows it
+  // is our own write and does not clobber local edits or resurrect deletions.
+  const saveChainRef        = useRef(Promise.resolve())
+  const outstandingSavesRef = useRef(0)
+
+  const reconcileSavedIds = useCallback((idMap) => {
+    if (!idMap.size) return
+    const remap = (list) => remapAnnotationIds(list, idMap)
+
+    // Update the ref synchronously so the next chained save reads real ids.
+    localAnnotationsRef.current = remap(localAnnotationsRef.current)
+    setLocalAnnotations(localAnnotationsRef.current)
+    historyPastRef.current   = historyPastRef.current.map(remap)
+    historyFutureRef.current = historyFutureRef.current.map(remap)
+    setSelectedAnnIds(prev => {
+      let changed = false
+      const next = new Set()
+      prev.forEach(id => {
+        if (idMap.has(id)) { changed = true; next.add(idMap.get(id)) } else next.add(id)
+      })
+      return changed ? next : prev
+    })
+  }, [])
+
+  const enqueueSave = useCallback((scanId, annsOrFn) => {
+    if (readOnly || !scanId) return Promise.resolve()
+    outstandingSavesRef.current += 1
+    setSaving(true)
+    setPendingSave(false)
+    const run = saveChainRef.current.then(async () => {
+      const anns = typeof annsOrFn === 'function' ? annsOrFn() : annsOrFn
+      const result = await api.bulkSaveAnnotations(Number(projectId), scanId, anns)
+      const idMap = buildSavedIdMap(result)
+      if (scanId === activeScanIdRef.current) {
+        // Adopt server ids into the live state, then mirror that state into the
+        // query cache. We tag the written reference so the re-init effect treats
+        // it as our own write and leaves local edits + selection untouched.
+        reconcileSavedIds(idMap)
+        const synced = localAnnotationsRef.current
+        lastSyncedCacheRef.current = synced
+        queryClient.setQueryData(['annotations', projectId, scanId], synced)
+      } else {
+        // Saved for a scan the user already left (slide switch): keep that scan's
+        // cache fresh so revisiting it shows the saved edits without a stale flash.
+        queryClient.setQueryData(['annotations', projectId, scanId], remapAnnotationIds(anns, idMap))
+      }
+      setSaveError('')
+    })
+    // Single error-handling tail. The chain is advanced to this tail (which never
+    // rejects) so one failed save can't stall every later save, and the returned
+    // promise also never rejects so fire-and-forget callers produce no unhandled
+    // rejection. The next chained save only starts after this tail, guaranteeing
+    // id reconciliation from this save lands before the next one reads the ref.
+    const tail = run
+      .catch(e => {
+        console.error('[ProjectDetail] save failed:', e)
+        setSaveError(e?.message || 'Save failed — changes may be lost')
+      })
+      .finally(() => {
+        outstandingSavesRef.current -= 1
+        if (outstandingSavesRef.current === 0) {
+          setSaving(false)
+          setPendingSave(false)
+          refetchScans()
+          queryClient.invalidateQueries({ queryKey: ['project-progress', projectId] })
+        }
+      })
+    saveChainRef.current = tail
+    return tail
+  }, [readOnly, projectId, reconcileSavedIds, refetchScans, queryClient])
+
+  // Debounced auto-save. The snapshot is read from the live ref at flush time so
+  // it always reflects the latest (id-reconciled) state rather than a stale copy.
+  const triggerSave = useCallback(() => {
     if (readOnly) return
     clearTimeout(saveTimerRef.current)
     setPendingSave(true)
     setSaveError('')
-    saveTimerRef.current = setTimeout(async () => {
-      if (!activeScanId) return
-      setSaving(true)
-      try {
-        await api.bulkSaveAnnotations(Number(projectId), activeScanId, anns)
-        queryClient.setQueryData(['annotations', projectId, activeScanId], anns)
-        refetchScans()
-        queryClient.invalidateQueries({ queryKey: ['project-progress', projectId] })
-      } catch (e) {
-        console.error('[ProjectDetail] auto-save failed:', e)
-        setSaveError(e.message || 'Save failed — changes may be lost')
-      } finally {
-        setSaving(false)
-        setPendingSave(false)
-      }
+    saveTimerRef.current = setTimeout(() => {
+      enqueueSave(activeScanIdRef.current, () => localAnnotationsRef.current)
     }, 800)
-  }, [activeScanId, projectId, readOnly, queryClient]) // eslint-disable-line
-
-  // ── Undo / redo ────────────────────────────────────────────────────────────
-  const historyPastRef   = useRef([])
-  const historyFutureRef = useRef([])
+  }, [readOnly, enqueueSave])
 
   const commitAnnotationChange = useCallback((nextAnnotations) => {
     historyPastRef.current.push(localAnnotationsRef.current)
     if (historyPastRef.current.length > 50) historyPastRef.current.shift()
     historyFutureRef.current = []
+    localAnnotationsRef.current = nextAnnotations
     setLocalAnnotations(nextAnnotations)
-    triggerSave(nextAnnotations)
+    triggerSave()
   }, [triggerSave])
 
   const handleUndo = useCallback(() => {
     if (readOnly || historyPastRef.current.length === 0) return
     const previousState = historyPastRef.current.pop()
     historyFutureRef.current.push(localAnnotationsRef.current)
+    localAnnotationsRef.current = previousState
     setLocalAnnotations(previousState)
     setSelectedAnnIds(new Set())
-    triggerSave(previousState)
+    triggerSave()
   }, [readOnly, triggerSave])
 
   const handleRedo = useCallback(() => {
     if (readOnly || historyFutureRef.current.length === 0) return
     const nextState = historyFutureRef.current.pop()
     historyPastRef.current.push(localAnnotationsRef.current)
+    localAnnotationsRef.current = nextState
     setLocalAnnotations(nextState)
     setSelectedAnnIds(new Set())
-    triggerSave(nextState)
+    triggerSave()
   }, [readOnly, triggerSave])
 
   // ── Auto-import handler (called by ProjectModelsPanel on job completion) ───
@@ -238,11 +346,7 @@ export default function ProjectDetail() {
       const annotationsToSave = localAnnotationsRef.current.filter(
         a => a.class_id !== AI_ROI_CLASS.id
       )
-      await api.bulkSaveAnnotations(
-        Number(projectId),
-        activeScanId,
-        annotationsToSave
-      )
+      await enqueueSave(activeScanId, annotationsToSave)
     } catch (e) {
       console.warn('[handleAutoImport] pre-flush failed, continuing anyway:', e)
     }
@@ -309,13 +413,13 @@ export default function ProjectDetail() {
     queryClient.invalidateQueries({ queryKey: ['project-progress', projectId] })
 
     return totalImported
-  }, [activeScanId, projectId, readOnly, queryClient, refetchAnnotations]) // eslint-disable-line
+  }, [activeScanId, projectId, readOnly, queryClient, refetchAnnotations, enqueueSave]) // eslint-disable-line
 
   // ── GeoJSON import from file (Import button) ───────────────────────────────
   const handleImportGeoJSON = async (file, mode) => {
     if (!readOnly && activeScanId && localAnnotationsRef.current.length > 0) {
       clearTimeout(saveTimerRef.current)
-      await api.bulkSaveAnnotations(Number(projectId), activeScanId, localAnnotationsRef.current)
+      await enqueueSave(activeScanId, localAnnotationsRef.current)
     }
     const formData = new FormData()
     formData.append('file', file)
@@ -332,12 +436,10 @@ export default function ProjectDetail() {
     prevScanRef.current = activeScanId
     if (prev && prev !== activeScanId) {
       clearTimeout(saveTimerRef.current)
-      api.bulkSaveAnnotations(Number(projectId), prev, localAnnotationsRef.current)
-        .then(() => {
-          refetchScans()
-          queryClient.invalidateQueries({ queryKey: ['project-progress', projectId] })
-        })
-        .catch(e => console.error('[ProjectDetail] navigation save failed:', e))
+      // Capture the departing scan's annotations now — the re-init effect will
+      // soon replace localAnnotations with the incoming scan's data.
+      const snapshot = localAnnotationsRef.current
+      enqueueSave(prev, snapshot)
     }
   }, [activeScanId]) // eslint-disable-line
 
@@ -427,9 +529,10 @@ export default function ProjectDetail() {
   function handleDeleteSelected() {
     if (readOnly || selectedAnnIds.size === 0) return
     const next = localAnnotationsRef.current.filter(a => !selectedAnnIds.has(a.id))
+    localAnnotationsRef.current = next
     setLocalAnnotations(next)
     setSelectedAnnIds(new Set())
-    triggerSave(next)
+    triggerSave()
   }
 
   function handleSelectAllOfClass(classId) {
@@ -490,9 +593,13 @@ export default function ProjectDetail() {
     if (readOnly || !ids.length) return
     const idSet = new Set(ids)
     const next  = localAnnotationsRef.current.filter(a => !idSet.has(a.id))
-    setLocalAnnotations(next)
+    historyPastRef.current.push(localAnnotationsRef.current)
+    if (historyPastRef.current.length > 50) historyPastRef.current.shift()
+    historyFutureRef.current = []
     localAnnotationsRef.current = next
+    setLocalAnnotations(next)
     setSelectedAnnIds(prev => { const s = new Set(prev); ids.forEach(id => s.delete(id)); return s })
+    triggerSave()
   }
 
   // ── Save on back-navigation ────────────────────────────────────────────────
@@ -500,8 +607,7 @@ export default function ProjectDetail() {
     if (!readOnly && activeScanId) {
       clearTimeout(saveTimerRef.current)
       try {
-        await api.bulkSaveAnnotations(Number(projectId), activeScanId, localAnnotationsRef.current)
-        queryClient.setQueryData(['annotations', projectId, activeScanId], localAnnotationsRef.current)
+        await enqueueSave(activeScanId, localAnnotationsRef.current)
       } catch (e) { console.error('[ProjectDetail] Failed to save on exit:', e) }
     }
     navigate('/projects')
