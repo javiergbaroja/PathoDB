@@ -111,6 +111,15 @@ else
     pg_isready -p "$PGPORT" -q || { echo "ERROR: PostgreSQL did not become ready in 30s"; exit 1; }
 fi
 
+# ── Apply schema (idempotent — IF NOT EXISTS throughout) ─────────────────────
+# Ensures report_embeddings, chat tables, etc. exist even on a DB that was
+# created before those tables were added. Safe to run on an up-to-date DB.
+echo ""
+echo "Applying schema (idempotent)..."
+psql -p "$PGPORT" -U "$PGUSER" -d "$PGDB" -f db/schema.sql \
+    && echo "Schema OK." \
+    || { echo "ERROR: schema apply failed — check db/schema.sql output above"; exit 1; }
+
 # ── Install Python dependencies ───────────────────────────────────────────────
 echo ""
 echo "Installing/verifying API dependencies..."
