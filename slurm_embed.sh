@@ -71,7 +71,10 @@ source "$ENV_FILE"
 set +a
 
 PGDB="${POSTGRES_DB}"
-PGUSER="${POSTGRES_USER}"
+# Use a distinct variable name — PGUSER is a psql env-var that would silently
+# override the connecting username even on calls without -U, causing "superuser"
+# psql commands to connect as the app user instead of the OS/cluster user.
+APP_PGUSER="${POSTGRES_USER}"
 
 # ── Manage PostgreSQL ─────────────────────────────────────────────────────────
 # We track whether WE started the instance so we only stop it on exit if so.
@@ -114,7 +117,7 @@ fi
 # ── Ensure pgvector extension and report_embeddings table exist ───────────────
 # Two privilege tiers:
 #   • No -U (OS/cluster user = PostgreSQL superuser): CREATE EXTENSION vector
-#   • -U $PGUSER (app user):                         owns nothing here, so we
+#   • -U $APP_PGUSER (app user):                     owns nothing here, so we
 #     run everything as the superuser and GRANT DML to the app user.
 # This avoids the "must be owner" and "permission denied to create extension"
 # errors that occur when the app user runs the full schema.sql.
@@ -147,9 +150,9 @@ CREATE INDEX IF NOT EXISTS idx_report_embeddings_vec
 
 -- Grant DML to the app user so embed_reports.py can INSERT/SELECT
 GRANT SELECT, INSERT, UPDATE, DELETE
-    ON report_embeddings TO ${PGUSER};
+    ON report_embeddings TO ${APP_PGUSER};
 GRANT USAGE, SELECT
-    ON SEQUENCE report_embeddings_id_seq TO ${PGUSER};
+    ON SEQUENCE report_embeddings_id_seq TO ${APP_PGUSER};
 SQL
 echo "  report_embeddings: OK"
 
@@ -188,7 +191,7 @@ if [ "$REPORT_TYPE" != "all" ]; then
     REPORT_TYPE_COND="AND r.report_type = '$REPORT_TYPE'"
 fi
 
-PENDING=$(psql -p "$PGPORT" -U "$PGUSER" -d "$PGDB" -At -c "
+PENDING=$(psql -p "$PGPORT" -U "$APP_PGUSER" -d "$PGDB" -At -c "
     SELECT COUNT(*)
     FROM reports r
     WHERE r.report_text IS NOT NULL
@@ -199,11 +202,11 @@ PENDING=$(psql -p "$PGPORT" -U "$PGUSER" -d "$PGDB" -At -c "
       );
 " 2>/dev/null || echo "?")
 
-ALREADY=$(psql -p "$PGPORT" -U "$PGUSER" -d "$PGDB" -At -c "
+ALREADY=$(psql -p "$PGPORT" -U "$APP_PGUSER" -d "$PGDB" -At -c "
     SELECT COUNT(DISTINCT report_id) FROM report_embeddings;
 " 2>/dev/null || echo "?")
 
-TOTAL=$(psql -p "$PGPORT" -U "$PGUSER" -d "$PGDB" -At -c "
+TOTAL=$(psql -p "$PGPORT" -U "$APP_PGUSER" -d "$PGDB" -At -c "
     SELECT COUNT(*)
     FROM reports r
     WHERE r.report_text IS NOT NULL
@@ -230,7 +233,7 @@ python api/workers/embed_reports.py \
 
 # ── Post-run summary ──────────────────────────────────────────────────────────
 echo ""
-REMAINING=$(psql -p "$PGPORT" -U "$PGUSER" -d "$PGDB" -At -c "
+REMAINING=$(psql -p "$PGPORT" -U "$APP_PGUSER" -d "$PGDB" -At -c "
     SELECT COUNT(*)
     FROM reports r
     WHERE r.report_text IS NOT NULL
@@ -241,11 +244,11 @@ REMAINING=$(psql -p "$PGPORT" -U "$PGUSER" -d "$PGDB" -At -c "
       );
 " 2>/dev/null || echo "?")
 
-FINAL_EMBEDDED=$(psql -p "$PGPORT" -U "$PGUSER" -d "$PGDB" -At -c "
+FINAL_EMBEDDED=$(psql -p "$PGPORT" -U "$APP_PGUSER" -d "$PGDB" -At -c "
     SELECT COUNT(DISTINCT report_id) FROM report_embeddings;
 " 2>/dev/null || echo "?")
 
-TOTAL_CHUNKS=$(psql -p "$PGPORT" -U "$PGUSER" -d "$PGDB" -At -c "
+TOTAL_CHUNKS=$(psql -p "$PGPORT" -U "$APP_PGUSER" -d "$PGDB" -At -c "
     SELECT COUNT(*) FROM report_embeddings;
 " 2>/dev/null || echo "?")
 

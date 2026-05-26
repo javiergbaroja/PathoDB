@@ -16,6 +16,7 @@ and the embedding model configured in api/config.py (default BAAI/bge-base-en-v1
 import argparse
 import logging
 import sys
+import time
 from pathlib import Path
 
 # Allow running as a plain script: ensure repo root is importable.
@@ -36,6 +37,86 @@ def _vector_literal(vec) -> str:
     return "[" + ",".join(f"{x:.6f}" for x in vec) + "]"
 
 
+def _check_db(db) -> bool:
+    """
+    Print diagnostic information about the DB connection and report_embeddings
+    table. Returns True if the worker can proceed, False if a hard blocker is found.
+    """
+    log.info("──── DB diagnostics ────")
+
+    # 1. Connection identity
+    row = db.execute(text("SELECT current_user, current_database(), version()")).fetchone()
+    log.info("  Connected as : %s", row[0])
+    log.info("  Database     : %s", row[1])
+    log.info("  PG version   : %s", row[2].split(",")[0])
+
+    # 2. pgvector extension
+    vec_ok = db.execute(
+        text("SELECT EXISTS (SELECT 1 FROM pg_extension WHERE extname = 'vector')")
+    ).scalar()
+    log.info("  pgvector ext : %s", "✓ installed" if vec_ok else "✗ MISSING — run: CREATE EXTENSION vector;")
+
+    # 3. report_embeddings table existence + owner
+    tbl = db.execute(text("""
+        SELECT tableowner
+        FROM   pg_tables
+        WHERE  schemaname = 'public' AND tablename = 'report_embeddings'
+    """)).fetchone()
+    if tbl:
+        log.info("  table exists : ✓ (owner=%s)", tbl[0])
+    else:
+        log.error("  table exists : ✗ MISSING — apply db/schema.sql first")
+        return False
+
+    # 4. Privileges the current role has on report_embeddings
+    privs = db.execute(text("""
+        SELECT privilege_type
+        FROM   information_schema.role_table_grants
+        WHERE  table_schema = 'public'
+          AND  table_name   = 'report_embeddings'
+          AND  grantee      = current_user
+        ORDER  BY privilege_type
+    """)).fetchall()
+    if privs:
+        log.info("  privileges   : %s", ", ".join(r[0] for r in privs))
+    else:
+        # May be superuser or owner — double-check with has_table_privilege
+        can_select = db.execute(
+            text("SELECT has_table_privilege(current_user, 'report_embeddings', 'SELECT')")
+        ).scalar()
+        can_insert = db.execute(
+            text("SELECT has_table_privilege(current_user, 'report_embeddings', 'INSERT')")
+        ).scalar()
+        log.info("  privileges   : (via ownership/superuser) SELECT=%s INSERT=%s", can_select, can_insert)
+        if not (can_select and can_insert):
+            log.error(
+                "  ✗ Current user '%s' lacks SELECT/INSERT on report_embeddings.\n"
+                "  Fix: run as superuser:\n"
+                "    GRANT SELECT, INSERT, UPDATE, DELETE\n"
+                "      ON report_embeddings TO %s;\n"
+                "    GRANT USAGE, SELECT\n"
+                "      ON SEQUENCE report_embeddings_id_seq TO %s;",
+                row[0], row[0], row[0],
+            )
+            return False
+
+    # 5. Embedding model load
+    log.info("  Loading embedding model (this may take a moment)...")
+    t0 = time.time()
+    try:
+        test_vec = embed_texts(["pathology diagnostic embedding test"])
+        log.info(
+            "  model ready  : ✓ dim=%d  (%.1fs)",
+            len(test_vec[0]), time.time() - t0,
+        )
+    except Exception as exc:
+        log.error("  model error  : ✗ %s", exc)
+        return False
+
+    log.info("────────────────────────")
+    return True
+
+
 def main():
     ap = argparse.ArgumentParser(description="Embed pathology reports into report_embeddings.")
     ap.add_argument("--report-type", choices=["microscopy", "macro", "all"], default="all")
@@ -48,6 +129,11 @@ def main():
     total_reports = 0
     total_chunks = 0
     try:
+        # ── Pre-flight checks ─────────────────────────────────────────────────
+        if not _check_db(db):
+            sys.exit(1)
+
+        # ── Fetch pending reports ─────────────────────────────────────────────
         limit_sql = "LIMIT :limit" if args.limit else ""
         rows = db.execute(text(f"""
             SELECT r.id, r.submission_id, r.report_text
@@ -60,10 +146,17 @@ def main():
             {limit_sql}
         """), {"rtype": args.report_type, **({"limit": args.limit} if args.limit else {})}).fetchall()
 
-        log.info("Found %d report(s) needing embeddings (type=%s).", len(rows), args.report_type)
+        n_pending = len(rows)
+        log.info("Found %d report(s) needing embeddings (type=%s).", n_pending, args.report_type)
+        if n_pending == 0:
+            log.info("Nothing to do.")
+            return
 
+        # ── Embed ─────────────────────────────────────────────────────────────
         pending = 0
-        for rid, sid, rtext in rows:
+        t_start = time.time()
+
+        for idx, (rid, sid, rtext) in enumerate(rows, 1):
             chunks = chunk_report(rtext, settings.rag_max_chunk_chars, settings.rag_chunk_overlap_chars)
             if not chunks:
                 continue
@@ -78,12 +171,26 @@ def main():
                 total_chunks += 1
             total_reports += 1
             pending += 1
+
             if pending >= args.report_batch:
                 db.commit()
                 pending = 0
-                log.info("Committed %d reports / %d chunks so far…", total_reports, total_chunks)
+                elapsed = time.time() - t_start
+                rate = total_reports / elapsed if elapsed > 0 else 0
+                remaining = n_pending - idx
+                eta_s = remaining / rate if rate > 0 else 0
+                eta_h = eta_s / 3600
+                log.info(
+                    "Progress: %d/%d reports | %d chunks | %.1f rep/s | ETA %.1fh",
+                    total_reports, n_pending, total_chunks, rate, eta_h,
+                )
+
         db.commit()
-        log.info("Done. Embedded %d report(s) into %d chunk(s).", total_reports, total_chunks)
+        elapsed = time.time() - t_start
+        log.info(
+            "Done. Embedded %d report(s) into %d chunk(s) in %.1f min.",
+            total_reports, total_chunks, elapsed / 60,
+        )
     except Exception as e:
         db.rollback()
         log.error("Ingestion failed: %s", e, exc_info=True)
