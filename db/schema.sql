@@ -350,6 +350,22 @@ CREATE INDEX IF NOT EXISTS idx_report_embeddings_submission ON report_embeddings
 CREATE INDEX IF NOT EXISTS idx_report_embeddings_vec
     ON report_embeddings USING hnsw (embedding vector_cosine_ops);
 
+DO $$
+BEGIN
+    IF EXISTS (
+        SELECT 1 FROM pg_roles WHERE rolname = current_setting('app.db_user', true)
+    ) THEN
+        EXECUTE format(
+            'GRANT SELECT, INSERT, UPDATE, DELETE ON report_embeddings TO %I;'
+            ' GRANT USAGE, SELECT ON SEQUENCE report_embeddings_id_seq TO %I;',
+            current_setting('app.db_user'), current_setting('app.db_user')
+
+
+        );
+    END IF;
+END
+$$;
+
 -- =============================================================================
 -- CHAT SESSIONS / MESSAGES / AGENT AUDIT  (conversational pathology agent)
 -- =============================================================================

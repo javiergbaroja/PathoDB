@@ -118,10 +118,45 @@ fi
 # Ensures report_embeddings, chat tables, etc. exist even on a DB that was
 # created before those tables were added. Safe to run on an up-to-date DB.
 echo ""
-echo "Applying schema (idempotent)..."
-"$PG_BIN/psql" -p "$PGPORT" -U "$PGUSER" -d "$PGDB" -f db/schema.sql \
-    && echo "Schema OK." \
-    || { echo "ERROR: schema apply failed — check db/schema.sql output above"; exit 1; }
+# echo "Applying schema (idempotent)..."
+# "$PG_BIN/psql" -p "$PGPORT" -U "$PGUSER" -d "$PGDB" -f db/schema.sql \
+#     && echo "Schema OK." \
+#     || { echo "ERROR: schema apply failed — check db/schema.sql output above"; exit 1; }
+"$PG_BIN/psql" -p "$PGPORT" -d "$PGDB" --set ON_ERROR_STOP=1 \
+    -c "CREATE EXTENSION IF NOT EXISTS vector;" \
+    && echo "  pgvector: OK" \
+    || { echo "ERROR: could not create pgvector extension."; \
+         echo "  Ensure the server-side pgvector library is installed and rerun."; exit 1; }
+
+echo "Ensuring report_embeddings table and indexes exist..."
+"$PG_BIN/psql" -p "$PGPORT" -d "$PGDB" --set ON_ERROR_STOP=1 <<SQL
+CREATE TABLE IF NOT EXISTS report_embeddings (
+    id            SERIAL      PRIMARY KEY,
+    report_id     INTEGER     NOT NULL REFERENCES reports (id) ON DELETE CASCADE,
+    submission_id INTEGER     NOT NULL REFERENCES submissions (id),
+    chunk_index   INTEGER     NOT NULL DEFAULT 0,
+    chunk_text    TEXT        NOT NULL,
+    embedding     vector(768),
+    created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE (report_id, chunk_index)
+);
+
+CREATE INDEX IF NOT EXISTS idx_report_embeddings_report_id
+    ON report_embeddings (report_id);
+CREATE INDEX IF NOT EXISTS idx_report_embeddings_submission
+    ON report_embeddings (submission_id);
+CREATE INDEX IF NOT EXISTS idx_report_embeddings_vec
+    ON report_embeddings USING hnsw (embedding vector_cosine_ops);
+
+-- Grant DML to the app user so embed_reports.py can INSERT/SELECT
+
+GRANT SELECT, INSERT, UPDATE, DELETE
+    ON report_embeddings TO ${PGUSER};
+GRANT USAGE, SELECT
+    ON SEQUENCE report_embeddings_id_seq TO ${PGUSER};
+SQL
+echo "  report_embeddings: OK"
+
 
 # ── Install Python dependencies ───────────────────────────────────────────────
 # echo ""
