@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useMemo } from 'react'
 import Layout from '../components/Layout'
 import {
   Btn, Panel, ErrorMsg, SpinnerPage,
@@ -233,6 +233,51 @@ function SavedCohortCard({ c, onOpen, onExportCsv, onExportJson, onDelete }) {
   )
 }
 
+// ── One-scan-per-block deduplication control ──────────────────────────────────
+// Mirrors the "Keep only one slide per block" option in SlideTargetManager.
+// Purely client-side: groups by block_id and keeps the scan matching the
+// preferred stain, or the first scan if no preference is set.
+
+function DedupeControl({ onePerBlock, setOnePerBlock, dedupeStains, setDedupeStains }) {
+  return (
+    <div style={{
+      marginTop: 12,
+      padding: '10px 12px',
+      background: 'rgba(0,31,63,0.03)',
+      borderRadius: 'var(--radius-md)',
+      border: '1px solid var(--border-l)',
+    }}>
+      <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
+        <input
+          type="checkbox"
+          checked={onePerBlock}
+          onChange={e => setOnePerBlock(e.target.checked)}
+          style={{ accentColor: 'var(--navy)', cursor: 'pointer', width: 14, height: 14, flexShrink: 0 }}
+        />
+        <span style={{ fontSize: 13, fontWeight: 500, color: 'var(--navy)' }}>One scan per block</span>
+        <span style={{ fontSize: 12, color: 'var(--text-3)', fontWeight: 400 }}>
+          — keep a single scan per tissue block
+        </span>
+      </label>
+      {onePerBlock && (
+        <div style={{ marginTop: 10, marginLeft: 22 }}>
+          <MultiSelect
+            label="Preferred stain (kept when multiple scans exist for a block)"
+            field="dedupe_stain"
+            selected={dedupeStains}
+            onChange={setDedupeStains}
+            loadOptions={val => api.lookup('stain_name', val)}
+            placeholder="e.g. H&E — will be preferred when deduplicating…"
+          />
+          <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 5 }}>
+            If no preference is set, the first scan is kept. Priority follows the order stains are added.
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ── Inline section divider ────────────────────────────────────────────────────
 
 function SectionLabel({ children }) {
@@ -268,6 +313,8 @@ export default function Cohorts() {
   const [saved,         setSaved]         = useState([])
   const [deleteTarget,  setDeleteTarget]  = useState(null)
   const [deleteBusy,    setDeleteBusy]    = useState(false)
+  const [onePerBlock,   setOnePerBlock]   = useState(false)
+  const [dedupeStains,  setDedupeStains]  = useState([])
 
   useEffect(() => {
     api.getCohorts().then(setSaved).catch(() => {})
@@ -276,6 +323,24 @@ export default function Cohorts() {
   // Helpers to update individual filter keys
   function setF(key, val) { setFilter(f => ({ ...f, [key]: val === '' ? null : val })) }
   function setLF(key, val) { setListFilter(f => ({ ...f, [key]: val === '' ? null : val })) }
+
+  // ── One-scan-per-block deduplication (client-side, mirrors SlideTargetManager) ─
+  const effectiveResults = useMemo(() => {
+    const rows = result?.results
+    if (!rows?.length || result.return_level !== 'scan' || !onePerBlock) return rows || []
+    const blockMap = new Map()
+    rows.forEach(r => {
+      const key = r.block_id ?? `orphan_${r.scan_id}`
+      if (!blockMap.has(key)) blockMap.set(key, [])
+      blockMap.get(key).push(r)
+    })
+    return Array.from(blockMap.values()).map(scans => {
+      if (dedupeStains.length > 0) {
+        return scans.find(s => dedupeStains.includes(s.stain_name)) ?? scans[0]
+      }
+      return scans[0]
+    })
+  }, [result, onePerBlock, dedupeStains])
 
   // ── CSV / TXT file upload into textarea ──────────────────────────────────────
   function handleFileUpload(e) {
@@ -372,11 +437,11 @@ export default function Cohorts() {
   }
 
   function downloadCSV() {
-    if (!result?.results?.length) return
+    if (!effectiveResults.length) return
     const isScan  = result.return_level === 'scan'
-    const headers = isScan ? SCAN_COLS : Object.keys(result.results[0])
+    const headers = isScan ? SCAN_COLS : Object.keys(effectiveResults[0])
     const csvRows = [headers.join(',')]
-    for (const row of result.results) {
+    for (const row of effectiveResults) {
       csvRows.push(headers.map(h => `"${(row[h] ?? '').toString().replace(/"/g, '""')}"`).join(','))
     }
     const blob = new Blob([csvRows.join('\n')], { type: 'text/csv;charset=utf-8;' })
@@ -386,8 +451,8 @@ export default function Cohorts() {
   }
 
   function downloadJSON() {
-    if (!result?.results?.length) return
-    const blob = new Blob([JSON.stringify(result.results, null, 2)], { type: 'application/json' })
+    if (!effectiveResults.length) return
+    const blob = new Blob([JSON.stringify(effectiveResults, null, 2)], { type: 'application/json' })
     const url  = URL.createObjectURL(blob)
     Object.assign(document.createElement('a'), { href: url, download: 'cohort_export.json' }).click()
     URL.revokeObjectURL(url)
@@ -500,27 +565,33 @@ export default function Cohorts() {
                     placeholder="e.g. routine, IHC…" />
                 </div>
                 {isScanLevel && (
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12, marginTop: 10 }}>
-                    <MultiSelect label="File format" field="file_format"
-                      selected={filter.file_formats}
-                      onChange={val => setF('file_formats', val)}
-                      loadOptions={val => api.lookup('file_format', val)}
-                      placeholder="e.g. SVS, NDPI…" />
-                    <FormField label="Magnification ≥">
-                      <FormInput
-                        type="number" min={0} step={0.5}
-                        placeholder="e.g. 20"
-                        onChange={e => setF('magnification_min', e.target.value ? parseFloat(e.target.value) : null)}
-                      />
-                    </FormField>
-                    <FormField label="Magnification ≤">
-                      <FormInput
-                        type="number" min={0} step={0.5}
-                        placeholder="e.g. 40"
-                        onChange={e => setF('magnification_max', e.target.value ? parseFloat(e.target.value) : null)}
-                      />
-                    </FormField>
-                  </div>
+                  <>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12, marginTop: 10 }}>
+                      <MultiSelect label="File format" field="file_format"
+                        selected={filter.file_formats}
+                        onChange={val => setF('file_formats', val)}
+                        loadOptions={val => api.lookup('file_format', val)}
+                        placeholder="e.g. SVS, NDPI…" />
+                      <FormField label="Magnification ≥">
+                        <FormInput
+                          type="number" min={0} step={0.5}
+                          placeholder="e.g. 20"
+                          onChange={e => setF('magnification_min', e.target.value ? parseFloat(e.target.value) : null)}
+                        />
+                      </FormField>
+                      <FormField label="Magnification ≤">
+                        <FormInput
+                          type="number" min={0} step={0.5}
+                          placeholder="e.g. 40"
+                          onChange={e => setF('magnification_max', e.target.value ? parseFloat(e.target.value) : null)}
+                        />
+                      </FormField>
+                    </div>
+                    <DedupeControl
+                      onePerBlock={onePerBlock} setOnePerBlock={setOnePerBlock}
+                      dedupeStains={dedupeStains} setDedupeStains={setDedupeStains}
+                    />
+                  </>
                 )}
 
                 <Btn variant="primary" style={{ marginTop: 'var(--space-5)' }} onClick={runQuery} disabled={querying}>
@@ -661,6 +732,10 @@ export default function Cohorts() {
                           onChange={e => setLF('magnification_max', e.target.value ? parseFloat(e.target.value) : null)} />
                       </FormField>
                     </div>
+                    <DedupeControl
+                      onePerBlock={onePerBlock} setOnePerBlock={setOnePerBlock}
+                      dedupeStains={dedupeStains} setDedupeStains={setDedupeStains}
+                    />
                   </>
                 )}
 
@@ -675,8 +750,17 @@ export default function Cohorts() {
               <Panel title="Results">
                 <div style={{ display: 'flex', alignItems: 'flex-end', gap: 'var(--space-4)', marginBottom: 'var(--space-3)' }}>
                   <div>
-                    <div style={{ fontFamily: 'var(--font-serif)', fontSize: 36, color: 'var(--navy)', lineHeight: 1 }}>{result.count}</div>
-                    <div style={{ fontSize: 12, color: 'var(--text-3)', marginTop: 4 }}>{result.return_level}s matching</div>
+                    <div style={{ fontFamily: 'var(--font-serif)', fontSize: 36, color: 'var(--navy)', lineHeight: 1 }}>
+                      {effectiveResults.length}
+                    </div>
+                    <div style={{ fontSize: 12, color: 'var(--text-3)', marginTop: 4 }}>
+                      {result.return_level}s matching
+                      {onePerBlock && isScanLevel && effectiveResults.length !== result.count && (
+                        <span style={{ marginLeft: 5, color: 'var(--teal, #1b998b)', fontWeight: 500 }}>
+                          · deduplicated from {result.count}
+                        </span>
+                      )}
+                    </div>
                   </div>
                   <div style={{ display: 'flex', gap: 10, marginTop: 10 }}>
                     <Btn variant="ghost" small onClick={downloadCSV}>Export CSV</Btn>
@@ -684,8 +768,8 @@ export default function Cohorts() {
                   </div>
                 </div>
 
-                {/* Summary breakdown */}
-                <ResultSummary result={result} />
+                {/* Summary breakdown (uses effective/deduplicated rows) */}
+                <ResultSummary result={{ ...result, results: effectiveResults }} />
 
                 {result.not_found?.length > 0 && (
                   <div style={{
@@ -698,10 +782,10 @@ export default function Cohorts() {
                   </div>
                 )}
 
-                {result.results.length > 0 && (
+                {effectiveResults.length > 0 && (
                   isScanLevel
-                    ? <ScanResultsTable rows={result.results} />
-                    : <GenericResultsTable rows={result.results} />
+                    ? <ScanResultsTable rows={effectiveResults} />
+                    : <GenericResultsTable rows={effectiveResults} />
                 )}
 
                 {/* Save cohort */}
