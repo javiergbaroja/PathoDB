@@ -213,6 +213,12 @@ class CohortFilter(BaseModel):
     id_type: Optional[str] = None
     b_scope: Optional[str] = 'all'
 
+    # Client-side post-processing — persisted at save time so the saved cohort
+    # reproduces exactly what the user saw (deduped and with exclusions applied).
+    dedup_one_per_block: bool = False
+    excluded_topos: List[str] = []
+    excluded_stains: List[str] = []
+
 class CohortSave(BaseModel):
     name: str
     description: Optional[str] = None

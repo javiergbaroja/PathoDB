@@ -151,14 +151,17 @@ function SummaryStat({ label, value, sub, accent }) {
 // ─── Mini timeline ────────────────────────────────────────────────────────────
 
 const TL_W     = 500
-const TL_PAD   = 32
-const TL_AY    = 30   // y of the axis line
-const TL_DOT_R = 5
+const TL_PAD   = 36          // horizontal padding inside the SVG canvas
+const TL_AY    = 36          // y of the track centre-line
+const TL_DOT_R = 6           // base dot radius
+const TL_TRACK = 3           // track pill height
+const TL_STEP  = TL_DOT_R * 2 + 5   // vertical spacing between stacking levels
 
 function MiniTimeline({ submissions, onDotClick }) {
-  const [tooltip, setTooltip] = useState(null)  // { sub, clientX, clientY }
+  const [tooltip,   setTooltip]   = useState(null)   // { sub, clientX, clientY }
+  const [hoveredId, setHoveredId] = useState(null)
 
-  const { points, yearLabels, viewH } = useMemo(() => {
+  const { points, yearLabels, viewH, spanX0, spanX1 } = useMemo(() => {
     const mapped = submissions
       .map(s => ({
         sub:  s,
@@ -166,7 +169,7 @@ function MiniTimeline({ submissions, onDotClick }) {
       }))
       .filter(p => p.frac > 0)
 
-    if (!mapped.length) return { points: [], yearLabels: [], viewH: 50 }
+    if (!mapped.length) return { points: [], yearLabels: [], viewH: 60, spanX0: 0, spanX1: 0 }
 
     const sorted = [...mapped].sort((a, b) => a.frac - b.frac)
     const minF   = sorted[0].frac
@@ -179,7 +182,7 @@ function MiniTimeline({ submissions, onDotClick }) {
         : TL_PAD + ((frac - minF) / span) * (TL_W - 2 * TL_PAD)
 
     // Vertical stacking for overlapping dots
-    const THRESH = TL_DOT_R * 2 + 4
+    const THRESH = TL_DOT_R * 2 + 3
     const stacked = []
     for (const p of sorted) {
       let level = 0
@@ -192,10 +195,11 @@ function MiniTimeline({ submissions, onDotClick }) {
 
     const points = stacked.map(p => ({
       ...p,
-      y: TL_AY - TL_DOT_R - 2 - p.level * (TL_DOT_R * 2 + 4),
+      // dots sit ON the track at level 0, then rise in discrete steps
+      y: TL_AY - p.level * TL_STEP,
     }))
 
-    // Year labels — derived from integer year positions using same scale
+    // Year labels — derived from integer year positions on same scale
     const years  = sorted.map(p => Math.floor(p.frac))
     const minY   = Math.min(...years)
     const maxY   = Math.max(...years)
@@ -208,52 +212,78 @@ function MiniTimeline({ submissions, onDotClick }) {
     }
 
     const maxLevel = Math.max(...points.map(p => p.level), 0)
-    const viewH    = TL_AY + 18 + maxLevel * (TL_DOT_R * 2 + 4)
+    const viewH    = TL_AY + TL_TRACK / 2 + 20 + maxLevel * TL_STEP
 
-    return { points, yearLabels, viewH }
+    // x-extent of the active span highlight
+    const spanX0 = toX(minF)
+    const spanX1 = toX(maxF)
+
+    return { points, yearLabels, viewH, spanX0, spanX1 }
   }, [submissions])
 
   if (!points.length) return null
 
+  const trackX0 = TL_PAD - 12
+  const trackW  = TL_W - 2 * (TL_PAD - 12)
+
   return (
     <div style={{
-      padding: '10px 16px 12px',
+      padding: '10px 16px 14px',
       borderBottom: '1px solid var(--border-l)',
       flexShrink: 0,
     }}>
       <div style={{
         fontSize: 10, fontWeight: 600, color: 'var(--text-3)',
-        textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 6,
+        textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: 8,
       }}>
         Submission timeline
       </div>
 
       <svg width="100%" viewBox={`0 0 ${TL_W} ${viewH}`} style={{ overflow: 'visible', display: 'block' }}>
 
-        {/* Axis line */}
-        <line
-          x1={TL_PAD - 10} y1={TL_AY}
-          x2={TL_W - TL_PAD + 10} y2={TL_AY}
-          stroke="var(--navy-20)" strokeWidth={1}
+        {/* ── Track: full background pill ── */}
+        <rect
+          x={trackX0} y={TL_AY - TL_TRACK / 2}
+          width={trackW} height={TL_TRACK}
+          rx={TL_TRACK / 2}
+          fill="var(--navy)" opacity={0.10}
         />
 
-        {/* Year ticks + labels */}
+        {/* ── Track: active-span highlight (first → last submission) ── */}
+        {spanX1 > spanX0 && (
+          <rect
+            x={spanX0} y={TL_AY - TL_TRACK / 2}
+            width={spanX1 - spanX0} height={TL_TRACK}
+            rx={TL_TRACK / 2}
+            fill="var(--navy)" opacity={0.28}
+          />
+        )}
+
+        {/* ── Year ticks + labels (below track) ── */}
         {yearLabels.map(({ year, x }) => (
           <g key={year}>
-            <line x1={x} y1={TL_AY} x2={x} y2={TL_AY + 5}
-              stroke="var(--navy-20)" strokeWidth={1} />
-            <text x={x} y={TL_AY + 14} textAnchor="middle"
-              fontSize={9} fill="var(--text-3)" fontFamily="var(--font-mono)">
+            <line
+              x1={x} y1={TL_AY + TL_TRACK / 2 + 2}
+              x2={x} y2={TL_AY + TL_TRACK / 2 + 8}
+              stroke="var(--navy)" strokeWidth={0.75} opacity={0.3}
+            />
+            <text
+              x={x} y={TL_AY + TL_TRACK / 2 + 17}
+              textAnchor="middle"
+              fontSize={9} fill="var(--text-3)" fontFamily="var(--font-mono)"
+            >
               {year}
             </text>
           </g>
         ))}
 
-        {/* Dots */}
+        {/* ── Dots ── */}
         {points.map(({ sub, x, y }) => {
           const hasScans = sub.probes?.some(p =>
             p.blocks?.some(b => (b.scans?.length ?? 0) > 0)
           )
+          const isHovered = sub.id === hoveredId
+          const r = isHovered ? TL_DOT_R + 1.5 : TL_DOT_R
           const fill =
             sub.malignancy_flag === true  ? 'var(--crimson)' :
             sub.malignancy_flag === false ? 'var(--navy)'    :
@@ -263,39 +293,58 @@ function MiniTimeline({ submissions, onDotClick }) {
             <g
               key={sub.id}
               style={{ cursor: 'pointer' }}
-              onMouseEnter={e => setTooltip({ sub, clientX: e.clientX, clientY: e.clientY })}
+              onMouseEnter={e => { setHoveredId(sub.id); setTooltip({ sub, clientX: e.clientX, clientY: e.clientY }) }}
               onMouseMove={e  => setTooltip(t => t ? { ...t, clientX: e.clientX, clientY: e.clientY } : null)}
-              onMouseLeave={() => setTooltip(null)}
+              onMouseLeave={()  => { setHoveredId(null); setTooltip(null) }}
               onClick={() => onDotClick(sub.id)}
             >
-              {/* Teal scan ring */}
+              {/* Teal scan ring — drawn first so it sits behind the halo */}
               {hasScans && (
-                <circle cx={x} cy={y} r={TL_DOT_R + 3.5}
-                  fill="none" stroke="#1b998b" strokeWidth={1.5} opacity={0.85} />
+                <circle
+                  cx={x} cy={y} r={r + 5}
+                  fill="none" stroke="#1b998b" strokeWidth={2} opacity={0.7}
+                />
               )}
+              {/* White halo — separates the dot from the track and other dots */}
+              <circle cx={x} cy={y} r={r + 1.5} fill="white" opacity={0.9} />
               {/* Main dot */}
-              <circle cx={x} cy={y} r={TL_DOT_R} fill={fill} />
+              <circle
+                cx={x} cy={y} r={r} fill={fill}
+                style={{ transition: 'r 0.1s' }}
+              />
+              {/* Hover glow ring */}
+              {isHovered && (
+                <circle
+                  cx={x} cy={y} r={r + 3.5}
+                  fill="none" stroke={fill} strokeWidth={1} opacity={0.3}
+                />
+              )}
             </g>
           )
         })}
       </svg>
 
       {/* Legend */}
-      <div style={{ display: 'flex', gap: 16, marginTop: 4 }}>
+      <div style={{ display: 'flex', gap: 18, marginTop: 6 }}>
         {[
-          { type: 'dot', fill: 'var(--crimson)', label: 'Malignant' },
-          { type: 'dot', fill: 'var(--navy)',    label: 'Benign / unknown' },
-          { type: 'ring',                         label: 'Has scans' },
+          { type: 'dot',  fill: 'var(--crimson)', label: 'Malignant'       },
+          { type: 'dot',  fill: 'var(--navy)',    label: 'Benign / unknown' },
+          { type: 'ring',                          label: 'Has scans'       },
         ].map(({ type, fill, label }) => (
-          <div key={label} style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-            <svg width={14} height={14} viewBox="0 0 14 14">
+          <div key={label} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <svg width={16} height={16} viewBox="0 0 16 16">
               {type === 'ring' ? (
                 <>
-                  <circle cx={7} cy={7} r={3.5} fill="var(--navy)" />
-                  <circle cx={7} cy={7} r={6}   fill="none" stroke="#1b998b" strokeWidth={1.5} />
+                  {/* white halo */}
+                  <circle cx={8} cy={8} r={5}    fill="white" />
+                  <circle cx={8} cy={8} r={4}    fill="var(--navy)" />
+                  <circle cx={8} cy={8} r={7.5}  fill="none" stroke="#1b998b" strokeWidth={2} opacity={0.7} />
                 </>
               ) : (
-                <circle cx={7} cy={7} r={4.5} fill={fill} />
+                <>
+                  <circle cx={8} cy={8} r={6.5} fill="white" opacity={0.9} />
+                  <circle cx={8} cy={8} r={5}   fill={fill} />
+                </>
               )}
             </svg>
             <span style={{ fontSize: 10, color: 'var(--text-3)' }}>{label}</span>
@@ -303,7 +352,7 @@ function MiniTimeline({ submissions, onDotClick }) {
         ))}
       </div>
 
-      {/* Tooltip — fixed-position so it's never clipped */}
+      {/* Tooltip — fixed-position so it's never clipped by panel overflow */}
       {tooltip && (() => {
         const { sub, clientX, clientY } = tooltip
         const allBlocks = sub.probes?.flatMap(p => p.blocks ?? []) ?? []
@@ -321,22 +370,23 @@ function MiniTimeline({ submissions, onDotClick }) {
             zIndex: 1000,
             background: 'var(--navy)',
             color: 'white',
-            borderRadius: 6,
-            padding: '8px 11px',
+            borderRadius: 7,
+            padding: '9px 12px',
             fontSize: 11,
-            lineHeight: 1.75,
+            lineHeight: 1.8,
             pointerEvents: 'none',
-            boxShadow: '0 4px 16px rgba(0,20,100,0.25)',
-            minWidth: 170,
+            boxShadow: '0 6px 20px rgba(0,20,100,0.3)',
+            minWidth: 175,
+            borderLeft: `3px solid ${sub.malignancy_flag === true ? 'var(--crimson)' : sub.malignancy_flag === false ? '#5b9cf6' : 'rgba(255,255,255,0.2)'}`,
           }}>
-            <div style={{ fontFamily: 'var(--font-mono)', fontWeight: 600, marginBottom: 1 }}>
+            <div style={{ fontFamily: 'var(--font-mono)', fontWeight: 600, marginBottom: 2, fontSize: 12 }}>
               {sub.lis_submission_id}
             </div>
-            <div style={{ color: 'rgba(255,255,255,0.6)' }}>{sub.report_date || '—'}</div>
-            <div style={{ color: sub.malignancy_flag === true ? '#ff8099' : 'rgba(255,255,255,0.6)' }}>
+            <div style={{ color: 'rgba(255,255,255,0.55)', fontSize: 10 }}>{sub.report_date || '—'}</div>
+            <div style={{ color: sub.malignancy_flag === true ? '#ff8099' : 'rgba(255,255,255,0.55)', fontSize: 10 }}>
               {status}
             </div>
-            <div style={{ color: 'rgba(255,255,255,0.6)' }}>
+            <div style={{ color: 'rgba(255,255,255,0.55)', fontSize: 10, marginTop: 2 }}>
               {allBlocks.length} block{allBlocks.length !== 1 ? 's' : ''} · {scanned} scanned
             </div>
           </div>

@@ -463,29 +463,65 @@ def _run_list_query(
     return _format_results(rows, f.return_level, db, f), not_found
 
 
+# ─── Client-side transform mirror ─────────────────────────────────────────────
+
+def _apply_client_transforms(results: list[dict], f: "CohortFilter") -> list[dict]:
+    """
+    Mirror the two-stage client pipeline stored when a cohort is saved:
+      1. Dedup — one row per (block_id, stain_name) pair (re-scan removal).
+      2. Exclusions — drop rows whose topography or stain was excluded by the user.
+
+    These transforms are no-ops when the fields carry their default values, so
+    live /query calls (which never set these fields) are unaffected.
+    """
+    # Stage 1 — dedup
+    if getattr(f, 'dedup_one_per_block', False) and f.return_level == 'scan':
+        seen: set = set()
+        deduped = []
+        for row in results:
+            key = (row.get('block_id'), row.get('stain_name') or '')
+            if key not in seen:
+                seen.add(key)
+                deduped.append(row)
+        results = deduped
+
+    # Stage 2 — exclusions
+    excl_topos = set(getattr(f, 'excluded_topos', None) or [])
+    excl_stains = set(getattr(f, 'excluded_stains', None) or [])
+    if excl_topos:
+        results = [r for r in results if r.get('topo_description') not in excl_topos]
+    if excl_stains:
+        results = [r for r in results if r.get('stain_name') not in excl_stains]
+
+    return results
+
+
 # ─── Shared helper: run whichever query mode is encoded in a CohortFilter ─────
 def _get_results_for_cohort(f: "CohortFilter", db: Session) -> tuple[list[dict], list[str]]:
     """Execute a saved cohort filter and return (results, not_found)."""
 
     # ── List query path (SQL-level) ───────────────────────────────────────────
     if getattr(f, 'is_list_query', False) and getattr(f, 'ids', None):
-        return _run_list_query(
+        results, not_found = _run_list_query(
             db, f, f.ids,
             id_type = f.id_type or "patient_code",
             b_scope = getattr(f, 'b_scope', 'all'),
         )
+    else:
+        # ── Filter query path ─────────────────────────────────────────────────
+        q = _apply_filters(db, f)
 
-    # ── Filter query path ─────────────────────────────────────────────────────
-    q = _apply_filters(db, f)
+        if f.return_level == "scan":
+            block_ids = {row[0] for row in q.with_entities(Block.id).all()}
+            if not block_ids:
+                return [], []
+            results = _scan_results_from_block_ids(db, block_ids, f)
+        else:
+            rows = q.all()
+            results = _format_results(rows, f.return_level, db, f)
+        not_found = []
 
-    if f.return_level == "scan":
-        block_ids = {row[0] for row in q.with_entities(Block.id).all()}
-        if not block_ids:
-            return [], []
-        return _scan_results_from_block_ids(db, block_ids, f), []
-
-    rows = q.all()
-    return _format_results(rows, f.return_level, db, f), []
+    return _apply_client_transforms(results, f), not_found
 # ─── Endpoints ────────────────────────────────────────────────────────────────
 
 @router.post("/query")

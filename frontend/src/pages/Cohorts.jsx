@@ -194,6 +194,48 @@ function ResultSummary({ rows, returnLevel, excludedTopos, excludedStains, onTog
   )
 }
 
+// ── Sortable table helpers ────────────────────────────────────────────────────
+
+function useSortState() {
+  const [sortCol, setSortCol] = useState(null)
+  const [sortDir, setSortDir] = useState('asc')
+  function toggleSort(col) {
+    if (sortCol === col) {
+      if (sortDir === 'asc') { setSortDir('desc') }
+      else                   { setSortCol(null); setSortDir('asc') }  // third click → reset
+    } else {
+      setSortCol(col); setSortDir('asc')
+    }
+  }
+  return { sortCol, sortDir, toggleSort }
+}
+
+function sortedRows(rows, sortCol, sortDir) {
+  if (!sortCol) return rows
+  return [...rows].sort((a, b) => {
+    const av = a[sortCol] ?? '', bv = b[sortCol] ?? ''
+    const an = parseFloat(av), bn = parseFloat(bv)
+    const cmp = !isNaN(an) && !isNaN(bn) && av !== '' && bv !== ''
+      ? an - bn
+      : String(av).localeCompare(String(bv), undefined, { numeric: true, sensitivity: 'base' })
+    return sortDir === 'asc' ? cmp : -cmp
+  })
+}
+
+// Tiny sort indicator shown inside each clickable header
+function SortIcon({ col, sortCol, sortDir }) {
+  const active = col === sortCol
+  return (
+    <span style={{
+      marginLeft: 4, fontSize: 9, verticalAlign: 'middle',
+      color: active ? 'var(--navy)' : 'var(--text-3)',
+      opacity: active ? 1 : 0.4,
+    }}>
+      {active ? (sortDir === 'asc' ? '↑' : '↓') : '⇅'}
+    </span>
+  )
+}
+
 // ── Scan-level results table ──────────────────────────────────────────────────
 
 const SCAN_COLS = ['patient_code','lis_submission_id','lis_probe_id','snomed_topo_code',
@@ -203,13 +245,20 @@ const MONO_COLS = new Set(['lis_submission_id','lis_probe_id','snomed_topo_code'
 const LIMIT     = 50
 
 function ScanResultsTable({ rows }) {
-  const shown = rows.slice(0, LIMIT)
+  const { sortCol, sortDir, toggleSort } = useSortState()
+  const sorted = useMemo(() => sortedRows(rows, sortCol, sortDir), [rows, sortCol, sortDir])
+  const shown  = sorted.slice(0, LIMIT)
+
   return (
     <div style={{ overflowX: 'auto', marginBottom: 4 }}>
       <Table>
         <thead>
           <tr>
-            {SCAN_COLS.map(h => <Th key={h}>{h.replace(/_/g, ' ')}</Th>)}
+            {SCAN_COLS.map(h => (
+              <Th key={h} onClick={() => toggleSort(h)}>
+                {h.replace(/_/g, ' ')}<SortIcon col={h} sortCol={sortCol} sortDir={sortDir} />
+              </Th>
+            ))}
             <Th>Viewer</Th>
           </tr>
         </thead>
@@ -244,14 +293,23 @@ function ScanResultsTable({ rows }) {
 }
 
 function GenericResultsTable({ rows }) {
-  const shown = rows.slice(0, LIMIT)
-  if (!shown.length) return null
-  const cols = Object.keys(shown[0])
+  const { sortCol, sortDir, toggleSort } = useSortState()
+  if (!rows.length) return null
+  const cols   = Object.keys(rows[0])
+  const sorted = useMemo(() => sortedRows(rows, sortCol, sortDir), [rows, sortCol, sortDir])
+  const shown  = sorted.slice(0, LIMIT)
+
   return (
     <div style={{ overflowX: 'auto', marginBottom: 4 }}>
       <Table>
         <thead>
-          <tr>{cols.map(h => <Th key={h}>{h.replace(/_/g, ' ')}</Th>)}</tr>
+          <tr>
+            {cols.map(h => (
+              <Th key={h} onClick={() => toggleSort(h)}>
+                {h.replace(/_/g, ' ')}<SortIcon col={h} sortCol={sortCol} sortDir={sortDir} />
+              </Th>
+            ))}
+          </tr>
         </thead>
         <tbody>
           {shown.map((row, i) => (
@@ -442,9 +500,17 @@ export default function Cohorts() {
     if (!saveName.trim()) return
     setSaving(true)
     try {
+      // Capture client-side post-processing state so the saved cohort reproduces
+      // exactly what the user is currently seeing (dedup + exclusions).
+      const clientTransforms = {
+        ...(onePerBlock             ? { dedup_one_per_block: true }               : {}),
+        ...(excludedTopos.size > 0  ? { excluded_topos:  [...excludedTopos]  }   : {}),
+        ...(excludedStains.size > 0 ? { excluded_stains: [...excludedStains] }   : {}),
+      }
+
       let filter_json
       if (mode === 'filter') {
-        filter_json = cleanFilter(filter)
+        filter_json = { ...cleanFilter(filter), ...clientTransforms }
       } else {
         const extra = cleanListFilter(listFilter)
         filter_json = {
@@ -454,6 +520,7 @@ export default function Cohorts() {
           b_scope:       bScope,
           return_level:  listLevel,
           ...extra,
+          ...clientTransforms,
         }
       }
       await api.saveCohort({ name: saveName, description: saveDesc || undefined, filter_json })
@@ -474,6 +541,17 @@ export default function Cohorts() {
     finally     { setDeleteBusy(false) }
   }
 
+  function triggerDownload(blob, filename) {
+    const url = URL.createObjectURL(blob)
+    const a   = document.createElement('a')
+    a.href    = url
+    a.download = filename
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+    setTimeout(() => URL.revokeObjectURL(url), 5000)
+  }
+
   function downloadCSV() {
     if (!effectiveResults.length) return
     const isScan  = result.return_level === 'scan'
@@ -482,18 +560,12 @@ export default function Cohorts() {
     for (const row of effectiveResults) {
       csvRows.push(headers.map(h => `"${(row[h] ?? '').toString().replace(/"/g, '""')}"`).join(','))
     }
-    const blob = new Blob([csvRows.join('\n')], { type: 'text/csv;charset=utf-8;' })
-    const url  = URL.createObjectURL(blob)
-    Object.assign(document.createElement('a'), { href: url, download: 'cohort_export.csv' }).click()
-    URL.revokeObjectURL(url)
+    triggerDownload(new Blob([csvRows.join('\n')], { type: 'text/csv;charset=utf-8;' }), 'cohort_export.csv')
   }
 
   function downloadJSON() {
     if (!effectiveResults.length) return
-    const blob = new Blob([JSON.stringify(effectiveResults, null, 2)], { type: 'application/json' })
-    const url  = URL.createObjectURL(blob)
-    Object.assign(document.createElement('a'), { href: url, download: 'cohort_export.json' }).click()
-    URL.revokeObjectURL(url)
+    triggerDownload(new Blob([JSON.stringify(effectiveResults, null, 2)], { type: 'application/json' }), 'cohort_export.json')
   }
 
   const returnLevel = mode === 'filter' ? filter.return_level : listLevel
@@ -523,8 +595,8 @@ export default function Cohorts() {
           />
         </div>
 
-        <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 'var(--space-4)' }}>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 260px', gap: 'var(--space-4)', alignItems: 'start' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)', minWidth: 0 }}>
 
             {/* ────────────────────── FILTER MODE ────────────────────────── */}
             {mode === 'filter' && (
