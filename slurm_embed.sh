@@ -44,6 +44,8 @@
 set -euo pipefail
 
 PROJECT_DIR="/storage/research/igmp_dp_workspace/garciabaroja_javier/PW_reports/database/pathodb"
+PG_ENV="/storage/research/igmp_dp_workspace/garciabaroja_javier/conda_envs/pathodb-pg"
+PG_BIN="$PG_ENV/bin"
 PGDATA="$PROJECT_DIR/pgdata"
 ENV_FILE="$PROJECT_DIR/.env"
 
@@ -54,8 +56,8 @@ echo ""
 
 # ── Load modules ──────────────────────────────────────────────────────────────
 module load Anaconda3
-module load PostgreSQL
-export PATH="/software.9/software/PostgreSQL/16.4-GCCcore-13.3.0/bin:$PATH"
+# module load PostgreSQL
+# export PATH="/software.9/software/PostgreSQL/16.4-GCCcore-13.3.0/bin:$PATH"
 source activate langchain
 
 # ── Move into project directory ───────────────────────────────────────────────
@@ -71,7 +73,8 @@ source "$ENV_FILE"
 set +a
 
 PGDB="${POSTGRES_DB}"
-PGUSER="${POSTGRES_USER}"
+PGUSER=jg23p152
+# PGUSER="${POSTGRES_USER}"
 
 # ── Manage PostgreSQL ─────────────────────────────────────────────────────────
 # We track whether WE started the instance so we only stop it on exit if so.
@@ -81,7 +84,7 @@ cleanup() {
     if [ "$PG_STARTED_BY_US" = true ]; then
         echo ""
         echo "Stopping PostgreSQL (started by this job)..."
-        pg_ctl -D "$PGDATA" stop -m fast 2>/dev/null || true
+        "$PG_BIN/pg_ctl" -D "$PGDATA" stop -m fast 2>/dev/null || true
     fi
     echo "Cleanup done at $(date)"
 }
@@ -98,17 +101,17 @@ if [ -f "$PIDFILE" ]; then
 fi
 
 # Start PostgreSQL only if it is not already reachable on this node
-if pg_isready -p "$PGPORT" -q 2>/dev/null; then
+if "$PG_BIN/pg_isready" -p "$PGPORT" -q 2>/dev/null; then
     echo "PostgreSQL is already running on port $PGPORT — reusing it."
 else
     echo "Starting PostgreSQL..."
-    pg_ctl -D "$PGDATA" -l "$PGDATA/logs/startup.log" start
+    "$PG_BIN/pg_ctl" -D "$PGDATA" -l "$PGDATA/logs/startup.log" start
     PG_STARTED_BY_US=true
     for i in $(seq 1 30); do
-        pg_isready -p "$PGPORT" -q && echo "PostgreSQL ready after ${i}s." && break
+        "$PG_BIN/pg_isready" -p "$PGPORT" -q && echo "PostgreSQL ready after ${i}s." && break
         sleep 1
     done
-    pg_isready -p "$PGPORT" -q || { echo "ERROR: PostgreSQL did not become ready in 30s"; exit 1; }
+    "$PG_BIN/pg_isready" -p "$PGPORT" -q || { echo "ERROR: PostgreSQL did not become ready in 30s"; exit 1; }
 fi
 
 # ── Apply schema (idempotent — IF NOT EXISTS throughout) ─────────────────────
@@ -116,7 +119,7 @@ fi
 # created before those tables were added. Safe to run on an up-to-date DB.
 echo ""
 echo "Applying schema (idempotent)..."
-psql -p "$PGPORT" -U "$PGUSER" -d "$PGDB" -f db/schema.sql \
+"$PG_BIN/psql" -p "$PGPORT" -U "$PGUSER" -d "$PGDB" -f db/schema.sql \
     && echo "Schema OK." \
     || { echo "ERROR: schema apply failed — check db/schema.sql output above"; exit 1; }
 
@@ -155,7 +158,7 @@ if [ "$REPORT_TYPE" != "all" ]; then
     REPORT_TYPE_COND="AND r.report_type = '$REPORT_TYPE'"
 fi
 
-PENDING=$(psql -p "$PGPORT" -U "$PGUSER" -d "$PGDB" -At -c "
+PENDING=$("$PG_BIN/psql" -p "$PGPORT" -U "$PGUSER" -d "$PGDB" -At -c "
     SELECT COUNT(*)
     FROM reports r
     WHERE r.report_text IS NOT NULL
@@ -166,11 +169,11 @@ PENDING=$(psql -p "$PGPORT" -U "$PGUSER" -d "$PGDB" -At -c "
       );
 " 2>/dev/null || echo "?")
 
-ALREADY=$(psql -p "$PGPORT" -U "$PGUSER" -d "$PGDB" -At -c "
+ALREADY=$("$PG_BIN/psql" -p "$PGPORT" -U "$PGUSER" -d "$PGDB" -At -c "
     SELECT COUNT(DISTINCT report_id) FROM report_embeddings;
 " 2>/dev/null || echo "?")
 
-TOTAL=$(psql -p "$PGPORT" -U "$PGUSER" -d "$PGDB" -At -c "
+TOTAL=$("$PG_BIN/psql" -p "$PGPORT" -U "$PGUSER" -d "$PGDB" -At -c "
     SELECT COUNT(*)
     FROM reports r
     WHERE r.report_text IS NOT NULL
@@ -197,7 +200,7 @@ python api/workers/embed_reports.py \
 
 # ── Post-run summary ──────────────────────────────────────────────────────────
 echo ""
-REMAINING=$(psql -p "$PGPORT" -U "$PGUSER" -d "$PGDB" -At -c "
+REMAINING=$("$PG_BIN/psql" -p "$PGPORT" -U "$PGUSER" -d "$PGDB" -At -c "
     SELECT COUNT(*)
     FROM reports r
     WHERE r.report_text IS NOT NULL
@@ -208,11 +211,11 @@ REMAINING=$(psql -p "$PGPORT" -U "$PGUSER" -d "$PGDB" -At -c "
       );
 " 2>/dev/null || echo "?")
 
-FINAL_EMBEDDED=$(psql -p "$PGPORT" -U "$PGUSER" -d "$PGDB" -At -c "
+FINAL_EMBEDDED=$("$PG_BIN/psql" -p "$PGPORT" -U "$PGUSER" -d "$PGDB" -At -c "
     SELECT COUNT(DISTINCT report_id) FROM report_embeddings;
 " 2>/dev/null || echo "?")
 
-TOTAL_CHUNKS=$(psql -p "$PGPORT" -U "$PGUSER" -d "$PGDB" -At -c "
+TOTAL_CHUNKS=$("$PG_BIN/psql" -p "$PGPORT" -U "$PGUSER" -d "$PGDB" -At -c "
     SELECT COUNT(*) FROM report_embeddings;
 " 2>/dev/null || echo "?")
 
