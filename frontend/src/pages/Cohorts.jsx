@@ -259,7 +259,6 @@ export default function Cohorts() {
   const [idText,        setIdText]        = useState('')
   const [listLevel,     setListLevel]     = useState('scan')
   const [listFilter,    setListFilter]    = useState(EMPTY_LIST_FILTER)
-  const [showListFilters, setShowListFilters] = useState(false)
   const [result,        setResult]        = useState(null)
   const [querying,      setQuerying]      = useState(false)
   const [error,         setError]         = useState('')
@@ -277,13 +276,6 @@ export default function Cohorts() {
   // Helpers to update individual filter keys
   function setF(key, val) { setFilter(f => ({ ...f, [key]: val === '' ? null : val })) }
   function setLF(key, val) { setListFilter(f => ({ ...f, [key]: val === '' ? null : val })) }
-
-  // Count active list-mode filters
-  const activeListFilterCount = Object.entries(listFilter).filter(([, v]) => {
-    if (v === null || v === '') return false
-    if (Array.isArray(v)) return v.length > 0
-    return true
-  }).length
 
   // ── CSV / TXT file upload into textarea ──────────────────────────────────────
   function handleFileUpload(e) {
@@ -590,127 +582,87 @@ export default function Cohorts() {
                   </div>
                 </FormField>
 
-                {/* ── Additional / post-hoc filters ── */}
-                <div style={{ marginTop: 4 }}>
-                  <button
-                    onClick={() => setShowListFilters(v => !v)}
-                    style={{
-                      background: 'none', border: '1px solid var(--border-l)',
-                      borderRadius: 'var(--radius-md)', padding: '5px 10px',
-                      cursor: 'pointer', fontSize: 12, color: 'var(--text-2)',
-                      display: 'flex', alignItems: 'center', gap: 5,
-                    }}
-                  >
-                    <span style={{ transition: 'transform .15s', transform: showListFilters ? 'rotate(90deg)' : 'none', display: 'inline-block' }}>▶</span>
-                    Additional filters
-                    {activeListFilterCount > 0 && (
-                      <span style={{
-                        background: 'var(--navy)', color: '#fff',
-                        fontSize: 10, fontWeight: 700,
-                        borderRadius: '99px', padding: '1px 6px', marginLeft: 2,
-                      }}>{activeListFilterCount}</span>
-                    )}
-                  </button>
-
-                  {showListFilters && (
-                    <div style={{ marginTop: 12, padding: '12px 14px', background: 'rgba(0,0,0,0.02)', borderRadius: 'var(--radius-lg)', border: '1px solid var(--border-l)' }}>
-
-                      <SectionLabel>Anatomy &amp; Clinical</SectionLabel>
-                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
-                        <MultiSelect label="Topography" field="topo_description"
-                          selected={listFilter.topo_description_search}
-                          onChange={val => setLF('topo_description_search', val)}
-                          loadOptions={val => api.lookup('topo_description', val)}
-                          placeholder="e.g. Colon, Lung…" />
-                        <MultiSelect label="Submission type" field="submission_type"
-                          selected={listFilter.submission_types}
-                          onChange={val => setLF('submission_types', val)}
-                          loadOptions={val => api.lookup('submission_type', val)}
-                          placeholder="e.g. Biopsy, Resection…" />
-                      </div>
-                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, marginTop: 10 }}>
-                        <MultiSelect label="SNOMED code" field="snomed_topo_code"
-                          selected={listFilter.snomed_topo_codes}
-                          onChange={val => setLF('snomed_topo_codes', val)}
-                          loadOptions={val => api.lookup('snomed_topo_code', val)}
-                          placeholder="e.g. T59600…" />
-                        <FormField label="Malignancy">
-                          <FormSelect
-                            onChange={e => setLF('malignancy_flag', e.target.value === '' ? null : e.target.value === 'true')}
-                          >
-                            {MALIGNANCY_OPTS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
-                          </FormSelect>
-                        </FormField>
-                      </div>
-                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12, marginTop: 10 }}>
-                        <FormField label="Report date from">
-                          <FormInput type="date" onChange={e => setLF('submission_date_from', e.target.value)} />
-                        </FormField>
-                        <FormField label="Report date to">
-                          <FormInput type="date" onChange={e => setLF('submission_date_to', e.target.value)} />
-                        </FormField>
-                        <FormField label="Has scan">
-                          <FormSelect onChange={e => setLF('has_scan', e.target.value === '' ? null : e.target.value === 'true')}>
-                            {HAS_SCAN_OPTS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
-                          </FormSelect>
-                        </FormField>
-                      </div>
-                      <div style={{ marginTop: 10 }}>
-                        <FormField label="Block info contains">
-                          <FormInput
-                            placeholder="e.g. Tumor, Core 1…"
-                            onChange={e => setLF('block_info_search', e.target.value)}
-                          />
-                        </FormField>
-                      </div>
-
-                      {listLevel === 'scan' && (
-                        <>
-                          <SectionLabel>Stain &amp; Scan</SectionLabel>
-                          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
-                            <MultiSelect label="Stain name" field="stain_name"
-                              selected={listFilter.stain_names}
-                              onChange={val => setLF('stain_names', val)}
-                              loadOptions={val => api.lookup('stain_name', val)}
-                              placeholder="e.g. H&amp;E, CD3…" />
-                            <MultiSelect label="Stain category" field="stain_category"
-                              selected={listFilter.stain_categories}
-                              onChange={val => setLF('stain_categories', val)}
-                              loadOptions={val => api.lookup('stain_category', val)}
-                              placeholder="e.g. routine, IHC…" />
-                          </div>
-                          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12, marginTop: 10 }}>
-                            <MultiSelect label="File format" field="file_format"
-                              selected={listFilter.file_formats}
-                              onChange={val => setLF('file_formats', val)}
-                              loadOptions={val => api.lookup('file_format', val)}
-                              placeholder="e.g. SVS, NDPI…" />
-                            <FormField label="Magnification ≥">
-                              <FormInput
-                                type="number" min={0} step={0.5} placeholder="e.g. 20"
-                                onChange={e => setLF('magnification_min', e.target.value ? parseFloat(e.target.value) : null)}
-                              />
-                            </FormField>
-                            <FormField label="Magnification ≤">
-                              <FormInput
-                                type="number" min={0} step={0.5} placeholder="e.g. 40"
-                                onChange={e => setLF('magnification_max', e.target.value ? parseFloat(e.target.value) : null)}
-                              />
-                            </FormField>
-                          </div>
-                        </>
-                      )}
-
-                      <Btn
-                        variant="ghost" small
-                        style={{ marginTop: 12, fontSize: 11, color: 'var(--text-3)' }}
-                        onClick={() => { setListFilter(EMPTY_LIST_FILTER) }}
-                      >
-                        Clear additional filters
-                      </Btn>
-                    </div>
-                  )}
+                {/* ── Filters (applied at SQL level, same as filter mode) ── */}
+                <SectionLabel>Anatomy &amp; Tissue</SectionLabel>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+                  <MultiSelect label="Topography" field="topo_description"
+                    selected={listFilter.topo_description_search}
+                    onChange={val => setLF('topo_description_search', val)}
+                    loadOptions={val => api.lookup('topo_description', val)}
+                    placeholder="e.g. Colon, Lung…" />
+                  <MultiSelect label="Submission type" field="submission_type"
+                    selected={listFilter.submission_types}
+                    onChange={val => setLF('submission_types', val)}
+                    loadOptions={val => api.lookup('submission_type', val)}
+                    placeholder="e.g. Biopsy, Resection…" />
                 </div>
+                <div style={{ marginTop: 10 }}>
+                  <MultiSelect label="SNOMED code" field="snomed_topo_code"
+                    selected={listFilter.snomed_topo_codes}
+                    onChange={val => setLF('snomed_topo_codes', val)}
+                    loadOptions={val => api.lookup('snomed_topo_code', val)}
+                    placeholder="e.g. T59600…" />
+                </div>
+
+                <SectionLabel>Clinical</SectionLabel>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12 }}>
+                  <FormField label="Report date from">
+                    <FormInput type="date" onChange={e => setLF('submission_date_from', e.target.value)} />
+                  </FormField>
+                  <FormField label="Report date to">
+                    <FormInput type="date" onChange={e => setLF('submission_date_to', e.target.value)} />
+                  </FormField>
+                  <FormField label="Malignancy">
+                    <FormSelect onChange={e => setLF('malignancy_flag', e.target.value === '' ? null : e.target.value === 'true')}>
+                      {MALIGNANCY_OPTS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+                    </FormSelect>
+                  </FormField>
+                </div>
+
+                <SectionLabel>Block</SectionLabel>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+                  <FormField label="Block info contains">
+                    <FormInput placeholder="e.g. Tumor, Core 1…" onChange={e => setLF('block_info_search', e.target.value)} />
+                  </FormField>
+                  <FormField label="Has scan">
+                    <FormSelect onChange={e => setLF('has_scan', e.target.value === '' ? null : e.target.value === 'true')}>
+                      {HAS_SCAN_OPTS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+                    </FormSelect>
+                  </FormField>
+                </div>
+
+                {listLevel === 'scan' && (
+                  <>
+                    <SectionLabel>Stain &amp; Scan</SectionLabel>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+                      <MultiSelect label="Stain name" field="stain_name"
+                        selected={listFilter.stain_names}
+                        onChange={val => setLF('stain_names', val)}
+                        loadOptions={val => api.lookup('stain_name', val)}
+                        placeholder="e.g. H&amp;E, CD3…" />
+                      <MultiSelect label="Stain category" field="stain_category"
+                        selected={listFilter.stain_categories}
+                        onChange={val => setLF('stain_categories', val)}
+                        loadOptions={val => api.lookup('stain_category', val)}
+                        placeholder="e.g. routine, IHC…" />
+                    </div>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12, marginTop: 10 }}>
+                      <MultiSelect label="File format" field="file_format"
+                        selected={listFilter.file_formats}
+                        onChange={val => setLF('file_formats', val)}
+                        loadOptions={val => api.lookup('file_format', val)}
+                        placeholder="e.g. SVS, NDPI…" />
+                      <FormField label="Magnification ≥">
+                        <FormInput type="number" min={0} step={0.5} placeholder="e.g. 20"
+                          onChange={e => setLF('magnification_min', e.target.value ? parseFloat(e.target.value) : null)} />
+                      </FormField>
+                      <FormField label="Magnification ≤">
+                        <FormInput type="number" min={0} step={0.5} placeholder="e.g. 40"
+                          onChange={e => setLF('magnification_max', e.target.value ? parseFloat(e.target.value) : null)} />
+                      </FormField>
+                    </div>
+                  </>
+                )}
 
                 <Btn variant="primary" style={{ marginTop: 'var(--space-5)' }} onClick={runQuery} disabled={querying || !idText.trim()}>
                   {querying ? 'Running…' : 'Run query'}
