@@ -150,12 +150,15 @@ function SummaryStat({ label, value, sub, accent }) {
 
 // ─── Mini timeline ────────────────────────────────────────────────────────────
 
-const TL_W     = 500
-const TL_PAD   = 36          // horizontal padding inside the SVG canvas
-const TL_AY    = 36          // y of the track centre-line
-const TL_DOT_R = 6           // base dot radius
-const TL_TRACK = 3           // track pill height
-const TL_STEP  = TL_DOT_R * 2 + 5   // vertical spacing between stacking levels
+const TL_W        = 500
+const TL_PAD      = 36          // horizontal padding inside the SVG canvas
+const TL_AY       = 36          // y of the track centre-line
+const TL_DOT_R    = 6           // base dot radius
+const TL_TRACK    = 3           // track pill height
+const TL_STEP     = TL_DOT_R * 2 + 5   // vertical spacing between stacking levels
+// Track drawable bounds (used both in useMemo and in JSX)
+const TL_TRACK_X0 = TL_PAD - 12
+const TL_TRACK_W  = TL_W - 2 * TL_TRACK_X0
 
 function MiniTimeline({ submissions, onDotClick }) {
   const [tooltip,   setTooltip]   = useState(null)   // { sub, clientX, clientY }
@@ -199,16 +202,40 @@ function MiniTimeline({ submissions, onDotClick }) {
       y: TL_AY - p.level * TL_STEP,
     }))
 
-    // Year labels — derived from integer year positions on same scale
+    // ── Year labels ──────────────────────────────────────────────────────────
+    // Bug fix: toX() maps the fractional range [minF..maxF] to pixels, so
+    // integer years that fall outside that range produce negative or >TL_W x
+    // values.  Clamp the label set to years that are within the drawable span,
+    // then pick the coarsest step that keeps adjacent labels ≥ MIN_LABEL_PX
+    // apart — preventing overlap on dense or narrow timelines.
+    const MIN_LABEL_PX = 28   // minimum pixel gap between adjacent year labels
+
     const years  = sorted.map(p => Math.floor(p.frac))
     const minY   = Math.min(...years)
     const maxY   = Math.max(...years)
-    const ySpan  = maxY - minY
-    const step   = ySpan === 0 ? 1 : ySpan <= 4 ? 1 : ySpan <= 8 ? 2 : ySpan <= 15 ? 3 : 5
+
+    // Candidate steps in increasing order; choose the first one where every
+    // adjacent pair of labels is at least MIN_LABEL_PX apart.
+    const STEPS = [1, 2, 3, 5, 10]
+    let step = STEPS[STEPS.length - 1]
+    for (const s of STEPS) {
+      // The narrowest gap between two consecutive labels at this step is the
+      // pixel distance of `s` years across the full scale.
+      const pxPerYear = (TL_W - 2 * TL_PAD) / Math.max(span, 1)
+      if (s * pxPerYear >= MIN_LABEL_PX) { step = s; break }
+    }
+
+    // Round minY UP to the nearest multiple of step so labels land on round
+    // years (e.g. step=5 gives 2005, 2010, 2015 not 2003, 2008, 2013).
+    const firstLabel = Math.ceil(minY / step) * step
 
     const yearLabels = []
-    for (let y = minY; y <= maxY; y += step) {
-      yearLabels.push({ year: y, x: toX(y) })
+    for (let y = firstLabel; y <= maxY; y += step) {
+      const x = toX(y)
+      // Only emit labels whose tick falls within the drawable track area
+      if (x >= TL_TRACK_X0 && x <= TL_TRACK_X0 + TL_TRACK_W) {
+        yearLabels.push({ year: y, x })
+      }
     }
 
     const maxLevel = Math.max(...points.map(p => p.level), 0)
@@ -222,9 +249,6 @@ function MiniTimeline({ submissions, onDotClick }) {
   }, [submissions])
 
   if (!points.length) return null
-
-  const trackX0 = TL_PAD - 12
-  const trackW  = TL_W - 2 * (TL_PAD - 12)
 
   return (
     <div style={{
@@ -243,8 +267,8 @@ function MiniTimeline({ submissions, onDotClick }) {
 
         {/* ── Track: full background pill ── */}
         <rect
-          x={trackX0} y={TL_AY - TL_TRACK / 2}
-          width={trackW} height={TL_TRACK}
+          x={TL_TRACK_X0} y={TL_AY - TL_TRACK / 2}
+          width={TL_TRACK_W} height={TL_TRACK}
           rx={TL_TRACK / 2}
           fill="var(--navy)" opacity={0.10}
         />
