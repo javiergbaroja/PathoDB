@@ -28,8 +28,8 @@ CREATE TABLE IF NOT EXISTS patients (
 );
 
 ALTER TABLE patients
-ADD COLUMN summary_text TEXT,
-ADD COLUMN summary_updated_at TIMESTAMPTZ;
+ADD COLUMN IF NOT EXISTS summary_text TEXT,
+ADD COLUMN IF NOT EXISTS summary_updated_at TIMESTAMPTZ;
 
 CREATE INDEX IF NOT EXISTS idx_patients_code ON patients (patient_code);
 
@@ -279,6 +279,7 @@ ALTER TABLE projects ADD CONSTRAINT projects_source_type_check
     CHECK (source_type IN ('cohort', 'file_import', 'custom_list'));
 
 -- 2. Make block_id nullable in scans (since TMA scans reflect multiple blocks)
+-- DROP NOT NULL is a no-op if the column is already nullable, so this is safe to re-run.
 ALTER TABLE scans ALTER COLUMN block_id DROP NOT NULL;
 
 -- 3. Create the TMA Cores mapping table
