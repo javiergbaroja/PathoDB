@@ -500,9 +500,17 @@ export default function Cohorts() {
     if (!saveName.trim()) return
     setSaving(true)
     try {
+      // Capture client-side post-processing state so the saved cohort reproduces
+      // exactly what the user is currently seeing (dedup + exclusions).
+      const clientTransforms = {
+        ...(onePerBlock             ? { dedup_one_per_block: true }               : {}),
+        ...(excludedTopos.size > 0  ? { excluded_topos:  [...excludedTopos]  }   : {}),
+        ...(excludedStains.size > 0 ? { excluded_stains: [...excludedStains] }   : {}),
+      }
+
       let filter_json
       if (mode === 'filter') {
-        filter_json = cleanFilter(filter)
+        filter_json = { ...cleanFilter(filter), ...clientTransforms }
       } else {
         const extra = cleanListFilter(listFilter)
         filter_json = {
@@ -512,6 +520,7 @@ export default function Cohorts() {
           b_scope:       bScope,
           return_level:  listLevel,
           ...extra,
+          ...clientTransforms,
         }
       }
       await api.saveCohort({ name: saveName, description: saveDesc || undefined, filter_json })
