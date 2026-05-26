@@ -13,7 +13,8 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy.orm import Session, joinedload
 from sqlalchemy import and_, or_, func, exists
-from typing import Literal
+from datetime import date as DateType
+from typing import Literal, Optional
 
 from ..database import get_db
 from ..models import Patient, Submission, Probe, Block, Scan, Stain, Cohort, Report, User
@@ -305,6 +306,20 @@ class ListQueryRequest(BaseModel):
     b_scope:      Literal["all", "matched"] = "all"
     ids:          list[str]
     return_level: str = "scan"
+    # Post-hoc filters applied after ID resolution
+    snomed_topo_codes:       Optional[list[str]] = None
+    topo_description_search: Optional[list[str]] = None
+    submission_types:        Optional[list[str]] = None
+    malignancy_flag:         Optional[bool] = None
+    has_scan:                Optional[bool] = None
+    block_info_search:       Optional[str] = None
+    stain_names:             Optional[list[str]] = None
+    stain_categories:        Optional[list[str]] = None
+    file_formats:            Optional[list[str]] = None
+    magnification_min:       Optional[float] = None
+    magnification_max:       Optional[float] = None
+    submission_date_from:    Optional[DateType] = None
+    submission_date_to:      Optional[DateType] = None
 
 
 # ─── Shared helper: run whichever query mode is encoded in a CohortFilter ─────
@@ -533,7 +548,36 @@ def query_cohort_list(
                         seen_block_ids.add(block.id)
                         all_rows.append((block, probe, sub, patient))
 
-    results = _format_results(all_rows, req.return_level, db)
+    # ── Apply post-hoc non-scan filters (probe / submission / block level) ──────
+    if req.snomed_topo_codes:
+        all_rows = [(b, p, s, pt) for b, p, s, pt in all_rows
+                    if p.snomed_topo_code in req.snomed_topo_codes]
+    if req.topo_description_search:
+        all_rows = [(b, p, s, pt) for b, p, s, pt in all_rows
+                    if p.topo_description in req.topo_description_search]
+    if req.submission_types:
+        all_rows = [(b, p, s, pt) for b, p, s, pt in all_rows
+                    if p.submission_type in req.submission_types]
+    if req.malignancy_flag is not None:
+        all_rows = [(b, p, s, pt) for b, p, s, pt in all_rows
+                    if s.malignancy_flag == req.malignancy_flag]
+    if req.submission_date_from:
+        all_rows = [(b, p, s, pt) for b, p, s, pt in all_rows
+                    if s.report_date and s.report_date >= req.submission_date_from]
+    if req.submission_date_to:
+        all_rows = [(b, p, s, pt) for b, p, s, pt in all_rows
+                    if s.report_date and s.report_date <= req.submission_date_to]
+    if req.block_info_search:
+        term = req.block_info_search.lower()
+        all_rows = [(b, p, s, pt) for b, p, s, pt in all_rows
+                    if b.block_info and term in b.block_info.lower()]
+    if req.has_scan is True:
+        all_rows = [(b, p, s, pt) for b, p, s, pt in all_rows if len(b.scans) > 0]
+    elif req.has_scan is False:
+        all_rows = [(b, p, s, pt) for b, p, s, pt in all_rows if len(b.scans) == 0]
+
+    # Pass req as filter object so _format_results can apply scan-level filters (stain, format, mag)
+    results = _format_results(all_rows, req.return_level, db, req)
     response = {
         "return_level": req.return_level,
         "count":        len(results),

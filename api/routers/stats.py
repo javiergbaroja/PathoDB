@@ -119,20 +119,23 @@ def get_stats(
 
 @router.get("/lookup/{field}")
 def lookup_values(
-    field: Literal["snomed_topo_code", "topo_description", "stain_name"],
+    field: Literal["snomed_topo_code", "topo_description", "stain_name", "stain_category", "submission_type", "file_format"],
     q: str = Query(..., min_length=1),
     db: Session = Depends(get_db),
     _: User = Depends(get_current_active_user),
 ):
     """Returns unique values from the database for autocomplete suggestions."""
     if field == "stain_name":
-        # Search stain names
         results = db.query(Stain.stain_name).filter(Stain.stain_name.ilike(f"%{q}%")).distinct().limit(15).all()
+    elif field == "stain_category":
+        results = db.query(Stain.stain_category).filter(Stain.stain_category.ilike(f"%{q}%")).distinct().limit(15).all()
+    elif field == "submission_type":
+        results = db.query(Probe.submission_type).filter(Probe.submission_type.ilike(f"%{q}%")).distinct().limit(15).all()
+    elif field == "file_format":
+        results = db.query(Scan.file_format).filter(Scan.file_format.ilike(f"%{q}%")).distinct().limit(15).all()
     elif field == "snomed_topo_code":
-        # Search by code
         results = db.query(Probe.snomed_topo_code).filter(Probe.snomed_topo_code.ilike(f"%{q}%")).distinct().limit(15).all()
     else:
-        # Search topo descriptions
         results = db.query(Probe.topo_description).filter(Probe.topo_description.ilike(f"%{q}%")).distinct().limit(15).all()
-    
+
     return [r[0] for r in results if r[0]]
