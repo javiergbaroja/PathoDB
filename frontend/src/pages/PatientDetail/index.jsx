@@ -161,7 +161,7 @@ function MiniTimeline({ submissions, onDotClick }) {
   const [tooltip,   setTooltip]   = useState(null)   // { sub, clientX, clientY }
   const [hoveredId, setHoveredId] = useState(null)
 
-  const { points, yearLabels, viewH, spanX0, spanX1 } = useMemo(() => {
+  const { points, yearLabels, viewH, spanX0, spanX1, trackY } = useMemo(() => {
     const mapped = submissions
       .map(s => ({
         sub:  s,
@@ -169,17 +169,21 @@ function MiniTimeline({ submissions, onDotClick }) {
       }))
       .filter(p => p.frac > 0)
 
-    if (!mapped.length) return { points: [], yearLabels: [], viewH: 60, spanX0: 0, spanX1: 0 }
+    if (!mapped.length) return { points: [], yearLabels: [], viewH: 60, spanX0: 0, spanX1: 0, trackY: TL_AY }
 
     const sorted = [...mapped].sort((a, b) => a.frac - b.frac)
-    const minF   = sorted[0].frac
-    const maxF   = sorted[sorted.length - 1].frac
-    const span   = maxF === minF ? 1 : maxF - minF
+    const actualMinF = sorted[0].frac
+    const actualMaxF = sorted[sorted.length - 1].frac
 
-    const toX = frac =>
-      sorted.length === 1
-        ? TL_W / 2
-        : TL_PAD + ((frac - minF) / span) * (TL_W - 2 * TL_PAD)
+    // ── Fix 1: expand domain to cover complete integer years so that integer
+    //    year positions always land inside [TL_PAD, TL_W-TL_PAD].
+    //    Previously the domain was [actualMinF, actualMaxF], so toX(floor(actualMinF))
+    //    produced a negative x whenever the first submission fell mid-year.
+    const domainMin  = Math.floor(actualMinF)          // Jan 1 of first year
+    const domainMax  = Math.floor(actualMaxF) + 1      // Jan 1 of year after last
+    const domainSpan = domainMax - domainMin            // always ≥ 1
+
+    const toX = frac => TL_PAD + ((frac - domainMin) / domainSpan) * (TL_W - 2 * TL_PAD)
 
     // Vertical stacking for overlapping dots
     const THRESH = TL_DOT_R * 2 + 3
@@ -193,32 +197,39 @@ function MiniTimeline({ submissions, onDotClick }) {
       stacked.push({ ...p, x: toX(p.frac), level })
     }
 
+    // ── Fix 2: compute maxLevel BEFORE assigning y-positions so we can push
+    //    the track down enough to keep stacked dots inside the viewBox.
+    //    Previously viewH added extra height at the *bottom* while dots stacked
+    //    *upward*, causing level-3+ dots to overflow above y=0 (off-screen top).
+    const maxLevel = Math.max(...stacked.map(p => p.level), 0)
+    const TOP_PAD  = 10                                                   // min gap above highest dot
+    const trackY   = Math.max(TL_AY, TOP_PAD + TL_DOT_R + maxLevel * TL_STEP)
+
     const points = stacked.map(p => ({
       ...p,
       // dots sit ON the track at level 0, then rise in discrete steps
-      y: TL_AY - p.level * TL_STEP,
+      y: trackY - p.level * TL_STEP,
     }))
 
-    // Year labels — derived from integer year positions on same scale
-    const years  = sorted.map(p => Math.floor(p.frac))
-    const minY   = Math.min(...years)
-    const maxY   = Math.max(...years)
-    const ySpan  = maxY - minY
-    const step   = ySpan === 0 ? 1 : ySpan <= 4 ? 1 : ySpan <= 8 ? 2 : ySpan <= 15 ? 3 : 5
+    // Year labels — integer years within the domain, spaced to avoid crowding
+    const minY  = domainMin
+    const maxY  = Math.floor(actualMaxF)   // last year that has actual data
+    const ySpan = maxY - minY
+    const step  = ySpan === 0 ? 1 : ySpan <= 4 ? 1 : ySpan <= 8 ? 2 : ySpan <= 15 ? 3 : ySpan <= 30 ? 5 : 10
 
     const yearLabels = []
     for (let y = minY; y <= maxY; y += step) {
       yearLabels.push({ year: y, x: toX(y) })
     }
 
-    const maxLevel = Math.max(...points.map(p => p.level), 0)
-    const viewH    = TL_AY + TL_TRACK / 2 + 20 + maxLevel * TL_STEP
+    // viewH: track centre + half track height + room for tick + label below
+    const viewH = trackY + TL_TRACK / 2 + 24
 
-    // x-extent of the active span highlight
-    const spanX0 = toX(minF)
-    const spanX1 = toX(maxF)
+    // x-extent of the active span highlight (actual first → last submission)
+    const spanX0 = toX(actualMinF)
+    const spanX1 = toX(actualMaxF)
 
-    return { points, yearLabels, viewH, spanX0, spanX1 }
+    return { points, yearLabels, viewH, spanX0, spanX1, trackY }
   }, [submissions])
 
   if (!points.length) return null
@@ -243,7 +254,7 @@ function MiniTimeline({ submissions, onDotClick }) {
 
         {/* ── Track: full background pill ── */}
         <rect
-          x={trackX0} y={TL_AY - TL_TRACK / 2}
+          x={trackX0} y={trackY - TL_TRACK / 2}
           width={trackW} height={TL_TRACK}
           rx={TL_TRACK / 2}
           fill="var(--navy)" opacity={0.10}
@@ -252,7 +263,7 @@ function MiniTimeline({ submissions, onDotClick }) {
         {/* ── Track: active-span highlight (first → last submission) ── */}
         {spanX1 > spanX0 && (
           <rect
-            x={spanX0} y={TL_AY - TL_TRACK / 2}
+            x={spanX0} y={trackY - TL_TRACK / 2}
             width={spanX1 - spanX0} height={TL_TRACK}
             rx={TL_TRACK / 2}
             fill="var(--navy)" opacity={0.28}
@@ -263,12 +274,12 @@ function MiniTimeline({ submissions, onDotClick }) {
         {yearLabels.map(({ year, x }) => (
           <g key={year}>
             <line
-              x1={x} y1={TL_AY + TL_TRACK / 2 + 2}
-              x2={x} y2={TL_AY + TL_TRACK / 2 + 8}
+              x1={x} y1={trackY + TL_TRACK / 2 + 2}
+              x2={x} y2={trackY + TL_TRACK / 2 + 8}
               stroke="var(--navy)" strokeWidth={0.75} opacity={0.3}
             />
             <text
-              x={x} y={TL_AY + TL_TRACK / 2 + 17}
+              x={x} y={trackY + TL_TRACK / 2 + 17}
               textAnchor="middle"
               fontSize={9} fill="var(--text-3)" fontFamily="var(--font-mono)"
             >
