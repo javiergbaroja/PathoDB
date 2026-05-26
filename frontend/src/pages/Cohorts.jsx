@@ -102,7 +102,7 @@ function MiniBar({ label, count, max, excluded, onToggle }) {
   )
 }
 
-function ResultSummary({ rows, returnLevel, excludedTopos, excludedStains, onToggleTopo, onToggleStain }) {
+function ResultSummary({ rows, returnLevel, excludedTopos, excludedStains, onToggleTopo, onToggleStain, onePerBlock, setOnePerBlock }) {
   const s = computeSummary(rows, returnLevel)
   if (!s) return null
 
@@ -156,8 +156,27 @@ function ResultSummary({ rows, returnLevel, excludedTopos, excludedStains, onTog
         )}
         {s.allStains?.length > 0 && (
           <div>
-            <div style={{ fontSize: 10, fontWeight: 600, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 6 }}>
-              Stains
+            {/* Stains column header with inline dedup toggle */}
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+              <div style={{ fontSize: 10, fontWeight: 600, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                Stains
+              </div>
+              {setOnePerBlock && (
+                <label
+                  title="Keep only one scan per (block, stain) pair — removes re-scans"
+                  style={{ display: 'flex', alignItems: 'center', gap: 5, cursor: 'pointer', userSelect: 'none' }}
+                >
+                  <input
+                    type="checkbox"
+                    checked={!!onePerBlock}
+                    onChange={e => setOnePerBlock(e.target.checked)}
+                    style={{ accentColor: 'var(--navy)', cursor: 'pointer', width: 12, height: 12, flexShrink: 0 }}
+                  />
+                  <span style={{ fontSize: 10, color: onePerBlock ? 'var(--navy)' : 'var(--text-2)', fontWeight: onePerBlock ? 600 : 400 }}>
+                    Dedup re-scans
+                  </span>
+                </label>
+              )}
             </div>
             <div style={{ maxHeight: 200, overflowY: 'auto' }}>
               {s.allStains.map(([label, count]) => (
@@ -278,41 +297,6 @@ function SavedCohortCard({ c, onOpen, onExportCsv, onExportJson, onDelete }) {
         <Btn variant="ghost"   small style={{ fontSize: 'var(--text-sm)', color: 'var(--crimson)', marginLeft: 'auto' }}
           onClick={() => onDelete(c)}>Delete</Btn>
       </div>
-    </div>
-  )
-}
-
-// ── Duplicate-scan removal control ────────────────────────────────────────────
-// When a block has been scanned more than once with the same stain (e.g. a
-// re-scan or quality repeat), this keeps only the first occurrence per
-// (block_id, stain_name) pair — mirroring the dedup in SlideTargetManager.
-
-function DedupeControl({ onePerBlock, setOnePerBlock }) {
-  return (
-    <div style={{
-      marginTop: 12,
-      padding: '10px 12px',
-      background: 'rgba(0,31,63,0.03)',
-      borderRadius: 'var(--radius-md)',
-      border: '1px solid var(--border-l)',
-    }}>
-      <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
-        <input
-          type="checkbox"
-          checked={onePerBlock}
-          onChange={e => setOnePerBlock(e.target.checked)}
-          style={{ accentColor: 'var(--navy)', cursor: 'pointer', width: 14, height: 14, flexShrink: 0 }}
-        />
-        <span style={{ fontSize: 13, fontWeight: 500, color: 'var(--navy)' }}>Remove duplicate scans</span>
-        <span style={{ fontSize: 12, color: 'var(--text-3)', fontWeight: 400 }}>
-          — one scan per stain per block
-        </span>
-      </label>
-      {onePerBlock && (
-        <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 6, marginLeft: 22 }}>
-          If a block has multiple scans of the same stain (e.g. re-scans), only the first is kept.
-        </div>
-      )}
     </div>
   )
 }
@@ -619,30 +603,27 @@ export default function Cohorts() {
                     placeholder="e.g. routine, IHC…" />
                 </div>
                 {isScanLevel && (
-                  <>
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12, marginTop: 10 }}>
-                      <MultiSelect label="File format" field="file_format"
-                        selected={filter.file_formats}
-                        onChange={val => setF('file_formats', val)}
-                        loadOptions={val => api.lookup('file_format', val)}
-                        placeholder="e.g. SVS, NDPI…" />
-                      <FormField label="Magnification ≥">
-                        <FormInput
-                          type="number" min={0} step={0.5}
-                          placeholder="e.g. 20"
-                          onChange={e => setF('magnification_min', e.target.value ? parseFloat(e.target.value) : null)}
-                        />
-                      </FormField>
-                      <FormField label="Magnification ≤">
-                        <FormInput
-                          type="number" min={0} step={0.5}
-                          placeholder="e.g. 40"
-                          onChange={e => setF('magnification_max', e.target.value ? parseFloat(e.target.value) : null)}
-                        />
-                      </FormField>
-                    </div>
-                    <DedupeControl onePerBlock={onePerBlock} setOnePerBlock={setOnePerBlock} />
-                  </>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12, marginTop: 10 }}>
+                    <MultiSelect label="File format" field="file_format"
+                      selected={filter.file_formats}
+                      onChange={val => setF('file_formats', val)}
+                      loadOptions={val => api.lookup('file_format', val)}
+                      placeholder="e.g. SVS, NDPI…" />
+                    <FormField label="Magnification ≥">
+                      <FormInput
+                        type="number" min={0} step={0.5}
+                        placeholder="e.g. 20"
+                        onChange={e => setF('magnification_min', e.target.value ? parseFloat(e.target.value) : null)}
+                      />
+                    </FormField>
+                    <FormField label="Magnification ≤">
+                      <FormInput
+                        type="number" min={0} step={0.5}
+                        placeholder="e.g. 40"
+                        onChange={e => setF('magnification_max', e.target.value ? parseFloat(e.target.value) : null)}
+                      />
+                    </FormField>
+                  </div>
                 )}
 
                 <Btn variant="primary" style={{ marginTop: 'var(--space-5)' }} onClick={runQuery} disabled={querying}>
@@ -783,7 +764,6 @@ export default function Cohorts() {
                           onChange={e => setLF('magnification_max', e.target.value ? parseFloat(e.target.value) : null)} />
                       </FormField>
                     </div>
-                    <DedupeControl onePerBlock={onePerBlock} setOnePerBlock={setOnePerBlock} />
                   </>
                 )}
 
@@ -803,11 +783,6 @@ export default function Cohorts() {
                     </div>
                     <div style={{ fontSize: 12, color: 'var(--text-3)', marginTop: 4 }}>
                       {result.return_level}s matching
-                      {onePerBlock && isScanLevel && effectiveResults.length !== result.count && (
-                        <span style={{ marginLeft: 5, color: 'var(--teal, #1b998b)', fontWeight: 500 }}>
-                          · deduplicated from {result.count}
-                        </span>
-                      )}
                     </div>
                   </div>
                   <div style={{ display: 'flex', gap: 10, marginTop: 10 }}>
@@ -817,7 +792,8 @@ export default function Cohorts() {
                 </div>
 
                 {/* Summary breakdown — computed on deduplicated rows so ALL categories
-                    are visible for toggling; exclusions are reflected in effectiveResults */}
+                    are visible for toggling; exclusions are reflected in effectiveResults.
+                    Dedup toggle lives inside the Stains column header (scan level only). */}
                 <ResultSummary
                   rows={dedupedResults}
                   returnLevel={result.return_level}
@@ -825,6 +801,8 @@ export default function Cohorts() {
                   excludedStains={excludedStains}
                   onToggleTopo={toggleTopo}
                   onToggleStain={toggleStain}
+                  onePerBlock={isScanLevel ? onePerBlock : undefined}
+                  setOnePerBlock={isScanLevel ? setOnePerBlock : undefined}
                 />
 
                 {result.not_found?.length > 0 && (
