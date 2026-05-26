@@ -332,6 +332,10 @@ CREATE INDEX IF NOT EXISTS idx_slide_registrations_moving ON slide_registrations
 -- REPORT EMBEDDINGS  (RAG over pathology reports — requires pgvector)
 -- Populated by api/workers/embed_reports.py. embedding dimension must match
 -- Settings.embedding_dim (default 768 = BAAI/bge-base-en-v1.5).
+--
+-- NOTE: CREATE EXTENSION requires a PostgreSQL superuser.
+--   Run as superuser:  psql -d pathodb -c "CREATE EXTENSION IF NOT EXISTS vector;"
+--   slurm_embed.sh handles this automatically (OS/cluster user = superuser).
 -- =============================================================================
 CREATE EXTENSION IF NOT EXISTS vector;
 
@@ -349,6 +353,22 @@ CREATE INDEX IF NOT EXISTS idx_report_embeddings_report_id  ON report_embeddings
 CREATE INDEX IF NOT EXISTS idx_report_embeddings_submission ON report_embeddings (submission_id);
 CREATE INDEX IF NOT EXISTS idx_report_embeddings_vec
     ON report_embeddings USING hnsw (embedding vector_cosine_ops);
+
+-- Grant DML to the application user (run schema.sql as superuser to include this)
+-- If applying piecemeal, replace :app_user with the actual username.
+DO $$
+BEGIN
+    IF EXISTS (
+        SELECT 1 FROM pg_roles WHERE rolname = current_setting('app.db_user', true)
+    ) THEN
+        EXECUTE format(
+            'GRANT SELECT, INSERT, UPDATE, DELETE ON report_embeddings TO %I;'
+            ' GRANT USAGE, SELECT ON SEQUENCE report_embeddings_id_seq TO %I;',
+            current_setting('app.db_user'), current_setting('app.db_user')
+        );
+    END IF;
+END
+$$;
 
 -- =============================================================================
 -- CHAT SESSIONS / MESSAGES / AGENT AUDIT  (conversational pathology agent)
