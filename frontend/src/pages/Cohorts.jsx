@@ -541,6 +541,17 @@ export default function Cohorts() {
     finally     { setDeleteBusy(false) }
   }
 
+  function triggerDownload(blob, filename) {
+    const url = URL.createObjectURL(blob)
+    const a   = document.createElement('a')
+    a.href    = url
+    a.download = filename
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+    setTimeout(() => URL.revokeObjectURL(url), 5000)
+  }
+
   function downloadCSV() {
     if (!effectiveResults.length) return
     const isScan  = result.return_level === 'scan'
@@ -549,18 +560,12 @@ export default function Cohorts() {
     for (const row of effectiveResults) {
       csvRows.push(headers.map(h => `"${(row[h] ?? '').toString().replace(/"/g, '""')}"`).join(','))
     }
-    const blob = new Blob([csvRows.join('\n')], { type: 'text/csv;charset=utf-8;' })
-    const url  = URL.createObjectURL(blob)
-    Object.assign(document.createElement('a'), { href: url, download: 'cohort_export.csv' }).click()
-    URL.revokeObjectURL(url)
+    triggerDownload(new Blob([csvRows.join('\n')], { type: 'text/csv;charset=utf-8;' }), 'cohort_export.csv')
   }
 
   function downloadJSON() {
     if (!effectiveResults.length) return
-    const blob = new Blob([JSON.stringify(effectiveResults, null, 2)], { type: 'application/json' })
-    const url  = URL.createObjectURL(blob)
-    Object.assign(document.createElement('a'), { href: url, download: 'cohort_export.json' }).click()
-    URL.revokeObjectURL(url)
+    triggerDownload(new Blob([JSON.stringify(effectiveResults, null, 2)], { type: 'application/json' }), 'cohort_export.json')
   }
 
   const returnLevel = mode === 'filter' ? filter.return_level : listLevel
@@ -590,8 +595,8 @@ export default function Cohorts() {
           />
         </div>
 
-        <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 'var(--space-4)' }}>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 260px', gap: 'var(--space-4)', alignItems: 'start' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-4)', minWidth: 0 }}>
 
             {/* ────────────────────── FILTER MODE ────────────────────────── */}
             {mode === 'filter' && (
