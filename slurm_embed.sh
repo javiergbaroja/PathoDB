@@ -121,9 +121,9 @@ psql -p "$PGPORT" -U "$PGUSER" -d "$PGDB" -f db/schema.sql \
     || { echo "ERROR: schema apply failed — check db/schema.sql output above"; exit 1; }
 
 # ── Install Python dependencies ───────────────────────────────────────────────
-echo ""
-echo "Installing/verifying API dependencies..."
-pip install -q -r api/requirements.txt
+# echo ""
+# echo "Installing/verifying API dependencies..."
+# pip install -q -r api/requirements.txt
 
 # ── Configure embedding run ───────────────────────────────────────────────────
 export EMBEDDING_DEVICE="${EMBEDDING_DEVICE:-cuda}"
