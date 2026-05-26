@@ -302,11 +302,12 @@ def _apply_filters(db: Session, f: CohortFilter):
 # ─── List query request schema ────────────────────────────────────────────────
 
 class ListQueryRequest(BaseModel):
+    # ID resolution
     id_type:      Literal["patient_code", "b_number"]
     b_scope:      Literal["all", "matched"] = "all"
     ids:          list[str]
     return_level: str = "scan"
-    # Post-hoc filters applied after ID resolution
+    # Standard filters — same fields as CohortFilter, applied at SQL level
     snomed_topo_codes:       Optional[list[str]] = None
     topo_description_search: Optional[list[str]] = None
     submission_types:        Optional[list[str]] = None
@@ -322,91 +323,63 @@ class ListQueryRequest(BaseModel):
     submission_date_to:      Optional[DateType] = None
 
 
-# ─── Shared helper: run whichever query mode is encoded in a CohortFilter ─────
-def _get_results_for_cohort(f: "CohortFilter", db: Session) -> tuple[list[dict], list[str]]:
-    """
-    Execute a saved cohort filter and return (results, not_found).
-    """
-    # 🚀 MASSIVE OPTIMIZATION: Bypasses ORM entirely for heavy Scan-level lists
-    if f.return_level == "scan":
-        valid_block_ids = set()
-        not_found = []
-        
-        # 1. Gather Block IDs safely
-        if getattr(f, 'is_list_query', False) and getattr(f, 'ids', None):
-            ids = list(set(i.strip() for i in f.ids if i.strip()))
-            for id_str in ids:
-                if f.id_type == "patient_code":
-                    patient = db.query(Patient).filter(Patient.patient_code == id_str).first()
-                    if not patient: 
-                        not_found.append(id_str)
-                        continue
-                    for sub in patient.submissions:
-                        for probe in sub.probes:
-                            for block in probe.blocks:
-                                valid_block_ids.add(block.id)
-                else: 
-                    matched = _resolve_b_number_exact(id_str, db)
-                    if not matched:
-                        not_found.append(id_str)
-                        continue
-                    if getattr(f, 'b_scope', 'all') == "all":
-                        seen_pats = set()
-                        for p, _ in matched:
-                            if p.id not in seen_pats:
-                                seen_pats.add(p.id)
-                                for sub in p.submissions:
-                                    for probe in sub.probes:
-                                        for block in probe.blocks:
-                                            valid_block_ids.add(block.id)
-                    else:
-                        for _, sub in matched:
-                            for probe in sub.probes:
-                                for block in probe.blocks:
-                                    valid_block_ids.add(block.id)
-        else:
-            q = _apply_filters(db, f)
-            valid_block_ids = {row[0] for row in q.with_entities(Block.id).all()}
-            
-        if not valid_block_ids:
-            return [], not_found
-            
-        # 2. Bulk query Scans using Raw Columns (Zero ORM Memory Bloat)
-        results = []
-        block_ids_list = list(valid_block_ids)
-        chunk_size = 2000
-        
-        for i in range(0, len(block_ids_list), chunk_size):
-            chunk = block_ids_list[i:i + chunk_size]
-            
-            q_scans = db.query(
-                Patient.patient_code, Submission.lis_submission_id, Probe.lis_probe_id,
-                Probe.snomed_topo_code, Probe.topo_description, Probe.submission_type,
-                Block.id.label("block_id"), Block.block_label, Block.block_info,
-                Scan.id.label("scan_id"), Scan.file_path, Scan.file_format,
-                Stain.stain_name, Stain.stain_category
-            ).select_from(Scan)\
-             .join(Block, Scan.block_id == Block.id)\
-             .join(Probe, Block.probe_id == Probe.id)\
-             .join(Submission, Probe.submission_id == Submission.id)\
-             .join(Patient, Submission.patient_id == Patient.id)\
-             .outerjoin(Stain, Scan.stain_id == Stain.id)\
-             .filter(Scan.block_id.in_(chunk))
+# ─── Scan bulk-query helper ───────────────────────────────────────────────────
 
-            # Apply scan specific filters
+def _scan_results_from_block_ids(db: Session, block_ids: set, f=None) -> list[dict]:
+    """
+    Given a set of block IDs, return scan-level result dicts.
+    Applies optional scan-level filters (stain, file format, magnification).
+    Uses raw column projection to avoid ORM memory overhead.
+    """
+    results = []
+    seen    = set()
+    chunk_size = 2000
+    block_ids_list = list(block_ids)
+
+    for i in range(0, len(block_ids_list), chunk_size):
+        chunk = block_ids_list[i:i + chunk_size]
+
+        q = (
+            db.query(
+                Patient.patient_code,
+                Submission.lis_submission_id,
+                Probe.lis_probe_id,
+                Probe.snomed_topo_code,
+                Probe.topo_description,
+                Probe.submission_type,
+                Block.id.label("block_id"),
+                Block.block_label,
+                Block.block_info,
+                Scan.id.label("scan_id"),
+                Scan.file_path,
+                Scan.file_format,
+                Stain.stain_name,
+                Stain.stain_category,
+            )
+            .select_from(Scan)
+            .join(Block,      Scan.block_id        == Block.id)
+            .join(Probe,      Block.probe_id        == Probe.id)
+            .join(Submission, Probe.submission_id   == Submission.id)
+            .join(Patient,    Submission.patient_id == Patient.id)
+            .outerjoin(Stain, Scan.stain_id         == Stain.id)
+            .filter(Scan.block_id.in_(chunk))
+        )
+
+        if f:
             if getattr(f, 'stain_names', None):
-                q_scans = q_scans.filter(Stain.stain_name.in_(f.stain_names))
+                q = q.filter(Stain.stain_name.in_(f.stain_names))
             if getattr(f, 'stain_categories', None):
-                q_scans = q_scans.filter(Stain.stain_category.in_(f.stain_categories))
+                q = q.filter(Stain.stain_category.in_(f.stain_categories))
             if getattr(f, 'file_formats', None):
-                q_scans = q_scans.filter(Scan.file_format.in_([x.upper() for x in f.file_formats]))
+                q = q.filter(Scan.file_format.in_([x.upper() for x in f.file_formats]))
             if getattr(f, 'magnification_min', None):
-                q_scans = q_scans.filter(Scan.magnification >= f.magnification_min)
+                q = q.filter(Scan.magnification >= f.magnification_min)
             if getattr(f, 'magnification_max', None):
-                q_scans = q_scans.filter(Scan.magnification <= f.magnification_max)
+                q = q.filter(Scan.magnification <= f.magnification_max)
 
-            # Fetch lightweight tuples instead of ORM classes
-            for row in q_scans.all():
+        for row in q.all():
+            if row.scan_id not in seen:
+                seen.add(row.scan_id)
                 results.append({
                     "patient_code":      row.patient_code,
                     "lis_submission_id": row.lis_submission_id,
@@ -424,52 +397,94 @@ def _get_results_for_cohort(f: "CohortFilter", db: Session) -> tuple[list[dict],
                     "viewer_available":  (row.file_format or '').upper() in VIEWER_FORMATS,
                 })
 
-        return results, not_found
+    return results
 
-    # ---------------------------------------------------------
-    # 3. Standard Legacy Logic for Patient/Sub/Probe levels 
-    #    (Kept identical for your other views)
-    # ---------------------------------------------------------
-    if getattr(f, 'is_list_query', False) and getattr(f, 'ids', None):
-        ids = list(set(i.strip() for i in f.ids if i.strip()))
-        all_rows = []
-        seen_block_ids = set()
-        not_found = []
 
+# ─── SQL-level list query helper ──────────────────────────────────────────────
+
+def _run_list_query(
+    db:       Session,
+    f:        "CohortFilter",
+    ids:      list[str],
+    id_type:  str,
+    b_scope:  str,
+) -> tuple[list[dict], list[str]]:
+    """
+    Resolve a list of patient codes or B-numbers to a patient/submission ID set,
+    then apply all standard CohortFilter filters at the SQL level.
+    Returns (results, not_found).
+    """
+    ids = list(set(i.strip() for i in ids if i.strip()))
+    if not ids:
+        return [], []
+
+    not_found:  list[str] = []
+    valid_ids:  set[int]  = set()
+    id_scope = "patient"  # default
+
+    if id_type == "patient_code":
         for id_str in ids:
-            if f.id_type == "patient_code":
-                patient = db.query(Patient).filter(Patient.patient_code == id_str).first()
-                if not patient:
-                    not_found.append(id_str)
-                    continue
-                patients_subs = [(patient, sub) for sub in patient.submissions]
-            else: 
-                matched = _resolve_b_number_exact(id_str, db)
-                if not matched:
-                    not_found.append(id_str)
-                    continue
-                if getattr(f, 'b_scope', 'all') == "all":
-                    patients_subs = []
-                    seen_patient_ids = set()
-                    for patient, _sub in matched:
-                        if patient.id not in seen_patient_ids:
-                            seen_patient_ids.add(patient.id)
-                            for sub in patient.submissions:
-                                patients_subs.append((patient, sub))
-                else:
-                    patients_subs = matched
+            patient = db.query(Patient).filter(Patient.patient_code == id_str).first()
+            if not patient:
+                not_found.append(id_str)
+            else:
+                valid_ids.add(patient.id)
 
-            for patient, sub in patients_subs:
-                for probe in sub.probes:
-                    for block in probe.blocks:
-                        if block.id not in seen_block_ids:
-                            seen_block_ids.add(block.id)
-                            all_rows.append((block, probe, sub, patient))
+    else:  # b_number
+        for id_str in ids:
+            matched = _resolve_b_number_exact(id_str, db)
+            if not matched:
+                not_found.append(id_str)
+            elif b_scope == "all":
+                for patient, _ in matched:
+                    valid_ids.add(patient.id)
+            else:
+                for _, sub in matched:
+                    valid_ids.add(sub.id)
+        id_scope = "patient" if b_scope == "all" else "submission"
 
-        return _format_results(all_rows, f.return_level, db), not_found
+    if not valid_ids:
+        return [], not_found
 
-    # Filter mode
-    rows = _apply_filters(db, f).all()
+    # Build standard filter query and constrain to the resolved IDs
+    q = _apply_filters(db, f)
+    if id_scope == "patient":
+        q = q.filter(Patient.id.in_(valid_ids))
+    else:
+        q = q.filter(Submission.id.in_(valid_ids))
+
+    if f.return_level == "scan":
+        block_ids = {row[0] for row in q.with_entities(Block.id).all()}
+        if not block_ids:
+            return [], not_found
+        return _scan_results_from_block_ids(db, block_ids, f), not_found
+
+    rows = q.all()
+    return _format_results(rows, f.return_level, db, f), not_found
+
+
+# ─── Shared helper: run whichever query mode is encoded in a CohortFilter ─────
+def _get_results_for_cohort(f: "CohortFilter", db: Session) -> tuple[list[dict], list[str]]:
+    """Execute a saved cohort filter and return (results, not_found)."""
+
+    # ── List query path (SQL-level) ───────────────────────────────────────────
+    if getattr(f, 'is_list_query', False) and getattr(f, 'ids', None):
+        return _run_list_query(
+            db, f, f.ids,
+            id_type = f.id_type or "patient_code",
+            b_scope = getattr(f, 'b_scope', 'all'),
+        )
+
+    # ── Filter query path ─────────────────────────────────────────────────────
+    q = _apply_filters(db, f)
+
+    if f.return_level == "scan":
+        block_ids = {row[0] for row in q.with_entities(Block.id).all()}
+        if not block_ids:
+            return [], []
+        return _scan_results_from_block_ids(db, block_ids, f), []
+
+    rows = q.all()
     return _format_results(rows, f.return_level, db, f), []
 # ─── Endpoints ────────────────────────────────────────────────────────────────
 
@@ -500,89 +515,19 @@ def query_cohort_list(
     _: User     = Depends(get_current_active_user),
 ):
     """
-    Query by a list of patient codes or B-numbers.
-    Returns results in the same format as /cohorts/query.
+    Query by a list of patient codes or B-numbers with optional SQL-level filters.
+    All standard CohortFilter fields are applied at the database level, not post-hoc.
     """
-    ids = list(set(i.strip() for i in req.ids if i.strip()))
-    if not ids:
+    if not req.ids:
         return {"return_level": req.return_level, "count": 0, "results": []}
 
-    # Collect (block, probe, sub, patient) rows
-    all_rows = []
-    seen_block_ids = set()
-    not_found = []
+    # Build a CohortFilter from the standard filter fields in the request
+    filter_fields = req.model_dump(exclude={"id_type", "b_scope", "ids"})
+    f = CohortFilter(**filter_fields)
 
-    for id_str in ids:
-        if req.id_type == "patient_code":
-            patient = db.query(Patient).filter(
-                Patient.patient_code == id_str
-            ).first()
-            if not patient:
-                not_found.append(id_str)
-                continue
-            patients_subs = [(patient, sub) for sub in patient.submissions]
+    results, not_found = _run_list_query(db, f, req.ids, req.id_type, req.b_scope)
 
-        else:  # b_number
-            matched = _resolve_b_number_exact(id_str, db)
-            if not matched:
-                not_found.append(id_str)
-                continue
-            if req.b_scope == "all":
-                # All submissions for the matched patient(s)
-                patients_subs = []
-                seen_patient_ids = set()
-                for patient, _sub in matched:
-                    if patient.id not in seen_patient_ids:
-                        seen_patient_ids.add(patient.id)
-                        for sub in patient.submissions:
-                            patients_subs.append((patient, sub))
-            else:
-                # Only the matched submission(s)
-                patients_subs = matched
-
-        # For each (patient, submission), get all blocks
-        for patient, sub in patients_subs:
-            for probe in sub.probes:
-                for block in probe.blocks:
-                    if block.id not in seen_block_ids:
-                        seen_block_ids.add(block.id)
-                        all_rows.append((block, probe, sub, patient))
-
-    # ── Apply post-hoc non-scan filters (probe / submission / block level) ──────
-    if req.snomed_topo_codes:
-        all_rows = [(b, p, s, pt) for b, p, s, pt in all_rows
-                    if p.snomed_topo_code in req.snomed_topo_codes]
-    if req.topo_description_search:
-        all_rows = [(b, p, s, pt) for b, p, s, pt in all_rows
-                    if p.topo_description in req.topo_description_search]
-    if req.submission_types:
-        all_rows = [(b, p, s, pt) for b, p, s, pt in all_rows
-                    if p.submission_type in req.submission_types]
-    if req.malignancy_flag is not None:
-        all_rows = [(b, p, s, pt) for b, p, s, pt in all_rows
-                    if s.malignancy_flag == req.malignancy_flag]
-    if req.submission_date_from:
-        all_rows = [(b, p, s, pt) for b, p, s, pt in all_rows
-                    if s.report_date and s.report_date >= req.submission_date_from]
-    if req.submission_date_to:
-        all_rows = [(b, p, s, pt) for b, p, s, pt in all_rows
-                    if s.report_date and s.report_date <= req.submission_date_to]
-    if req.block_info_search:
-        term = req.block_info_search.lower()
-        all_rows = [(b, p, s, pt) for b, p, s, pt in all_rows
-                    if b.block_info and term in b.block_info.lower()]
-    if req.has_scan is True:
-        all_rows = [(b, p, s, pt) for b, p, s, pt in all_rows if len(b.scans) > 0]
-    elif req.has_scan is False:
-        all_rows = [(b, p, s, pt) for b, p, s, pt in all_rows if len(b.scans) == 0]
-
-    # Pass req as filter object so _format_results can apply scan-level filters (stain, format, mag)
-    results = _format_results(all_rows, req.return_level, db, req)
-    response = {
-        "return_level": req.return_level,
-        "count":        len(results),
-        "results":      results,
-    }
+    response = {"return_level": f.return_level, "count": len(results), "results": results}
     if not_found:
         response["not_found"] = not_found
     return response
