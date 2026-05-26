@@ -224,8 +224,16 @@ export function Table({ children, style, className }) {
   )
 }
 
-export function Th({ children, style, className }) {
-  return <th className={cx(s.th, className)} style={style}>{children}</th>
+export function Th({ children, style, className, onClick }) {
+  return (
+    <th
+      className={cx(s.th, className)}
+      style={{ ...(onClick ? { cursor: 'pointer', userSelect: 'none' } : {}), ...style }}
+      onClick={onClick}
+    >
+      {children}
+    </th>
+  )
 }
 
 export function Td({ children, mono = false, style, className }) {
