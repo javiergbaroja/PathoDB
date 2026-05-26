@@ -25,3 +25,4 @@ api/*/__pycache__/*
 api/static
 api/routers/summarize copy.py
 api/static/index.html
+pathodb_conda_data
