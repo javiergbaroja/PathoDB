@@ -43,48 +43,75 @@ const EMPTY_LIST_FILTER = {
 
 // ── Result summary helpers ────────────────────────────────────────────────────
 
-function computeSummary(result) {
-  if (!result?.results?.length) return null
-  const rows = result.results
+// computeSummary receives raw rows + returnLevel directly so ResultSummary can
+// show ALL categories (including currently-excluded ones) for toggling.
+function computeSummary(rows, returnLevel) {
+  if (!rows?.length) return null
 
   const uniquePatients    = new Set(rows.map(r => r.patient_code)).size
   const uniqueSubmissions = new Set(rows.map(r => r.lis_submission_id).filter(Boolean)).size
 
   const topoCounts = {}
   rows.forEach(r => { if (r.topo_description) topoCounts[r.topo_description] = (topoCounts[r.topo_description] || 0) + 1 })
-  const topTopos = Object.entries(topoCounts).sort((a, b) => b[1] - a[1]).slice(0, 6)
+  // Show all topographies (sorted), not just top-N, so users can exclude any of them
+  const allTopos = Object.entries(topoCounts).sort((a, b) => b[1] - a[1])
 
-  let topStains = null
-  if (result.return_level === 'scan') {
+  let allStains = null
+  if (returnLevel === 'scan') {
     const stainCounts = {}
     rows.forEach(r => { if (r.stain_name) stainCounts[r.stain_name] = (stainCounts[r.stain_name] || 0) + 1 })
-    topStains = Object.entries(stainCounts).sort((a, b) => b[1] - a[1]).slice(0, 6)
+    allStains = Object.entries(stainCounts).sort((a, b) => b[1] - a[1])
   }
 
-  return { uniquePatients, uniqueSubmissions, topTopos, topStains }
+  return { uniquePatients, uniqueSubmissions, allTopos, allStains }
 }
 
-function MiniBar({ label, count, max }) {
+// Interactive bar row — click to toggle exclusion of that category.
+function MiniBar({ label, count, max, excluded, onToggle }) {
   const pct = max > 0 ? Math.round((count / max) * 100) : 0
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, marginBottom: 3 }}>
-      <div style={{ width: 110, color: 'var(--text-2)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flexShrink: 0 }} title={label}>{label}</div>
-      <div style={{ flex: 1, background: 'var(--border-l)', borderRadius: 3, overflow: 'hidden', height: 8 }}>
-        <div style={{ width: `${pct}%`, background: 'var(--navy-20)', height: '100%', borderRadius: 3 }} />
+    <div
+      onClick={onToggle}
+      title={excluded ? `Click to re-include "${label}"` : `Click to exclude "${label}"`}
+      style={{
+        display: 'flex', alignItems: 'center', gap: 6, fontSize: 11, marginBottom: 3,
+        cursor: 'pointer', opacity: excluded ? 0.45 : 1,
+        borderRadius: 3, padding: '1px 2px',
+        transition: 'opacity .15s',
+      }}
+      onMouseEnter={e => { if (!excluded) e.currentTarget.style.background = 'rgba(0,0,0,0.03)' }}
+      onMouseLeave={e => { e.currentTarget.style.background = '' }}
+    >
+      <div style={{
+        width: 120, color: excluded ? 'var(--text-3)' : 'var(--text-2)',
+        overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flexShrink: 0,
+        textDecoration: excluded ? 'line-through' : 'none',
+      }} title={label}>{label}</div>
+      <div style={{ flex: 1, background: 'var(--border-l)', borderRadius: 3, overflow: 'hidden', height: 7 }}>
+        <div style={{
+          width: `${pct}%`, height: '100%', borderRadius: 3,
+          background: excluded ? '#ccc' : 'var(--navy-20)',
+          transition: 'background .15s',
+        }} />
       </div>
       <div style={{ width: 30, textAlign: 'right', color: 'var(--text-3)', fontFamily: 'var(--font-mono)', fontSize: 10 }}>{count}</div>
+      {excluded
+        ? <span style={{ fontSize: 10, color: 'var(--crimson)', width: 14, textAlign: 'center' }}>✕</span>
+        : <span style={{ fontSize: 10, color: 'transparent', width: 14 }}>✕</span>}
     </div>
   )
 }
 
-function ResultSummary({ result }) {
-  const s = computeSummary(result)
+function ResultSummary({ rows, returnLevel, excludedTopos, excludedStains, onToggleTopo, onToggleStain }) {
+  const s = computeSummary(rows, returnLevel)
   if (!s) return null
 
+  const exclusionCount = (excludedTopos?.size ?? 0) + (excludedStains?.size ?? 0)
+
   return (
-    <div style={{ background: 'var(--bg-subtle, rgba(0,0,0,0.02))', border: '1px solid var(--border-l)', borderRadius: 'var(--radius-md)', padding: '10px 14px', marginBottom: 12 }}>
+    <div style={{ background: 'rgba(0,0,0,0.02)', border: '1px solid var(--border-l)', borderRadius: 'var(--radius-md)', padding: '10px 14px', marginBottom: 12 }}>
       {/* Key counts */}
-      <div style={{ display: 'flex', gap: 20, marginBottom: s.topTopos.length ? 10 : 0, flexWrap: 'wrap' }}>
+      <div style={{ display: 'flex', gap: 20, marginBottom: s.allTopos.length ? 10 : 0, flexWrap: 'wrap', alignItems: 'center' }}>
         <div style={{ fontSize: 12 }}>
           <span style={{ fontWeight: 600, color: 'var(--navy)' }}>{s.uniquePatients}</span>
           <span style={{ color: 'var(--text-3)', marginLeft: 3 }}>patient{s.uniquePatients !== 1 ? 's' : ''}</span>
@@ -95,30 +122,52 @@ function ResultSummary({ result }) {
             <span style={{ color: 'var(--text-3)', marginLeft: 3 }}>submission{s.uniqueSubmissions !== 1 ? 's' : ''}</span>
           </div>
         )}
-        {s.topTopos.length > 0 && (
-          <div style={{ fontSize: 12 }}>
-            <span style={{ fontWeight: 600, color: 'var(--navy)' }}>{Object.keys(Object.fromEntries(s.topTopos)).length}+</span>
-            <span style={{ color: 'var(--text-3)', marginLeft: 3 }}>topograph{s.topTopos.length !== 1 ? 'ies' : 'y'}</span>
+        {exclusionCount > 0 && (
+          <div style={{ fontSize: 11, color: 'var(--crimson)', marginLeft: 'auto' }}>
+            {exclusionCount} categor{exclusionCount !== 1 ? 'ies' : 'y'} excluded
           </div>
         )}
       </div>
 
+      {/* Hint */}
+      {(s.allTopos.length > 0 || s.allStains?.length > 0) && (
+        <div style={{ fontSize: 10, color: 'var(--text-3)', marginBottom: 8 }}>
+          Click a row to exclude / re-include that category from the results.
+        </div>
+      )}
+
       {/* Breakdowns */}
-      <div style={{ display: 'grid', gridTemplateColumns: s.topStains ? '1fr 1fr' : '1fr', gap: 14 }}>
-        {s.topTopos.length > 0 && (
+      <div style={{ display: 'grid', gridTemplateColumns: s.allStains ? '1fr 1fr' : '1fr', gap: 14 }}>
+        {s.allTopos.length > 0 && (
           <div>
-            <div style={{ fontSize: 10, fontWeight: 600, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 6 }}>Top topographies</div>
-            {s.topTopos.map(([label, count]) => (
-              <MiniBar key={label} label={label} count={count} max={s.topTopos[0][1]} />
-            ))}
+            <div style={{ fontSize: 10, fontWeight: 600, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 6 }}>
+              Topographies
+            </div>
+            <div style={{ maxHeight: 200, overflowY: 'auto' }}>
+              {s.allTopos.map(([label, count]) => (
+                <MiniBar
+                  key={label} label={label} count={count} max={s.allTopos[0][1]}
+                  excluded={excludedTopos?.has(label)}
+                  onToggle={() => onToggleTopo?.(label)}
+                />
+              ))}
+            </div>
           </div>
         )}
-        {s.topStains && s.topStains.length > 0 && (
+        {s.allStains?.length > 0 && (
           <div>
-            <div style={{ fontSize: 10, fontWeight: 600, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 6 }}>Top stains</div>
-            {s.topStains.map(([label, count]) => (
-              <MiniBar key={label} label={label} count={count} max={s.topStains[0][1]} />
-            ))}
+            <div style={{ fontSize: 10, fontWeight: 600, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 6 }}>
+              Stains
+            </div>
+            <div style={{ maxHeight: 200, overflowY: 'auto' }}>
+              {s.allStains.map(([label, count]) => (
+                <MiniBar
+                  key={label} label={label} count={count} max={s.allStains[0][1]}
+                  excluded={excludedStains?.has(label)}
+                  onToggle={() => onToggleStain?.(label)}
+                />
+              ))}
+            </div>
           </div>
         )}
       </div>
@@ -233,12 +282,12 @@ function SavedCohortCard({ c, onOpen, onExportCsv, onExportJson, onDelete }) {
   )
 }
 
-// ── One-scan-per-block deduplication control ──────────────────────────────────
-// Mirrors the "Keep only one slide per block" option in SlideTargetManager.
-// Purely client-side: groups by block_id and keeps the scan matching the
-// preferred stain, or the first scan if no preference is set.
+// ── Duplicate-scan removal control ────────────────────────────────────────────
+// When a block has been scanned more than once with the same stain (e.g. a
+// re-scan or quality repeat), this keeps only the first occurrence per
+// (block_id, stain_name) pair — mirroring the dedup in SlideTargetManager.
 
-function DedupeControl({ onePerBlock, setOnePerBlock, dedupeStains, setDedupeStains }) {
+function DedupeControl({ onePerBlock, setOnePerBlock }) {
   return (
     <div style={{
       marginTop: 12,
@@ -254,24 +303,14 @@ function DedupeControl({ onePerBlock, setOnePerBlock, dedupeStains, setDedupeSta
           onChange={e => setOnePerBlock(e.target.checked)}
           style={{ accentColor: 'var(--navy)', cursor: 'pointer', width: 14, height: 14, flexShrink: 0 }}
         />
-        <span style={{ fontSize: 13, fontWeight: 500, color: 'var(--navy)' }}>One scan per block</span>
+        <span style={{ fontSize: 13, fontWeight: 500, color: 'var(--navy)' }}>Remove duplicate scans</span>
         <span style={{ fontSize: 12, color: 'var(--text-3)', fontWeight: 400 }}>
-          — keep a single scan per tissue block
+          — one scan per stain per block
         </span>
       </label>
       {onePerBlock && (
-        <div style={{ marginTop: 10, marginLeft: 22 }}>
-          <MultiSelect
-            label="Preferred stain (kept when multiple scans exist for a block)"
-            field="dedupe_stain"
-            selected={dedupeStains}
-            onChange={setDedupeStains}
-            loadOptions={val => api.lookup('stain_name', val)}
-            placeholder="e.g. H&E — will be preferred when deduplicating…"
-          />
-          <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 5 }}>
-            If no preference is set, the first scan is kept. Priority follows the order stains are added.
-          </div>
+        <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 6, marginLeft: 22 }}>
+          If a block has multiple scans of the same stain (e.g. re-scans), only the first is kept.
         </div>
       )}
     </div>
@@ -313,8 +352,9 @@ export default function Cohorts() {
   const [saved,         setSaved]         = useState([])
   const [deleteTarget,  setDeleteTarget]  = useState(null)
   const [deleteBusy,    setDeleteBusy]    = useState(false)
-  const [onePerBlock,   setOnePerBlock]   = useState(false)
-  const [dedupeStains,  setDedupeStains]  = useState([])
+  const [onePerBlock,    setOnePerBlock]   = useState(false)
+  const [excludedTopos,  setExcludedTopos] = useState(new Set())
+  const [excludedStains, setExcludedStains] = useState(new Set())
 
   useEffect(() => {
     api.getCohorts().then(setSaved).catch(() => {})
@@ -324,23 +364,36 @@ export default function Cohorts() {
   function setF(key, val) { setFilter(f => ({ ...f, [key]: val === '' ? null : val })) }
   function setLF(key, val) { setListFilter(f => ({ ...f, [key]: val === '' ? null : val })) }
 
-  // ── One-scan-per-block deduplication (client-side, mirrors SlideTargetManager) ─
-  const effectiveResults = useMemo(() => {
+  // Toggle helpers for the interactive summary panel
+  function toggleTopo(topo) {
+    setExcludedTopos(prev => { const n = new Set(prev); n.has(topo) ? n.delete(topo) : n.add(topo); return n })
+  }
+  function toggleStain(stain) {
+    setExcludedStains(prev => { const n = new Set(prev); n.has(stain) ? n.delete(stain) : n.add(stain); return n })
+  }
+
+  // ── Stage 1: dedup — one scan per (block_id, stain_name) combination ─────────
+  // Matches the SlideTargetManager pattern: if the same stain was scanned
+  // multiple times for the same block (re-scan, quality repeat), keep only one.
+  const dedupedResults = useMemo(() => {
     const rows = result?.results
     if (!rows?.length || result.return_level !== 'scan' || !onePerBlock) return rows || []
-    const blockMap = new Map()
-    rows.forEach(r => {
-      const key = r.block_id ?? `orphan_${r.scan_id}`
-      if (!blockMap.has(key)) blockMap.set(key, [])
-      blockMap.get(key).push(r)
+    const seen = new Set()
+    return rows.filter(r => {
+      const key = `${r.block_id ?? r.scan_id}__${r.stain_name ?? ''}`
+      if (seen.has(key)) return false
+      seen.add(key)
+      return true
     })
-    return Array.from(blockMap.values()).map(scans => {
-      if (dedupeStains.length > 0) {
-        return scans.find(s => dedupeStains.includes(s.stain_name)) ?? scans[0]
-      }
-      return scans[0]
-    })
-  }, [result, onePerBlock, dedupeStains])
+  }, [result, onePerBlock])
+
+  // ── Stage 2: exclusions — remove user-deselected topographies / stains ───────
+  const effectiveResults = useMemo(() => {
+    let rows = dedupedResults
+    if (excludedTopos.size > 0) rows = rows.filter(r => !excludedTopos.has(r.topo_description))
+    if (excludedStains.size > 0) rows = rows.filter(r => !excludedStains.has(r.stain_name))
+    return rows
+  }, [dedupedResults, excludedTopos, excludedStains])
 
   // ── CSV / TXT file upload into textarea ──────────────────────────────────────
   function handleFileUpload(e) {
@@ -387,6 +440,7 @@ export default function Cohorts() {
 
   async function runQuery() {
     setQuerying(true); setError(''); setResult(null)
+    setExcludedTopos(new Set()); setExcludedStains(new Set())
     try {
       if (mode === 'filter') {
         setResult(await api.queryCohort(cleanFilter(filter)))
@@ -587,10 +641,7 @@ export default function Cohorts() {
                         />
                       </FormField>
                     </div>
-                    <DedupeControl
-                      onePerBlock={onePerBlock} setOnePerBlock={setOnePerBlock}
-                      dedupeStains={dedupeStains} setDedupeStains={setDedupeStains}
-                    />
+                    <DedupeControl onePerBlock={onePerBlock} setOnePerBlock={setOnePerBlock} />
                   </>
                 )}
 
@@ -732,10 +783,7 @@ export default function Cohorts() {
                           onChange={e => setLF('magnification_max', e.target.value ? parseFloat(e.target.value) : null)} />
                       </FormField>
                     </div>
-                    <DedupeControl
-                      onePerBlock={onePerBlock} setOnePerBlock={setOnePerBlock}
-                      dedupeStains={dedupeStains} setDedupeStains={setDedupeStains}
-                    />
+                    <DedupeControl onePerBlock={onePerBlock} setOnePerBlock={setOnePerBlock} />
                   </>
                 )}
 
@@ -768,8 +816,16 @@ export default function Cohorts() {
                   </div>
                 </div>
 
-                {/* Summary breakdown (uses effective/deduplicated rows) */}
-                <ResultSummary result={{ ...result, results: effectiveResults }} />
+                {/* Summary breakdown — computed on deduplicated rows so ALL categories
+                    are visible for toggling; exclusions are reflected in effectiveResults */}
+                <ResultSummary
+                  rows={dedupedResults}
+                  returnLevel={result.return_level}
+                  excludedTopos={excludedTopos}
+                  excludedStains={excludedStains}
+                  onToggleTopo={toggleTopo}
+                  onToggleStain={toggleStain}
+                />
 
                 {result.not_found?.length > 0 && (
                   <div style={{
