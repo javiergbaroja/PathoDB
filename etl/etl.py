@@ -475,7 +475,8 @@ def load_blocks(filepath: str, conn, submission_map: dict, dry_run: bool) -> tup
         "Topographie - Bezeichnung",
         "Zusatzinformation Lokalisation",
     ]
-    probes_df = df[probe_cols].drop_duplicates(subset=["Probe", "Einsendung"])
+    # allow for "Zusatzinformation Lokalisation" to be missing
+    probes_df = df[probe_cols].drop_duplicates(subset=["Probe", "Einsendung"]) if "Zusatzinformation Lokalisation" in df.columns else df[probe_cols[:-1]].drop_duplicates(subset=["Probe", "Einsendung"])
 
     for _, prow in tqdm(probes_df.iterrows(), total=len(probes_df), desc="  Probes"):
         lis_probe_id = clean(prow.get("Probe"))
@@ -502,7 +503,7 @@ def load_blocks(filepath: str, conn, submission_map: dict, dry_run: bool) -> tup
         submission_type     = clean(prow.get("Art des Materials - Bezeichnung"))
         snomed_topo_code    = clean(prow.get("Topographie - Code"))
         topo_description    = clean(prow.get("Topographie - Bezeichnung"))
-        location_additional = clean(prow.get("Zusatzinformation Lokalisation"))
+        location_additional = clean(prow.get("Zusatzinformation Lokalisation")) if "Zusatzinformation Lokalisation" in prow else None
 
         if not dry_run:
             cur.execute(

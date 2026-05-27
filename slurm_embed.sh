@@ -4,7 +4,7 @@
 #SBATCH --job-name="pathodb_embed"
 #SBATCH --output="/storage/research/igmp_dp_workspace/garciabaroja_javier/PW_reports/database/pathodb/logs/pathodb_embed_%j.out"
 #SBATCH --time=4:00:00
-#SBATCH --mem=24G
+#SBATCH --mem=90G
 #SBATCH --nodes=1
 #SBATCH --account=invest
 #SBATCH --partition=gpu-invest
@@ -73,7 +73,7 @@ source "$ENV_FILE"
 set +a
 
 PGDB="${POSTGRES_DB}"
-PGUSER=jg23p152
+APP_PGUSER=jg23p152
 # PGUSER="${POSTGRES_USER}"
 
 # ── Manage PostgreSQL ─────────────────────────────────────────────────────────
@@ -151,9 +151,9 @@ CREATE INDEX IF NOT EXISTS idx_report_embeddings_vec
 -- Grant DML to the app user so embed_reports.py can INSERT/SELECT
 
 GRANT SELECT, INSERT, UPDATE, DELETE
-    ON report_embeddings TO ${PGUSER};
+    ON report_embeddings TO ${APP_PGUSER};
 GRANT USAGE, SELECT
-    ON SEQUENCE report_embeddings_id_seq TO ${PGUSER};
+    ON SEQUENCE report_embeddings_id_seq TO ${APP_PGUSER};
 SQL
 echo "  report_embeddings: OK"
 
@@ -193,7 +193,7 @@ if [ "$REPORT_TYPE" != "all" ]; then
     REPORT_TYPE_COND="AND r.report_type = '$REPORT_TYPE'"
 fi
 
-PENDING=$("$PG_BIN/psql" -p "$PGPORT" -U "$PGUSER" -d "$PGDB" -At -c "
+PENDING=$("$PG_BIN/psql" -p "$PGPORT" -U "$APP_PGUSER" -d "$PGDB" -At -c "
     SELECT COUNT(*)
     FROM reports r
     WHERE r.report_text IS NOT NULL
@@ -204,11 +204,11 @@ PENDING=$("$PG_BIN/psql" -p "$PGPORT" -U "$PGUSER" -d "$PGDB" -At -c "
       );
 " 2>/dev/null || echo "?")
 
-ALREADY=$("$PG_BIN/psql" -p "$PGPORT" -U "$PGUSER" -d "$PGDB" -At -c "
+ALREADY=$("$PG_BIN/psql" -p "$PGPORT" -U "$APP_PGUSER" -d "$PGDB" -At -c "
     SELECT COUNT(DISTINCT report_id) FROM report_embeddings;
 " 2>/dev/null || echo "?")
 
-TOTAL=$("$PG_BIN/psql" -p "$PGPORT" -U "$PGUSER" -d "$PGDB" -At -c "
+TOTAL=$("$PG_BIN/psql" -p "$PGPORT" -U "$APP_PGUSER" -d "$PGDB" -At -c "
     SELECT COUNT(*)
     FROM reports r
     WHERE r.report_text IS NOT NULL
@@ -229,13 +229,13 @@ fi
 echo "Starting embedding pipeline..."
 echo ""
 
-python api/workers/embed_reports.py \
+python3 api/workers/embed_reports.py \
     --report-type "$REPORT_TYPE" \
     "${EXTRA_ARGS[@]}"
 
 # ── Post-run summary ──────────────────────────────────────────────────────────
 echo ""
-REMAINING=$("$PG_BIN/psql" -p "$PGPORT" -U "$PGUSER" -d "$PGDB" -At -c "
+REMAINING=$("$PG_BIN/psql" -p "$PGPORT" -U "$APP_PGUSER" -d "$PGDB" -At -c "
     SELECT COUNT(*)
     FROM reports r
     WHERE r.report_text IS NOT NULL
@@ -246,11 +246,11 @@ REMAINING=$("$PG_BIN/psql" -p "$PGPORT" -U "$PGUSER" -d "$PGDB" -At -c "
       );
 " 2>/dev/null || echo "?")
 
-FINAL_EMBEDDED=$("$PG_BIN/psql" -p "$PGPORT" -U "$PGUSER" -d "$PGDB" -At -c "
+FINAL_EMBEDDED=$("$PG_BIN/psql" -p "$PGPORT" -U "$APP_PGUSER" -d "$PGDB" -At -c "
     SELECT COUNT(DISTINCT report_id) FROM report_embeddings;
 " 2>/dev/null || echo "?")
 
-TOTAL_CHUNKS=$("$PG_BIN/psql" -p "$PGPORT" -U "$PGUSER" -d "$PGDB" -At -c "
+TOTAL_CHUNKS=$("$PG_BIN/psql" -p "$PGPORT" -U "$APP_PGUSER" -d "$PGDB" -At -c "
     SELECT COUNT(*) FROM report_embeddings;
 " 2>/dev/null || echo "?")
 

@@ -4,12 +4,14 @@
 #SBATCH --job-name="pathodb_etl"
 #SBATCH --output="/storage/research/igmp_dp_workspace/garciabaroja_javier/PW_reports/database/pathodb/logs/pathodb_etl_%j.out"
 #SBATCH --time=6:00:00
-#SBATCH --mem-per-cpu=24G
-#SBATCH --account=gratis
-#SBATCH --partition=cpu-invest
-#SBATCH --cpus-per-task=1
-#SBATCH --qos=job_cpu_preemptable
-#SBATCH --dependency=afterany:1651725
+#SBATCH --mem=90G
+#SBATCH --nodes=1
+#SBATCH --account=invest
+#SBATCH --gres=gpu:rtx4090:1
+#SBATCH --partition=gpu-invest
+#SBATCH --cpus-per-task=16
+#SBATCH --qos=job_gpu_igmp-tru
+#SBATCH --dependency=afterany:4769180
 # =============================================================================
 # PathoDB ETL — SLURM job script
 #
@@ -19,11 +21,11 @@
 #   3. Edit the DATA_DIR path below to point to your CSV files
 #   4. Choose DRY_RUN=true for a first validation pass
 # =============================================================================
-YEAR=2007   # Only used for naming log files, doesn't affect ETL logic
+YEAR=2003   # Only used for naming log files, doesn't affect ETL logic
 
-export PATH="/software.9/software/PostgreSQL/16.4-GCCcore-13.3.0/bin:$PATH"
-PGDATA="/storage/research/igmp_dp_workspace/garciabaroja_javier/PW_reports/database/pathodb/pgdata"
-
+PG_ENV="/storage/research/igmp_dp_workspace/garciabaroja_javier/conda_envs/pathodb-pg"
+PGDATA="/storage/research/igmp_dp_workspace/garciabaroja_javier/PW_reports/database/pathodb/pathodb_conda_data"
+PG_BIN="$PG_ENV/bin"
 # Clean stale PID if needed
 PIDFILE="$PGDATA/postmaster.pid"
 if [ -f "$PIDFILE" ]; then
@@ -58,12 +60,6 @@ echo ""
 
 # Load modules
 module load Anaconda3
-module load PostgreSQL
-
-# Ensure PostgreSQL binaries are in PATH regardless of module behaviour
-export PATH="/software.9/software/PostgreSQL/16.4-GCCcore-13.3.0/bin:$PATH"
-
-# Activate conda environment
 source activate langchain
 
 # Move into project directory so relative paths work
@@ -95,16 +91,16 @@ if [ -f "$PIDFILE" ]; then
     fi
 fi
 
-if pg_ctl -D "$PGDATA" status | grep -q "server is running"; then
+if "$PG_BIN/pg_ctl" -D "$PGDATA" status | grep -q "server is running"; then
     echo "Server is already running."
 else
     echo "Server not running — starting..."
-    pg_ctl -D "$PGDATA" -l "$PGDATA/logs/startup.log" start
+    "$PG_BIN/pg_ctl" -D "$PGDATA" -l "$PGDATA/logs/startup.log" start
 
     # Wait until server is actually accepting connections (up to 30s)
     echo "Waiting for server to accept connections..."
     for i in $(seq 1 30); do
-        if pg_isready -p "$PGPORT" -q; then
+        if "$PG_BIN/pg_isready" -p "$PGPORT" -q; then
             echo "Server ready after ${i}s."
             break
         fi
@@ -118,7 +114,7 @@ else
 fi
 
 # Disable timeouts for the ETL session
-psql -p "$PGPORT" -d "$PGDB" -U "$PGUSER" -c "
+"$PG_BIN/psql" -p "$PGPORT" -d "$PGDB" -U "$PGUSER" -c "
     ALTER ROLE $PGUSER SET statement_timeout = 0;
     ALTER ROLE $PGUSER SET idle_in_transaction_session_timeout = 0;
     ALTER ROLE $PGUSER SET lock_timeout = 0;
@@ -130,8 +126,8 @@ echo "Timeouts disabled for ETL session."
 (
     while true; do
         sleep 120
-        pg_ctl -D "$PGDATA" status > /dev/null 2>&1 || break
-        psql -p "$PGPORT" -d "$PGDB" -U "$PGUSER" -c "SELECT 1;" > /dev/null 2>&1
+        "$PG_BIN/pg_ctl" -D "$PGDATA" status > /dev/null 2>&1 || break
+        "$PG_BIN/psql" -p "$PGPORT" -d "$PGDB" -U "$PGUSER" -c "SELECT 1;" > /dev/null 2>&1
     done
 ) &
 KEEPALIVE_PID=$!
