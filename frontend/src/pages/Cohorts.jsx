@@ -5,6 +5,7 @@ import {
   Table, Th, Td, Tr,
   FormLabel, FormInput, FormSelect, FormTextarea, FormField,
   SegmentedControl, MultiSelect, ConfirmDialog,
+  useSortState, sortRows, SortIcon,
 } from '../components/ui'
 import { api } from '../api'
 
@@ -194,48 +195,6 @@ function ResultSummary({ rows, returnLevel, excludedTopos, excludedStains, onTog
   )
 }
 
-// ── Sortable table helpers ────────────────────────────────────────────────────
-
-function useSortState() {
-  const [sortCol, setSortCol] = useState(null)
-  const [sortDir, setSortDir] = useState('asc')
-  function toggleSort(col) {
-    if (sortCol === col) {
-      if (sortDir === 'asc') { setSortDir('desc') }
-      else                   { setSortCol(null); setSortDir('asc') }  // third click → reset
-    } else {
-      setSortCol(col); setSortDir('asc')
-    }
-  }
-  return { sortCol, sortDir, toggleSort }
-}
-
-function sortedRows(rows, sortCol, sortDir) {
-  if (!sortCol) return rows
-  return [...rows].sort((a, b) => {
-    const av = a[sortCol] ?? '', bv = b[sortCol] ?? ''
-    const an = parseFloat(av), bn = parseFloat(bv)
-    const cmp = !isNaN(an) && !isNaN(bn) && av !== '' && bv !== ''
-      ? an - bn
-      : String(av).localeCompare(String(bv), undefined, { numeric: true, sensitivity: 'base' })
-    return sortDir === 'asc' ? cmp : -cmp
-  })
-}
-
-// Tiny sort indicator shown inside each clickable header
-function SortIcon({ col, sortCol, sortDir }) {
-  const active = col === sortCol
-  return (
-    <span style={{
-      marginLeft: 4, fontSize: 9, verticalAlign: 'middle',
-      color: active ? 'var(--navy)' : 'var(--text-3)',
-      opacity: active ? 1 : 0.4,
-    }}>
-      {active ? (sortDir === 'asc' ? '↑' : '↓') : '⇅'}
-    </span>
-  )
-}
-
 // ── Scan-level results table ──────────────────────────────────────────────────
 
 const SCAN_COLS = ['patient_code','lis_submission_id','lis_probe_id','snomed_topo_code',
@@ -246,7 +205,7 @@ const LIMIT     = 50
 
 function ScanResultsTable({ rows }) {
   const { sortCol, sortDir, toggleSort } = useSortState()
-  const sorted = useMemo(() => sortedRows(rows, sortCol, sortDir), [rows, sortCol, sortDir])
+  const sorted = useMemo(() => sortRows(rows, sortCol, sortDir), [rows, sortCol, sortDir])
   const shown  = sorted.slice(0, LIMIT)
 
   return (
@@ -296,7 +255,7 @@ function GenericResultsTable({ rows }) {
   const { sortCol, sortDir, toggleSort } = useSortState()
   if (!rows.length) return null
   const cols   = Object.keys(rows[0])
-  const sorted = useMemo(() => sortedRows(rows, sortCol, sortDir), [rows, sortCol, sortDir])
+  const sorted = useMemo(() => sortRows(rows, sortCol, sortDir), [rows, sortCol, sortDir])
   const shown  = sorted.slice(0, LIMIT)
 
   return (

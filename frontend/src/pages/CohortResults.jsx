@@ -1,6 +1,6 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { useParams } from 'react-router-dom'
-import { Table, Th, Td, Tr, Btn, Spinner } from '../components/ui'
+import { Table, Th, Td, Tr, Btn, Spinner, useSortState, sortRows, SortIcon } from '../components/ui'
 import { api } from '../api'
 
 const VIEWER_FORMATS = new Set(['SVS','NDPI','TIF','TIFF','MRXS','SCN','VSI','BIF'])
@@ -10,6 +10,15 @@ const SCAN_COLS = [
   'topo_description','submission_type','block_label','block_info',
   'stain_name','stain_category','file_path',
 ]
+
+// Columns rendered in a monospace font (IDs / codes)
+const MONO_COLS = new Set(['lis_submission_id', 'lis_probe_id', 'snomed_topo_code'])
+
+// Columns that may contain long prose — truncated with a tooltip on hover
+const TRUNCATE_COLS = new Set([
+  'patient_code', 'topo_description', 'submission_type',
+  'block_label', 'block_info', 'stain_name', 'stain_category',
+])
 
 // ── Minimal header (no full Layout — this is a shareable public-ish page) ─────
 
@@ -61,6 +70,13 @@ export default function CohortResults() {
   const [data,    setData]    = useState(null)
   const [loading, setLoading] = useState(true)
   const [error,   setError]   = useState('')
+
+  // Sort state must be declared before any early returns (rules of hooks)
+  const { sortCol, sortDir, toggleSort } = useSortState()
+  const sortedResults = useMemo(
+    () => data ? sortRows(data.results, sortCol, sortDir) : [],
+    [data, sortCol, sortDir],
+  )
 
   useEffect(() => {
     api.getCohortResults(cohortId)
@@ -120,8 +136,6 @@ export default function CohortResults() {
     URL.revokeObjectURL(url)
   }
 
-  const MONO_COLS = new Set(['lis_submission_id', 'lis_probe_id', 'snomed_topo_code'])
-
   return (
     <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column', background: 'var(--white)', fontFamily: 'var(--font-sans)' }}>
       <PageHeader
@@ -132,44 +146,75 @@ export default function CohortResults() {
         onJson={downloadJSON}
       />
 
-      <div style={{ flex: 1, overflowY: 'auto', overflowX: 'auto', padding: '0 0 var(--space-6)' }}>
+      {/* overflowY scrolls the page vertically; the inner wrapper scrolls the table horizontally */}
+      <div style={{ flex: 1, overflowY: 'auto', padding: '0 0 var(--space-6)' }}>
         {data.results.length === 0 ? (
           <div style={{ padding: 32, textAlign: 'center', color: 'var(--text-3)', fontSize: 14 }}>
             No results found — the database may have changed since this cohort was saved.
           </div>
         ) : (
-          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
-            <thead style={{ position: 'sticky', top: 0, zIndex: 1 }}>
-              <tr>
-                {cols.map(h => <Th key={h}>{h.replace(/_/g, ' ')}</Th>)}
-                {isScan && <Th>viewer</Th>}
-              </tr>
-            </thead>
-            <tbody>
-              {data.results.map((row, i) => (
-                <Tr key={i}>
-                  {cols.map(col => (
-                    <Td key={col} mono={MONO_COLS.has(col)}>
-                      {col === 'file_path'
-                        ? <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-2)' }} title={row[col]}>
-                            {row[col] ? '…' + row[col].slice(-35) : '—'}
-                          </span>
-                        : <span>{row[col] ?? '—'}</span>}
-                    </Td>
+          /* Horizontal scroll wrapper — lets the table grow wider than the viewport */
+          <div style={{ overflowX: 'auto' }}>
+            <Table style={{ fontSize: 12 }}>
+              <thead style={{ position: 'sticky', top: 0, zIndex: 1 }}>
+                <tr>
+                  {cols.map(h => (
+                    <Th key={h} onClick={() => toggleSort(h)}>
+                      {h.replace(/_/g, ' ')}
+                      <SortIcon col={h} sortCol={sortCol} sortDir={sortDir} />
+                    </Th>
                   ))}
-                  {isScan && (
-                    <Td>
-                      {row.viewer_available
-                        ? <Btn variant="ghost" small onClick={() => window.open(`/viewer/${row.scan_id}`, '_blank')}>
-                            View ↗
-                          </Btn>
-                        : <span style={{ fontSize: 'var(--text-sm)', color: 'var(--text-3)' }}>—</span>}
-                    </Td>
-                  )}
-                </Tr>
-              ))}
-            </tbody>
-          </table>
+                  {isScan && <Th>viewer</Th>}
+                </tr>
+              </thead>
+              <tbody>
+                {sortedResults.map((row, i) => (
+                  <Tr key={i}>
+                    {cols.map(col => {
+                      if (col === 'file_path') {
+                        // File paths: already truncated to last N chars, mono font, tooltip shows full path
+                        return (
+                          <Td key={col} title={row[col] ?? undefined}>
+                            <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-2)' }}>
+                              {row[col] ? '…' + row[col].slice(-35) : '—'}
+                            </span>
+                          </Td>
+                        )
+                      }
+                      if (MONO_COLS.has(col)) {
+                        // ID / code columns: monospace, no truncation (short and fixed-width)
+                        return (
+                          <Td key={col} mono>
+                            {row[col] ?? '—'}
+                          </Td>
+                        )
+                      }
+                      // Text columns: truncate with ellipsis; full value shown on hover via title
+                      const val = row[col] != null ? String(row[col]) : '—'
+                      return (
+                        <Td
+                          key={col}
+                          truncate={isScan ? TRUNCATE_COLS.has(col) : true}
+                          title={row[col] != null ? val : undefined}
+                        >
+                          {val}
+                        </Td>
+                      )
+                    })}
+                    {isScan && (
+                      <Td>
+                        {row.viewer_available
+                          ? <Btn variant="ghost" small onClick={() => window.open(`/viewer/${row.scan_id}`, '_blank')}>
+                              View ↗
+                            </Btn>
+                          : <span style={{ fontSize: 'var(--text-sm)', color: 'var(--text-3)' }}>—</span>}
+                      </Td>
+                    )}
+                  </Tr>
+                ))}
+              </tbody>
+            </Table>
+          </div>
         )}
       </div>
     </div>

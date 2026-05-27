@@ -236,9 +236,9 @@ export function Th({ children, style, className, onClick }) {
   )
 }
 
-export function Td({ children, mono = false, style, className }) {
+export function Td({ children, mono = false, truncate = false, title, style, className }) {
   return (
-    <td className={cx(s.td, mono && s.tdMono, className)} style={style}>
+    <td className={cx(s.td, mono && s.tdMono, truncate && s.tdTrunc, className)} style={style} title={title}>
       {children}
     </td>
   )
@@ -253,6 +253,66 @@ export function Tr({ children, onClick, selected = false, style, className }) {
     >
       {children}
     </tr>
+  )
+}
+
+// ============================================================
+// TABLE SORTING UTILITIES
+// Shared across any page that needs sortable tables.
+// ============================================================
+
+/**
+ * Manages sort column + direction with a three-click cycle:
+ *   first click  → sort ascending
+ *   second click → sort descending
+ *   third click  → reset (unsorted)
+ */
+export function useSortState() {
+  const [sortCol, setSortCol] = useState(null)
+  const [sortDir, setSortDir] = useState('asc')
+  function toggleSort(col) {
+    if (sortCol === col) {
+      if (sortDir === 'asc') { setSortDir('desc') }
+      else                   { setSortCol(null); setSortDir('asc') }
+    } else {
+      setSortCol(col); setSortDir('asc')
+    }
+  }
+  return { sortCol, sortDir, toggleSort }
+}
+
+/**
+ * Returns a new sorted array; when sortCol is null the original array
+ * reference is returned (no unnecessary re-renders downstream).
+ * Numeric values are compared numerically; strings use localeCompare
+ * with the `numeric` option so "10" sorts after "9", not after "1".
+ */
+export function sortRows(rows, sortCol, sortDir) {
+  if (!sortCol) return rows
+  return [...rows].sort((a, b) => {
+    const av = a[sortCol] ?? '', bv = b[sortCol] ?? ''
+    const an = parseFloat(av), bn = parseFloat(bv)
+    const cmp = !isNaN(an) && !isNaN(bn) && av !== '' && bv !== ''
+      ? an - bn
+      : String(av).localeCompare(String(bv), undefined, { numeric: true, sensitivity: 'base' })
+    return sortDir === 'asc' ? cmp : -cmp
+  })
+}
+
+/**
+ * Tiny sort-direction indicator rendered inside a clickable column header.
+ * Shows ↑/↓ for the active column and a faded ⇅ for inactive columns.
+ */
+export function SortIcon({ col, sortCol, sortDir }) {
+  const active = col === sortCol
+  return (
+    <span style={{
+      marginLeft: 4, fontSize: 9, verticalAlign: 'middle',
+      color: active ? 'var(--navy)' : 'var(--text-3)',
+      opacity: active ? 1 : 0.4,
+    }}>
+      {active ? (sortDir === 'asc' ? '↑' : '↓') : '⇅'}
+    </span>
   )
 }
 
