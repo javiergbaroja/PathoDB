@@ -239,6 +239,12 @@
   font-family: var(--font-mono);
   font-size: 12px;
 }
+.tdTrunc {
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .tr {
   transition: background var(--transition-fast);
   background: var(--white);
