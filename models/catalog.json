@@ -68,6 +68,7 @@
     "stain_compatibility": ["HE"],
     "estimated_minutes": 15,
     "result_type": "multiclass_detection",
+    "classes":  [ "neutrophil", "epithelial-cell", "lymphocyte", "plasma-cell", "eosinophil", "connective-tissue-cell", "mitosis" ],
     "params": [
       {
         "key": "cp",

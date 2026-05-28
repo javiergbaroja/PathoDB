@@ -144,9 +144,9 @@ done
 echo "PostgreSQL listening on $NODE_IP:$PGPORT"
 
 # ── Install API dependencies ──────────────────────────────────────────────────
-echo ""
-echo "Installing API dependencies..."
-pip install -q -r api/requirements.txt
+# echo ""
+# echo "Installing API dependencies..."
+# pip install -q -r api/requirements.txt
 
 # ── Start Ollama ──────────────────────────────────────────────────────────────
 echo ""
@@ -283,7 +283,7 @@ echo "Finished : $(date)"
 # fi
 # echo "Syncing database password with .env file..."
 # psql -p "$PGPORT" -d postgres -c "ALTER USER ${PGUSER} WITH PASSWORD '${POSTGRES_PASSWORD}';"
-# # psql -h localhost -p 15432 -U jg23p152 -d pathodb -f db/schema.sql
+# # "PG_BIN/psql" -h localhost -p 15432 -U jg23p152 -d pathodb -f db/schema.sql
 
 # NODE_IP=$(hostname -I | awk '{print $1}')
 # CLUSTER_SUBNET=$(echo "$NODE_IP" | cut -d. -f1-2).0.0/16
