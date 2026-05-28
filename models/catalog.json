@@ -81,14 +81,14 @@
         "key": "tta",
         "label": "Test-Time Augmentation",
         "type": "int",
-        "default": 4,
+        "default": 8,
         "options": [1, 2, 4, 8]
       },
       {
         "key": "pp_tiling",
         "label": "Post-Processing Tiling",
         "type": "int",
-        "default": 10,
+        "default": 8,
         "min": 2,
         "max": 32,
         "step": 2

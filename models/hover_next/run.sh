@@ -20,27 +20,24 @@ set -euo pipefail
 
 CONTEXT_FILE=$1
 
-# 1. Read variables from the JSON file using jq
-# -r gives raw strings (no quotes) for standard paths
-# -c gives compact JSON strings (perfect for dictionaries/arrays)
-export PATHODB_JOB_ID="$(jq -r '.job_id' "${CONTEXT_FILE}")"
-export PATHODB_SCAN_PATH="$(jq -r '.scan_path' "${CONTEXT_FILE}")"
+# 1. Read variables from the JSON context file
+export PATHODB_JOB_ID="$(jq -r '.job_id'    "${CONTEXT_FILE}")"
+export PATHODB_SCAN_PATH="$(jq -r '.scan_path'  "${CONTEXT_FILE}")"
 export PATHODB_RESULT_DIR="$(jq -r '.result_dir' "${CONTEXT_FILE}")"
-export PATHODB_SCOPE="$(jq -r '.scope' "${CONTEXT_FILE}")"
-export PATHODB_PARAMS="$(jq -c '.params' "${CONTEXT_FILE}")"
-export PATHODB_ROI="$(jq -c '.roi' "${CONTEXT_FILE}")"
+export PATHODB_SCOPE="$(jq -r '.scope'      "${CONTEXT_FILE}")"
+export PATHODB_PARAMS="$(jq -c '.params'    "${CONTEXT_FILE}")"
+export PATHODB_ROI="$(jq -c '.roi'       "${CONTEXT_FILE}")"
 
-echo "=== PathoDB HoVer-Net Next Segmentation ==="
+echo "=== PathoDB HoVer-Net Next Inference ==="
 echo "Started     : $(date)"
 echo "Node        : $(hostname)"
-echo "Job ID      : $SLURM_JOB_ID"
+echo "SLURM job   : $SLURM_JOB_ID"
 echo "PathoDB job : ${PATHODB_JOB_ID}"
 echo "Scan        : ${PATHODB_SCAN_PATH}"
 echo "Params      : ${PATHODB_PARAMS}"
 echo "ROI         : ${PATHODB_ROI}"
 echo ""
 
-# 2. Clean environment and activate Conda safely
 module purge
 export APPTAINER_BINDPATH="/storage,/scratch"
 
@@ -50,8 +47,6 @@ module load GCCcore/10.3.0
 
 source activate metassist
 
-# ── Run inference ─────────────────────────────────────────────────────────────
-# Absolute folder for the PathoDB project directory
 PROJECT_DIR="/storage/research/igmp_dp_workspace/garciabaroja_javier/PW_reports/database/pathodb"
 INFERENCE_SCRIPT="${PROJECT_DIR}/models/hover_next/infer.py"
 
