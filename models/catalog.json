@@ -82,7 +82,7 @@
         "label": "Test-Time Augmentation",
         "type": "int",
         "default": 8,
-        "options": [1, 2, 4, 8]
+        "options": [2, 4, 8, 16]
       },
       {
         "key": "pp_tiling",
