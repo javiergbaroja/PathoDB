@@ -397,7 +397,7 @@ function QuickActions() {
   }
 
   return (
-    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr) 1.25fr', gap: 12 }}>
+    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12 }}>
 
       {/* Regular action cards */}
       {actions.map(a => (
@@ -439,16 +439,13 @@ function QuickActions() {
         </button>
       ))}
 
-      {/* Featured: Query Assistant — navy background, clear CTA */}
+      {/* Query Assistant — identical structure, navy colours + Beta pill */}
       <button
         onClick={() => navigate('/assistant')}
         style={{
           ...cardBase,
-          background:   'var(--navy)',
-          border:       '1px solid var(--navy)',
-          flexDirection: 'column', gap: 12,
-          alignItems:   'flex-start',
-          justifyContent: 'space-between',
+          background: 'var(--navy)',
+          border:     '1px solid var(--navy)',
         }}
         onMouseEnter={e => {
           e.currentTarget.style.background  = 'var(--navy-80)'
@@ -459,34 +456,37 @@ function QuickActions() {
           e.currentTarget.style.borderColor = 'var(--navy)'
         }}
       >
-        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', width: '100%', gap: 8 }}>
-          <div style={{
-            width: 34, height: 34, borderRadius: 'var(--radius-md)',
-            background: 'rgba(255,255,255,0.1)',
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            color: 'var(--teal-light)', flexShrink: 0,
-          }}>
-            <QAAssistantIcon />
-          </div>
-          <span style={{
-            fontSize: 9, fontWeight: 700, letterSpacing: '0.08em',
-            textTransform: 'uppercase', color: 'var(--teal-light)',
-            border: '1px solid rgba(110,231,183,0.3)',
-            padding: '2px 7px', borderRadius: 'var(--radius-full)',
-          }}>Beta</span>
+        <div style={{
+          flexShrink: 0, width: 34, height: 34,
+          borderRadius: 'var(--radius-md)',
+          background: 'rgba(255,255,255,0.1)',
+          border: '1px solid rgba(255,255,255,0.12)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          color: 'var(--teal-light)',
+        }}>
+          <QAAssistantIcon />
         </div>
-        <div>
-          <div style={{
-            fontFamily: 'var(--font-serif)', fontSize: 15,
-            color: 'var(--white)', fontWeight: 400, marginBottom: 4,
-          }}>
-            Query Assistant
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 3 }}>
+            <span style={{
+              fontFamily: 'var(--font-serif)', fontSize: 14,
+              color: 'var(--white)', fontWeight: 400,
+            }}>
+              Query Assistant
+            </span>
+            <span style={{
+              fontSize: 9, fontWeight: 700, letterSpacing: '0.08em',
+              textTransform: 'uppercase', color: 'var(--teal-light)',
+              border: '1px solid rgba(110,231,183,0.3)',
+              padding: '2px 6px', borderRadius: 'var(--radius-full)',
+              lineHeight: 1,
+            }}>Beta</span>
           </div>
           <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.45)', lineHeight: 1.4 }}>
             Ask questions about your collection in plain language
           </div>
         </div>
-        <span style={{ fontSize: 13, color: 'var(--teal-light)', alignSelf: 'flex-end' }}>→</span>
+        <span style={{ fontSize: 13, color: 'var(--teal-light)', flexShrink: 0, marginTop: 2 }}>›</span>
       </button>
 
     </div>
