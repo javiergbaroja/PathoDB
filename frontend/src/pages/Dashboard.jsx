@@ -323,43 +323,172 @@ function CohortsRow({ cohorts, isLoading }) {
   )
 }
 
+// ── Quick action icons (SVG, matching nav icon style) ────────────────────────
+
+function QAPatientIcon() {
+  return (
+    <svg viewBox="0 0 16 16" fill="currentColor" width="18" height="18">
+      <path d="M11.742 10.344a6.5 6.5 0 10-1.397 1.398h-.001c.03.04.062.078.098.115l3.85 3.85a1 1 0 001.415-1.414l-3.85-3.85a1.007 1.007 0 00-.115-.099zM12 6.5a5.5 5.5 0 11-11 0 5.5 5.5 0 0111 0z"/>
+    </svg>
+  )
+}
+
+function QACohortIcon() {
+  return (
+    <svg viewBox="0 0 16 16" fill="currentColor" width="18" height="18">
+      <path d="M1 2.5A1.5 1.5 0 012.5 1h3A1.5 1.5 0 017 2.5v3A1.5 1.5 0 015.5 7h-3A1.5 1.5 0 011 5.5v-3zm8 0A1.5 1.5 0 0110.5 1h3A1.5 1.5 0 0115 2.5v3A1.5 1.5 0 0113.5 7h-3A1.5 1.5 0 019 5.5v-3zm-8 8A1.5 1.5 0 012.5 9h3A1.5 1.5 0 017 10.5v3A1.5 1.5 0 015.5 15h-3A1.5 1.5 0 011 13.5v-3zm8 0A1.5 1.5 0 0110.5 9h3a1.5 1.5 0 011.5 1.5v3a1.5 1.5 0 01-1.5 1.5h-3A1.5 1.5 0 019 13.5v-3z"/>
+    </svg>
+  )
+}
+
+function QAProjectIcon() {
+  return (
+    <svg viewBox="0 0 16 16" fill="currentColor" width="18" height="18">
+      <path d="M4.502 9a1.5 1.5 0 100-3 1.5 1.5 0 000 3z"/>
+      <path d="M14.002 13a2 2 0 01-2 2h-10a2 2 0 01-2-2V5A2 2 0 012 3a2 2 0 012-4h3.5a.5.5 0 01.5.5v.5h2V1.5a.5.5 0 01.5-.5H12a2 2 0 012 2v10z"/>
+    </svg>
+  )
+}
+
+function QAAssistantIcon() {
+  return (
+    <svg viewBox="0 0 16 16" fill="currentColor" width="20" height="20">
+      <path d="M2.678 11.894a1 1 0 01.287.801 10.97 10.97 0 01-.398 2c1.395-.323 2.247-.697 2.634-.893a1 1 0 01.71-.074A8.06 8.06 0 008 14c3.996 0 7-2.807 7-6 0-3.192-3.004-6-7-6S1 4.808 1 8c0 1.468.617 2.83 1.678 3.894z"/>
+    </svg>
+  )
+}
+
 // ── Quick actions ─────────────────────────────────────────────────────────────
 
 function QuickActions() {
   const navigate = useNavigate()
+
   const actions = [
-    { label: 'Search patients',   icon: '🔍', to: '/patients',  accent: false },
-    { label: 'Build a cohort',    icon: '📊', to: '/cohorts',   accent: false },
-    { label: 'New project',       icon: '➕', to: '/projects',  accent: false },
-    { label: 'Ask AI assistant',  icon: '💬', to: '/assistant', accent: true  },
+    {
+      label: 'Search patients',
+      desc:  'Look up by code, B-number or diagnosis',
+      to:    '/patients',
+      icon:  <QAPatientIcon />,
+    },
+    {
+      label: 'Build a cohort',
+      desc:  'Filter slides and save a collection',
+      to:    '/cohorts',
+      icon:  <QACohortIcon />,
+    },
+    {
+      label: 'New project',
+      desc:  'Start a cell or region annotation task',
+      to:    '/projects',
+      icon:  <QAProjectIcon />,
+    },
   ]
+
+  const cardBase = {
+    padding: '16px 18px',
+    display: 'flex', alignItems: 'flex-start', gap: 14,
+    cursor: 'pointer', textAlign: 'left',
+    border: '1px solid var(--border-l)',
+    background: 'var(--white)',
+    borderRadius: 'var(--radius-lg)',
+    boxShadow: 'var(--shadow-s)',
+    transition: 'var(--transition-base)',
+    fontFamily: 'var(--font-sans)',
+  }
+
   return (
-    <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr) 1.25fr', gap: 12 }}>
+
+      {/* Regular action cards */}
       {actions.map(a => (
         <button
           key={a.label}
           onClick={() => navigate(a.to)}
-          style={{
-            flex: '1 1 170px', padding: '14px 16px',
-            display: 'flex', alignItems: 'center', gap: 10,
-            cursor: 'pointer',
-            border: a.accent ? '1px solid var(--teal-20)' : '1px solid var(--border-l)',
-            background: a.accent ? 'var(--teal-10)' : 'var(--white)',
-            borderRadius: 'var(--radius-lg)',
-            boxShadow: 'var(--shadow-s)',
-            fontFamily: 'var(--font-sans)', fontSize: 'var(--text-base)',
-            color: a.accent ? 'var(--teal)' : 'var(--text-2)',
-            fontWeight: 500,
-            transition: 'var(--transition-base)',
+          style={cardBase}
+          onMouseEnter={e => {
+            e.currentTarget.style.borderColor = 'var(--navy-20)'
+            e.currentTarget.style.boxShadow   = 'var(--shadow-m)'
           }}
-          onMouseEnter={e => { e.currentTarget.style.boxShadow = 'var(--shadow-m)'; e.currentTarget.style.transform = 'translateY(-1px)' }}
-          onMouseLeave={e => { e.currentTarget.style.boxShadow = 'var(--shadow-s)'; e.currentTarget.style.transform = 'none' }}
+          onMouseLeave={e => {
+            e.currentTarget.style.borderColor = 'var(--border-l)'
+            e.currentTarget.style.boxShadow   = 'var(--shadow-s)'
+          }}
         >
-          <span style={{ fontSize: 17 }}>{a.icon}</span>
-          {a.label}
-          <span style={{ marginLeft: 'auto', fontSize: 14, opacity: 0.35 }}>→</span>
+          <div style={{
+            flexShrink: 0, width: 34, height: 34,
+            borderRadius: 'var(--radius-md)',
+            background: 'var(--navy-05)',
+            border: '1px solid var(--navy-10)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            color: 'var(--navy-60)',
+          }}>
+            {a.icon}
+          </div>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{
+              fontFamily: 'var(--font-serif)', fontSize: 14,
+              color: 'var(--text-1)', fontWeight: 400, marginBottom: 3,
+            }}>
+              {a.label}
+            </div>
+            <div style={{ fontSize: 11, color: 'var(--text-3)', lineHeight: 1.4 }}>
+              {a.desc}
+            </div>
+          </div>
+          <span style={{ fontSize: 13, color: 'var(--navy-20)', flexShrink: 0, marginTop: 2 }}>›</span>
         </button>
       ))}
+
+      {/* Featured: Query Assistant — navy background, clear CTA */}
+      <button
+        onClick={() => navigate('/assistant')}
+        style={{
+          ...cardBase,
+          background:   'var(--navy)',
+          border:       '1px solid var(--navy)',
+          flexDirection: 'column', gap: 12,
+          alignItems:   'flex-start',
+          justifyContent: 'space-between',
+        }}
+        onMouseEnter={e => {
+          e.currentTarget.style.background  = 'var(--navy-80)'
+          e.currentTarget.style.borderColor = 'var(--navy-80)'
+        }}
+        onMouseLeave={e => {
+          e.currentTarget.style.background  = 'var(--navy)'
+          e.currentTarget.style.borderColor = 'var(--navy)'
+        }}
+      >
+        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', width: '100%', gap: 8 }}>
+          <div style={{
+            width: 34, height: 34, borderRadius: 'var(--radius-md)',
+            background: 'rgba(255,255,255,0.1)',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            color: 'var(--teal-light)', flexShrink: 0,
+          }}>
+            <QAAssistantIcon />
+          </div>
+          <span style={{
+            fontSize: 9, fontWeight: 700, letterSpacing: '0.08em',
+            textTransform: 'uppercase', color: 'var(--teal-light)',
+            border: '1px solid rgba(110,231,183,0.3)',
+            padding: '2px 7px', borderRadius: 'var(--radius-full)',
+          }}>Beta</span>
+        </div>
+        <div>
+          <div style={{
+            fontFamily: 'var(--font-serif)', fontSize: 15,
+            color: 'var(--white)', fontWeight: 400, marginBottom: 4,
+          }}>
+            Query Assistant
+          </div>
+          <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.45)', lineHeight: 1.4 }}>
+            Ask questions about your collection in plain language
+          </div>
+        </div>
+        <span style={{ fontSize: 13, color: 'var(--teal-light)', alignSelf: 'flex-end' }}>→</span>
+      </button>
+
     </div>
   )
 }
