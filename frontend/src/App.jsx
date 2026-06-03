@@ -17,7 +17,8 @@ import ProjectDetail from './pages/ProjectDetail'
 import BatchAnalysis from './pages/BatchAnalysis'
 import TMAsList from './pages/TMAs'
 import TMADetail from './pages/TMADetail'
-import JobTracker from './pages/JobTracker'
+import JobTracker  from './pages/JobTracker'
+import Dashboard   from './pages/Dashboard'
 import { ErrorBoundary } from './components/ErrorBoundary'
 
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
@@ -47,8 +48,9 @@ export default function App() {
         <BrowserRouter>
           <ErrorBoundary>
             <Routes>
-              <Route path="/login"    element={<Login />} />
-              <Route path="/"         element={<Navigate to="/patients" replace />} />
+              <Route path="/login"     element={<Login />} />
+              <Route path="/"          element={<Navigate to="/dashboard" replace />} />
+              <Route path="/dashboard" element={<Protected><Dashboard /></Protected>} />
               <Route path="/batch-analysis" element={<Protected><BatchAnalysis /></Protected>} />
               <Route path="/job-tracker" element={<Protected><JobTracker /></Protected>} />
               <Route path="/patients" element={<Protected><Patients /></Protected>} />
@@ -62,7 +64,7 @@ export default function App() {
               <Route path="/tmas/:tmaId" element={<Protected><TMADetail /></Protected>} />
               <Route path="/projects"            element={<Protected><Projects /></Protected>} />
               <Route path="/projects/:projectId" element={<Protected><ProjectDetail /></Protected>} />
-              <Route path="*"element={<Navigate to="/patients" replace />} />
+              <Route path="*" element={<Navigate to="/dashboard" replace />} />
             </Routes>
           </ErrorBoundary>
         </BrowserRouter>
