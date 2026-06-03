@@ -117,6 +117,71 @@ def get_stats(
     }
 
 
+@router.get("/dashboard")
+def get_dashboard_stats(
+    db: Session = Depends(get_db),
+    _: User    = Depends(get_current_active_user),
+):
+    """Enriched stats for the dashboard: totals + chart data."""
+    patient_count    = db.query(func.count(Patient.id)).scalar() or 0
+    submission_count = db.query(func.count(Submission.id)).scalar() or 0
+    block_count      = db.query(func.count(Block.id)).scalar() or 0
+    scan_count       = db.query(func.count(Scan.id)).scalar() or 0
+
+    year_col = cast(func.substring(Submission.lis_submission_id, r'(\d{4})'), Integer)
+    year_min, year_max = db.query(func.min(year_col), func.max(year_col)).first() or (None, None)
+
+    malignant_count = (
+        db.query(func.count(Submission.id))
+        .filter(Submission.malignancy_flag == True)
+        .scalar() or 0
+    )
+    malignancy_rate = (
+        round(malignant_count / submission_count * 100, 1) if submission_count > 0 else 0.0
+    )
+
+    scanned_blocks = (
+        db.query(func.count(Block.id))
+        .filter(exists().where(Scan.block_id == Block.id))
+        .scalar() or 0
+    )
+    scanned_pct = round(scanned_blocks / block_count * 100, 1) if block_count > 0 else 0.0
+
+    stain_type_count = (
+        db.query(func.count(func.distinct(Stain.stain_category))).scalar() or 0
+    )
+
+    submissions_by_year_rows = (
+        db.query(year_col.label("year"), func.count(Submission.id).label("count"))
+        .filter(year_col.isnot(None))
+        .group_by(year_col)
+        .order_by(year_col)
+        .all()
+    )
+
+    stain_dist_rows = (
+        db.query(Stain.stain_category, func.count(Scan.id).label("count"))
+        .join(Scan, Scan.stain_id == Stain.id)
+        .group_by(Stain.stain_category)
+        .order_by(func.count(Scan.id).desc())
+        .all()
+    )
+
+    return {
+        "patient_count":       patient_count,
+        "year_min":            year_min,
+        "year_max":            year_max,
+        "submission_count":    submission_count,
+        "block_count":         block_count,
+        "scan_count":          scan_count,
+        "malignancy_rate":     malignancy_rate,
+        "scanned_pct":         scanned_pct,
+        "stain_type_count":    stain_type_count,
+        "submissions_by_year": [{"year": r.year, "count": r.count} for r in submissions_by_year_rows],
+        "stain_distribution":  [{"category": r.stain_category or "Unknown", "count": r.count} for r in stain_dist_rows],
+    }
+
+
 @router.get("/lookup/{field}")
 def lookup_values(
     field: Literal["snomed_topo_code", "topo_description", "stain_name", "stain_category", "submission_type", "file_format"],

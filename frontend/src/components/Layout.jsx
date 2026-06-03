@@ -10,6 +10,12 @@ const cx = (...names) => names.filter(Boolean).join(' ')
 
 const NAV = [
   {
+    section: 'Overview',
+    items: [
+      { to: '/dashboard', label: 'Dashboard', icon: <DashboardIcon /> },
+    ],
+  },
+  {
     section: 'Research',
     items: [
       { to: '/patients',  label: 'Patients',       icon: <PatientIcon /> },
@@ -259,6 +265,7 @@ export default function Layout({ children, title, actions }) {
   )
 }
 
+function DashboardIcon() { return <svg viewBox="0 0 16 16" fill="currentColor" width="15" height="15"><path d="M0 1.5A1.5 1.5 0 011.5 0h5A1.5 1.5 0 018 1.5v5A1.5 1.5 0 016.5 8h-5A1.5 1.5 0 010 6.5v-5zm8 0A1.5 1.5 0 019.5 0h5A1.5 1.5 0 0116 1.5v5A1.5 1.5 0 0114.5 8h-5A1.5 1.5 0 018 6.5v-5zm-8 8A1.5 1.5 0 011.5 8h5A1.5 1.5 0 018 9.5v5A1.5 1.5 0 016.5 16h-5A1.5 1.5 0 010 14.5v-5zm8 0A1.5 1.5 0 019.5 8h5a1.5 1.5 0 011.5 1.5v5a1.5 1.5 0 01-1.5 1.5h-5A1.5 1.5 0 018 14.5v-5z"/></svg> }
 function PatientIcon() { return <svg viewBox="0 0 16 16" fill="currentColor" width="15" height="15"><path d="M8 8a3 3 0 100-6 3 3 0 000 6zm5 5a5 5 0 00-10 0h10z" /></svg> }
 function CohortIcon()  { return <svg viewBox="0 0 16 16" fill="currentColor" width="15" height="15"><path d="M1 2.5A1.5 1.5 0 012.5 1h3A1.5 1.5 0 017 2.5v3A1.5 1.5 0 015.5 7h-3A1.5 1.5 0 011 5.5v-3zm8 0A1.5 1.5 0 0110.5 1h3A1.5 1.5 0 0115 2.5v3A1.5 1.5 0 0113.5 7h-3A1.5 1.5 0 019 5.5v-3zm-8 8A1.5 1.5 0 012.5 9h3A1.5 1.5 0 017 10.5v3A1.5 1.5 0 015.5 15h-3A1.5 1.5 0 011 13.5v-3zm8 0A1.5 1.5 0 0110.5 9h3a1.5 1.5 0 011.5 1.5v3a1.5 1.5 0 01-1.5 1.5h-3A1.5 1.5 0 019 13.5v-3z" /></svg> }
 function StainIcon()   { return <svg viewBox="0 0 16 16" fill="currentColor" width="15" height="15"><path d="M14.5 3a.5.5 0 01.5.5v9a.5.5 0 01-.5.5h-13a.5.5 0 01-.5-.5v-9a.5.5 0 01.5-.5h13zM2 4v8h12V4H2zm2 1h8v1H4V5zm0 2h8v1H4V7zm0 2h4v1H4V9z" /></svg> }

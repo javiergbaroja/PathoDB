@@ -7,3 +7,4 @@ export const getStats = (params = {}) => {
   const q = new URLSearchParams(params).toString()
   return request('GET', `/stats${q ? '?' + q : ''}`)
 }
+export const getDashboardStats = () => request('GET', '/stats/dashboard')
