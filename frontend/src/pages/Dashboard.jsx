@@ -439,7 +439,7 @@ function QuickActions() {
         </button>
       ))}
 
-      {/* Featured: Query Assistant — navy background, same shape as sibling cards */}
+      {/* Query Assistant — identical structure, navy colours + Beta pill */}
       <button
         onClick={() => navigate('/assistant')}
         style={{
@@ -460,13 +460,14 @@ function QuickActions() {
           flexShrink: 0, width: 34, height: 34,
           borderRadius: 'var(--radius-md)',
           background: 'rgba(255,255,255,0.1)',
+          border: '1px solid rgba(255,255,255,0.12)',
           display: 'flex', alignItems: 'center', justifyContent: 'center',
           color: 'var(--teal-light)',
         }}>
           <QAAssistantIcon />
         </div>
         <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 3 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 3 }}>
             <span style={{
               fontFamily: 'var(--font-serif)', fontSize: 14,
               color: 'var(--white)', fontWeight: 400,
