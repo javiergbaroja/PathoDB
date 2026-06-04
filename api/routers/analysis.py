@@ -38,6 +38,12 @@ from PIL import Image
 from pydantic import BaseModel
 import socket
 
+import gc
+import threading
+from collections import OrderedDict
+from PIL import Image
+
+
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from fastapi.responses import JSONResponse, FileResponse
 from sqlalchemy.orm import Session
@@ -54,6 +60,202 @@ log      = logging.getLogger("pathodb_analysis")
 settings = get_settings()
 
 router = APIRouter(prefix="/analysis", tags=["analysis"])
+
+
+# ── Tunables ──────────────────────────────────────────────────────────────────
+# Hard cap on a single read_region call.  At 8192 RGBA, peak transient memory
+# for one tile read is ~256 MB.  Above this we serve from the downsampled cache.
+MAX_READ_DIM            = 8192
+ 
+# Maximum dimension of the cached downsampled image per overlay TIFF.
+# 4096 RGBA = 64 MB per cached overlay.  With DOWNSAMPLED_CACHE_MAX = 8 overlays,
+# total budget is ~512 MB — tune to your Slurm memory allocation.
+DOWNSAMPLED_MAX_DIM     = 4096
+DOWNSAMPLED_CACHE_MAX   = 8
+ 
+# Chunked-read step when building the downsampled cache from a non-pyramidal
+# TIFF.  Peak memory during build = CHUNK² × 4 bytes = 64 MB at 4096.
+CHUNK_READ_DIM          = 4096
+ 
+# Bound on simultaneous read_region calls across all requests.  OSD fires
+# 20–80 tile requests in parallel during zoom; uncapped, they pile up large
+# transient buffers concurrently.  4 is conservative; raise if your I/O is fast.
+MAX_CONCURRENT_READS    = 4
+_read_semaphore         = threading.Semaphore(MAX_CONCURRENT_READS)
+ 
+# Tile-byte cache (same pattern as slides.py)
+_overlay_tile_cache: "OrderedDict[str, bytes]" = OrderedDict()
+_OVERLAY_TILE_MAX = 512
+_overlay_tile_lock = threading.Lock()
+ 
+def _otile_key(job_id, file_key, level, x, y):
+    return f"{job_id}/{file_key}/{level}/{x}/{y}"
+ 
+def _otile_get(key):
+    with _overlay_tile_lock:
+        if key not in _overlay_tile_cache:
+            return None
+        _overlay_tile_cache.move_to_end(key)
+        return _overlay_tile_cache[key]
+ 
+def _otile_set(key, value):
+    with _overlay_tile_lock:
+        _overlay_tile_cache[key] = value
+        _overlay_tile_cache.move_to_end(key)
+        while len(_overlay_tile_cache) > _OVERLAY_TILE_MAX:
+            _overlay_tile_cache.popitem(last=False)
+ 
+ 
+# ── Open-handle pool ──────────────────────────────────────────────────────────
+# Bounded LRU pool of TiffSlide handles, one per overlay TIFF path.
+_slide_pool: "OrderedDict[str, dict]" = OrderedDict()
+_SLIDE_POOL_MAX  = 16
+_slide_pool_lock = threading.Lock()
+ 
+def _get_pooled_slide(tiff_path: str):
+    with _slide_pool_lock:
+        if tiff_path in _slide_pool:
+            _slide_pool.move_to_end(tiff_path)
+            e = _slide_pool[tiff_path]
+            return e["slide"], e["lock"]
+ 
+        while len(_slide_pool) >= _SLIDE_POOL_MAX:
+            _, oldest = _slide_pool.popitem(last=False)
+            try: oldest["slide"].close()
+            except Exception: pass
+ 
+        slide = tiffslide.TiffSlide(tiff_path)
+        entry = {"slide": slide, "lock": threading.Lock()}
+        _slide_pool[tiff_path] = entry
+        return slide, entry["lock"]
+ 
+ 
+# ── result.json cache ─────────────────────────────────────────────────────────
+_result_cache: "OrderedDict[int, dict]" = OrderedDict()
+_RESULT_MAX = 64
+_result_cache_lock = threading.Lock()
+ 
+def _get_result_data(job_id: int) -> dict:
+    with _result_cache_lock:
+        if job_id in _result_cache:
+            _result_cache.move_to_end(job_id)
+            return _result_cache[job_id]
+ 
+    result_file = _job_result_dir(job_id) / "result.json"
+    if not result_file.exists():
+        raise HTTPException(status_code=404, detail="result.json not found")
+    try:
+        data = json.loads(result_file.read_text(encoding="utf-8"))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to read result.json: {e}")
+ 
+    with _result_cache_lock:
+        _result_cache[job_id] = data
+        _result_cache.move_to_end(job_id)
+        while len(_result_cache) > _RESULT_MAX:
+            _result_cache.popitem(last=False)
+    return data
+ 
+ 
+# ── Downsampled overlay cache (the OOM fix) ───────────────────────────────────
+# For any overlay where a low-zoom tile would require an unsafe read_region,
+# we serve from a pre-built downsampled PIL image instead of touching the TIFF.
+# Built once per TIFF, then reused for every low-zoom tile request.
+_downsampled_cache: "OrderedDict[str, Image.Image]" = OrderedDict()
+_downsampled_lock = threading.Lock()
+ 
+def _build_downsampled(slide: "tiffslide.TiffSlide", tiff_path: str) -> Image.Image:
+    """
+    Build an RGBA PIL Image of the whole overlay, downsampled so its longest
+    side is ≤ DOWNSAMPLED_MAX_DIM. Safe for non-pyramidal TIFFs: reads in
+    CHUNK_READ_DIM-sized chunks and downsamples each chunk before pasting.
+    """
+    w, h = slide.dimensions
+    longest = max(w, h)
+    if longest <= DOWNSAMPLED_MAX_DIM:
+        # Small enough to load whole, but still subject to chunking if huge depth
+        img = slide.read_region((0, 0), 0, (w, h)).convert("RGBA")
+        return img
+ 
+    # Find the smallest pyramid level that is still ≥ DOWNSAMPLED_MAX_DIM in
+    # either dimension — reading from there minimises decode work.
+    best_level = 0
+    for lvl in range(slide.level_count):
+        lw, lh = slide.level_dimensions[lvl]
+        if max(lw, lh) >= DOWNSAMPLED_MAX_DIM:
+            best_level = lvl
+        else:
+            break
+    src_w, src_h = slide.level_dimensions[best_level]
+    src_ds       = slide.level_downsamples[best_level]
+ 
+    # Output dims
+    scale_out = longest / DOWNSAMPLED_MAX_DIM
+    out_w = max(1, int(w / scale_out))
+    out_h = max(1, int(h / scale_out))
+ 
+    out = Image.new("RGBA", (out_w, out_h), (0, 0, 0, 0))
+ 
+    # Chunked read in the chosen level's coordinate space
+    step = CHUNK_READ_DIM
+    y_src = 0
+    while y_src < src_h:
+        x_src = 0
+        ch = min(step, src_h - y_src)
+        while x_src < src_w:
+            cw = min(step, src_w - x_src)
+ 
+            # Convert level-coords back to level-0 coords for read_region (its
+            # location argument is always in level-0 pixels).
+            lvl0_x = int(x_src * src_ds)
+            lvl0_y = int(y_src * src_ds)
+ 
+            chunk = slide.read_region((lvl0_x, lvl0_y), best_level, (cw, ch)).convert("RGBA")
+ 
+            # Each chunk's size in OUTPUT coords
+            chunk_out_w = max(1, int(cw * src_ds / scale_out))
+            chunk_out_h = max(1, int(ch * src_ds / scale_out))
+            small       = chunk.resize((chunk_out_w, chunk_out_h), Image.NEAREST)
+ 
+            paste_x = int(lvl0_x / scale_out)
+            paste_y = int(lvl0_y / scale_out)
+            out.paste(small, (paste_x, paste_y))
+ 
+            chunk.close(); small.close()
+            x_src += step
+        y_src += step
+ 
+    log.info(
+        f"[overlay_tile] Built downsampled cache for {tiff_path}: "
+        f"src={w}x{h} levels={slide.level_count} "
+        f"src_level={best_level}({src_w}x{src_h}) out={out_w}x{out_h}"
+    )
+    # Force a GC pass after building — release the chunk buffers immediately.
+    gc.collect()
+    return out
+ 
+ 
+def _get_downsampled(tiff_path: str, slide: "tiffslide.TiffSlide", slide_lock) -> Image.Image:
+    with _downsampled_lock:
+        if tiff_path in _downsampled_cache:
+            _downsampled_cache.move_to_end(tiff_path)
+            return _downsampled_cache[tiff_path]
+ 
+    # Build outside the cache lock so concurrent requests for OTHER overlays
+    # aren't blocked.  Take the per-slide lock so we don't fight ourselves on
+    # read_region.  A race here only causes a duplicate build, never corruption.
+    with slide_lock:
+        img = _build_downsampled(slide, tiff_path)
+ 
+    with _downsampled_lock:
+        _downsampled_cache[tiff_path] = img
+        _downsampled_cache.move_to_end(tiff_path)
+        while len(_downsampled_cache) > DOWNSAMPLED_CACHE_MAX:
+            _, evicted = _downsampled_cache.popitem(last=False)
+            try: evicted.close()
+            except Exception: pass
+    return img
+
 
 # ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -352,96 +554,147 @@ def _get_job_or_404(job_id: int, db: Session, user: User) -> AnalysisJob:
 
 @router.get("/jobs/{job_id}/tiles/{file_key}")
 def get_overlay_tile(
-    job_id: int, 
-    file_key: str, 
-    level: int, 
-    x: int, 
-    y: int,
-    token: str = Query(...),                   # 1. Accept token from the URL
-    db: Session = Depends(get_db),
-    payload: dict = Depends(_auth_token),      # 2. Verify it just like slides.py does!
+    job_id:   int,
+    file_key: str,
+    level:    int,
+    x:        int,
+    y:        int,
+    token:    str     = Query(...),
+    db:       Session = Depends(get_db),
+    payload:  dict    = Depends(_auth_token),
 ):
     """
-    Streams a single 256x256 PNG tile from the OME-TIFF mask to OpenSeadragon.
+    Serve a 256×256 PNG tile of an OME-TIFF segmentation overlay.
+ 
+    Memory guarantees
+    -----------------
+      • read_region is never called with dimensions > MAX_READ_DIM.
+        If the requested zoom would need a larger read, the tile is cropped
+        from a pre-built, downsampled in-memory image instead.
+      • Concurrent read_region calls are bounded by MAX_CONCURRENT_READS.
+      • TiffSlide handles are pooled (max _SLIDE_POOL_MAX); never leaked.
+      • Encoded tiles and the downsampled image are LRU-cached.
+      • result.json is cached per job.
     """
-    # 3. Build the User object from the verified token payload
     user_id = int(payload.get("sub"))
-    user = db.get(User, user_id)
+    user    = db.get(User, user_id)
     if not user:
         raise HTTPException(status_code=401, detail="User not found")
-
-    # 4. Securely fetch the job (this requires the user object we just built)
+ 
     job = _get_job_or_404(job_id, db, user)
-
     if job.status != "done":
         raise HTTPException(status_code=409, detail=f"Job is not done yet (status: {job.status})")
-
-    result_file = _job_result_dir(job_id) / "result.json"
-    if not result_file.exists():
-        raise HTTPException(status_code=404, detail="result.json not found")
-
-    try:
-        result_data = json.loads(result_file.read_text(encoding="utf-8"))
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to read result.json: {e}")
-
-    # 5. Get the TIFF path from the manifest
-    tiff_path = result_data.get("files", {}).get(file_key)
-    
+ 
+    # Tile cache hit
+    cache_key = _otile_key(job_id, file_key, level, x, y)
+    cached    = _otile_get(cache_key)
+    if cached:
+        return Response(content=cached, media_type="image/png",
+                        headers={"Cache-Control": "public, max-age=3600", "X-Cache": "HIT"})
+ 
+    # Resolve TIFF path
+    result_data = _get_result_data(job_id)
+    tiff_path   = result_data.get("files", {}).get(file_key)
     if not tiff_path or not os.path.exists(tiff_path):
         raise HTTPException(status_code=404, detail="Overlay TIFF not found on disk")
-
+ 
     try:
-        slide = tiffslide.TiffSlide(tiff_path)
-        w, h = slide.dimensions
-        
+        slide, slide_lock = _get_pooled_slide(tiff_path)
+    except Exception as e:
+        log.error(f"[overlay_tile] Failed to open {tiff_path}: {e}")
+        raise HTTPException(status_code=500, detail=f"Cannot open overlay TIFF: {e}")
+ 
+    tile_size = 256
+    try:
+        w, h          = slide.dimensions
         max_osd_level = math.ceil(math.log2(max(w, h)))
-        
-        # 1. Calculate the exact scale OSD is requesting (even if it's < 1 for high zoom)
-        scale = 2 ** (max_osd_level - level)
-        
-        tile_size = 256
-        
-        # Calculate the absolute Level 0 coordinates for this tile
-        tx = x * tile_size
-        ty = y * tile_size
-        x0 = int(tx * scale)
-        y0 = int(ty * scale)
-
-        # Prevent reading outside the image bounds
+        scale         = 2 ** (max_osd_level - level)
+ 
+        x0 = int(x * tile_size * scale)
+        y0 = int(y * tile_size * scale)
+ 
+        # Out of bounds → transparent tile (do not cache to keep tile cache tight)
         if x0 >= w or y0 >= h:
-            # Return an empty, fully transparent PNG
-            img = Image.new('RGBA', (256, 256), (0,0,0,0))
+            img = Image.new("RGBA", (tile_size, tile_size), (0, 0, 0, 0))
             buf = io.BytesIO()
-            img.save(buf, format="PNG")
+            img.save(buf, format="PNG", compress_level=1)
+            img.close()
             return Response(content=buf.getvalue(), media_type="image/png")
-
-        # 2. Find the closest available level in the TIFF
+ 
         best_level = slide.get_best_level_for_downsample(scale)
         best_ds    = slide.level_downsamples[best_level]
-
-        # 3. CRITICAL FIX: Calculate exactly how many pixels to read from that level
-        read_w = max(1, math.ceil(tile_size * scale / best_ds))
-        read_h = max(1, math.ceil(tile_size * scale / best_ds))
-
-        # Read the region and ensure it has an Alpha channel for transparency
-        region = slide.read_region((x0, y0), best_level, (read_w, read_h))
+        read_w     = max(1, math.ceil(tile_size * scale / best_ds))
+        read_h     = max(1, math.ceil(tile_size * scale / best_ds))
+ 
+        # ── DEFENSIVE BRANCH ──────────────────────────────────────────────────
+        # If the read would exceed our safety cap, serve from the downsampled
+        # cache.  This is the case that was OOM-killing the API on non- or
+        # under-pyramidal overlay TIFFs.
+        if read_w > MAX_READ_DIM or read_h > MAX_READ_DIM:
+            log.debug(
+                f"[overlay_tile] level={level} → read {read_w}x{read_h} > "
+                f"{MAX_READ_DIM}; serving from downsampled cache."
+            )
+            downsampled = _get_downsampled(tiff_path, slide, slide_lock)
+            dw, dh = downsampled.size
+ 
+            # Map tile bounds from full-res to downsampled coords
+            sx = dw / w
+            sy = dh / h
+            cx0 = int(x0 * sx)
+            cy0 = int(y0 * sy)
+            cx1 = min(dw, max(cx0 + 1, int((x0 + tile_size * scale) * sx)))
+            cy1 = min(dh, max(cy0 + 1, int((y0 + tile_size * scale) * sy)))
+            region = downsampled.crop((cx0, cy0, cx1, cy1))
+ 
+        else:
+            # Safe path: read from the TIFF directly, under semaphore + slide lock.
+            with _read_semaphore:
+                with slide_lock:
+                    region = slide.read_region((x0, y0), best_level, (read_w, read_h))
+ 
         region = region.convert("RGBA")
-
-        # 4. Resize the fetched region to perfectly fit OSD's 256x256 expectation
         if region.size != (tile_size, tile_size):
-            # MUST use NEAREST to prevent blending colors/transparency at the edges
             region = region.resize((tile_size, tile_size), Image.NEAREST)
-
+ 
         buf = io.BytesIO()
-        region.save(buf, format="PNG")
-        
-        return Response(content=buf.getvalue(), media_type="image/png")
-
+        # compress_level=1 is much faster and uses less CPU/memory than the
+        # default 6; for tiles served at low cache-hit rate this matters.
+        region.save(buf, format="PNG", compress_level=1)
+        tile_bytes = buf.getvalue()
+        region.close()
+        del region
+ 
     except Exception as e:
-        traceback.print_exc()  
+        log.error(f"[overlay_tile] Failed job={job_id} level={level} x={x} y={y}: {e}")
+        traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
-    
+ 
+    _otile_set(cache_key, tile_bytes)
+    return Response(content=tile_bytes, media_type="image/png",
+                    headers={"Cache-Control": "public, max-age=3600", "X-Cache": "MISS"})
+
+
+@router.post("/jobs/{job_id}/cache/invalidate", status_code=204)
+def invalidate_overlay_cache(
+    job_id: int,
+    db:     Session = Depends(get_db),
+    user:   User    = Depends(get_current_active_user),
+):
+    """Flush server-side caches for a specific job (admin only)."""
+    if user.role != "admin":
+        raise HTTPException(status_code=403, detail="Admin only")
+ 
+    with _result_cache_lock:
+        _result_cache.pop(job_id, None)
+ 
+    with _overlay_tile_lock:
+        stale = [k for k in list(_overlay_tile_cache) if k.startswith(f"{job_id}/")]
+        for k in stale:
+            _overlay_tile_cache.pop(k, None)
+ 
+    log.info(f"[cache] Invalidated {len(stale)} tiles + result for job {job_id}")
+
 
 @router.delete("/jobs/{job_id}", status_code=204)
 def cancel_or_delete_job(

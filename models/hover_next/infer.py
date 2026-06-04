@@ -28,6 +28,9 @@ import time
 import threading
 import subprocess
 import traceback
+import openslide
+import numpy as np
+import cv2
 
 # ── Path setup ─────────────────────────────────────────────────────────────────
 SCRIPT_DIR  = os.path.dirname(os.path.abspath(__file__))
@@ -73,12 +76,12 @@ ID2LABEL = {
 # result.json → viewer legend → UI outcome summary.
 # Palette chosen for perceptual distinctiveness on a dark background.
 CLASS_COLORS = {
-    "neutrophil":             "#4ade80",   # green
-    "epithelial-cell":        "#60a5fa",   # blue
-    "lymphocyte":             "#c084fc",   # purple
-    "plasma-cell":            "#fb923c",   # orange
-    "eosinophil":             "#f87171",   # red
-    "connective-tissue-cell": "#22d3ee",   # cyan
+    "neutrophil":             "#225cfc",   # deep blue
+    "epithelial-cell":        "#31b160",   # blue
+    "lymphocyte":             "#1e3a8a",   # navy blue
+    "plasma-cell":            "#22d3ee",   # cyan
+    "eosinophil":             "#572388",   # red
+    "connective-tissue-cell": "#ec4899",   # dark pink
     "mitosis":                "#fbbf24",   # amber
 }
 
@@ -88,6 +91,129 @@ os.makedirs(RESULT_DIR, exist_ok=True)
 # ─────────────────────────────────────────────────────────────────────────────
 # HELPERS
 # ─────────────────────────────────────────────────────────────────────────────
+
+def qupath_geojson_to_tissue_mask(
+    slide_path: str,
+    geojson_path: str,
+    downsampling: int = 32,
+) -> np.ndarray:
+    """
+    Convert a raw QuPath GeoJSON annotation export into a binary tissue mask
+    that is directly compatible with WholeSlideDataset.
+
+    QuPath exports annotations in a coordinate system whose origin sits at
+    (BOUNDS_X, BOUNDS_Y) for formats that define those properties (most
+    notably MRXS). WholeSlideDataset, however, builds its sampling grid over
+    the full openslide level-0 extent. This function bridges the two by:
+
+        openslide_coord = qupath_coord + (BOUNDS_X, BOUNDS_Y)
+
+    The returned mask covers the entire level_dimensions[0] area at the
+    requested downsampling so that every grid point produced by
+    WholeSlideDataset can be looked up directly.
+
+    Parameters
+    ----------
+    slide_path : str
+        Path to the WSI (.svs, .mrxs, .tif, .ndpi, .czi).
+    geojson_path : str
+        Path to the raw QuPath GeoJSON export.
+    downsampling : int, optional
+        Downsampling factor for the output mask.  32 (≈ 1 µm/px at 40×)
+        is a good default: small enough to preserve annotation boundaries,
+        large enough to keep the mask lightweight.
+
+    Returns
+    -------
+    np.ndarray
+        Binary uint8 mask of shape
+        (ceil(level0_height / ds), ceil(level0_width / ds))
+        with 1 = tissue / ROI and 0 = background.
+    """
+    extension = os.path.splitext(slide_path)[1].lower()
+
+    if extension == ".czi":
+        # If you have czi_wrapper available, import and use it here.
+        # from <module> import czi_wrapper
+        # sl = czi_wrapper(slide_path)
+        raise NotImplementedError(
+            "Pass czi_wrapper instance or add the import for your project."
+        )
+    else:
+        sl = openslide.open_slide(slide_path)
+
+    full_w, full_h = sl.level_dimensions[0]
+
+    # ── Determine QuPath → openslide offset ──────────────────────────
+    #
+    # QuPath sets its coordinate origin to (BOUNDS_X, BOUNDS_Y) when
+    # those properties exist.  Formats without them (most SVS, TIF)
+    # default to (0, 0) and no shift is needed.
+    bounds_x = int(sl.properties.get("openslide.bounds-x", 0))
+    bounds_y = int(sl.properties.get("openslide.bounds-y", 0))
+
+    # ── Create empty mask in full openslide space ─────────────────────
+    mask_w = int(np.ceil(full_w / downsampling))
+    mask_h = int(np.ceil(full_h / downsampling))
+    mask = np.zeros((mask_h, mask_w), dtype=np.uint8)
+
+    # ── Parse GeoJSON ─────────────────────────────────────────────────
+    with open(geojson_path, "r") as f:
+        gj = json.load(f)
+
+    # QuPath can export either a FeatureCollection or a bare list.
+    if isinstance(gj, list):
+        features = gj
+    elif isinstance(gj, dict) and "features" in gj:
+        features = gj["features"]
+    else:
+        raise ValueError(
+            "GeoJSON must be a FeatureCollection or a list of Features."
+        )
+
+    # ── Rasterise every Polygon / MultiPolygon ────────────────────────
+    for feature in features:
+        geom = feature.get("geometry", {})
+        geom_type = geom.get("type", "")
+        coords = geom.get("coordinates", [])
+
+        if geom_type == "Polygon":
+            _fill_polygon(mask, coords, bounds_x, bounds_y, downsampling)
+        elif geom_type == "MultiPolygon":
+            for poly_coords in coords:
+                _fill_polygon(mask, poly_coords, bounds_x, bounds_y, downsampling)
+        # Points / LineStrings do not define area → skip silently.
+
+    return mask
+
+
+def _fill_polygon(
+    mask: np.ndarray,
+    polygon_coords: list,
+    bounds_x: int,
+    bounds_y: int,
+    downsampling: int,
+) -> None:
+    """Rasterise one GeoJSON Polygon (outer ring + holes) into *mask*."""
+    if not polygon_coords:
+        return
+
+    # Outer ring
+    outer = np.asarray(polygon_coords[0], dtype=np.float64)
+    if outer.ndim != 2 or outer.shape[0] < 3:
+        return
+    outer[:, 0] = (outer[:, 0] + bounds_x) / downsampling
+    outer[:, 1] = (outer[:, 1] + bounds_y) / downsampling
+    cv2.fillPoly(mask, [outer.astype(np.int32)], 1)
+
+    # Holes
+    for hole_coords in polygon_coords[1:]:
+        hole = np.asarray(hole_coords, dtype=np.float64)
+        if hole.ndim != 2 or hole.shape[0] < 3:
+            continue
+        hole[:, 0] = (hole[:, 0] + bounds_x) / downsampling
+        hole[:, 1] = (hole[:, 1] + bounds_y) / downsampling
+        cv2.fillPoly(mask, [hole.astype(np.int32)], 0)
 
 def write_progress(pct: int, message: str) -> None:
     """Write progress.json atomically so the API never reads a partial file."""
@@ -249,6 +375,7 @@ def main() -> None:
 
     wsi_name   = os.path.splitext(os.path.basename(SCAN_PATH))[0]
     start_time = time.time()
+    roi_path = ROI
 
     # ── Parameters (catalog.json exposes these to the UI) ──────────────────────
     cp         = PARAMS.get("cp",         "lizard_convnextv2_large")
@@ -259,25 +386,21 @@ def main() -> None:
 
     # Resolve the downsampling factor for the target inference resolution (0.5 µm/px)
     # before submitting the GPU job so we fail fast on a bad slide path.
-    _, level_downsampling, *_ = prepare_read_from_slide(
-        SCAN_PATH,
+    slide = openslide.open_slide(SCAN_PATH)
+    level, level_downsampling, exact_resolution, tiling_downsample_factor, original_dim, read_origin = prepare_read_from_slide(
+        slide,
         resolution=0.5,
-        file_type=os.path.splitext(SCAN_PATH)[1].lower(),
     )
 
-    if ROI is not None and ROI != "null":
-        with open(ROI, "r") as f:
-            roi_data = json.load(f)
-            tissue_mask = create_mask_from_contours(
-                geojson=roi_data,
-                mask_shape=original_dim,
-                level_downsampling=level_downsampling,
-                category_dict={"user_roi": 1}
-            )
-            # save to a temporary file for HoVer-NeXt input as npy array
+    if roi_path is not None and roi_path != "null":
+            tissue_mask = qupath_geojson_to_tissue_mask(
+                slide_path=SCAN_PATH,
+                geojson_path=roi_path,
+                downsampling=8)
+        
             tissue_mask_path = os.path.join(RESULT_DIR, "tissue_mask.npy")
-            np.save(tissue_mask_path, tissue_mask)
-            ROI = tissue_mask_path  # override ROI path to point to the mask
+            np.save(tissue_mask_path, tissue_mask.astype(bool))
+            roi_path = tissue_mask_path  # override ROI path to point to the mask
     
     print(f"Level downsampling : {level_downsampling:.4f}", flush=True)
 
@@ -294,8 +417,8 @@ def main() -> None:
         "--pp_workers",  inf_workers,
         "--pp_tiling",   pp_tiling,
     ]
-    if ROI is not None and ROI != "null":
-        cmd_list += ["--roi_mask", ROI]
+    if roi_path is not None and roi_path != "null":
+        cmd_list += ["--tissue_mask", roi_path]
 
     run_cmd(cmd_list, "Phase 1: inference + post-processing")
 
@@ -368,6 +491,10 @@ def main() -> None:
 
     with open(os.path.join(RESULT_DIR, "result.json"), "w") as f:
         json.dump(result, f, indent=2)
+    
+    # delete the tissue mask file if it was created
+    if roi_path is not None and roi_path != "null" and os.path.exists(roi_path):
+        os.remove(roi_path)
 
     write_progress(100, "Done")
     print(f"\n=== Complete — {round(time.time() - start_time, 2)}s | {total_cells:,} cells ===", flush=True)

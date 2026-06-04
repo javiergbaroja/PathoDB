@@ -88,6 +88,83 @@ CROP_PRED_EDGE  = 84 if PARAMS.get("tile_overlap", 66.667) > 25 else 50
 # HELPERS
 # ─────────────────────────────────────────────────────────────────────────────
 
+def save_pyramidal_overlay_tiff(
+    rgba: np.ndarray,
+    out_path: str,
+    tile_size: int = 256,
+    compression: str = "deflate",
+) -> None:
+    """
+    Write a fully pyramidal, tiled BigTIFF for use as an OpenSeadragon overlay.
+ 
+    The pyramid is halved until both dimensions are <= `tile_size`, so the
+    deepest level fits in a single tile.  This guarantees `tiffslide` can
+    always find a level whose downsample is >= what the viewer requests,
+    keeping every `read_region` call bounded to ~tile_size pixels regardless
+    of how far the user zooms out.
+ 
+    Why this matters
+    ----------------
+    OpenSeadragon's tile endpoint computes:
+        scale   = 2 ** (max_osd_level - level)
+        best_ds = slide.level_downsamples[best_level_for_downsample(scale)]
+        read_w  = ceil(tile_size * scale / best_ds)
+ 
+    If the pyramid is too shallow, `best_ds` saturates at the deepest available
+    level while `scale` keeps growing → `read_w` explodes → OOM.  Building the
+    pyramid all the way down ensures `best_ds ≈ scale`, so `read_w ≈ tile_size`.
+ 
+    Parameters
+    ----------
+    rgba : np.ndarray
+        (H, W, 4) uint8 RGBA image at full resolution.
+    out_path : str
+        Destination .ome.tif path.
+    tile_size : int
+        Tile width and height (default 256, matching the OSD tile endpoint).
+    compression : str
+        Any compression supported by tifffile: 'deflate' (default), 'lzw',
+        'zstd'.  'deflate' is widely compatible and gives small files for
+        flat-colour masks; 'zstd' decompresses faster if available.
+    """
+    if rgba.ndim != 3 or rgba.shape[2] != 4:
+        raise ValueError(f"Expected (H, W, 4) RGBA array, got shape {rgba.shape}")
+    if rgba.dtype != np.uint8:
+        raise ValueError(f"Expected uint8 RGBA, got dtype {rgba.dtype}")
+ 
+    # ── Build the pyramid ────────────────────────────────────────────────────
+    # Halve dimensions until the deepest level fits in a single tile.
+    # NEAREST keeps class colours solid (no anti-alias bleed between classes).
+    levels = [rgba]
+    current = rgba
+    while max(current.shape[:2]) > tile_size:
+        new_h = max(1, current.shape[0] // 2)
+        new_w = max(1, current.shape[1] // 2)
+        current = cv2.resize(current, (new_w, new_h), interpolation=cv2.INTER_NEAREST)
+        levels.append(current)
+ 
+    # ── Write as a tiled, pyramidal BigTIFF ──────────────────────────────────
+    # subfiletype=1 marks levels 1..N as "reduced-resolution" sub-IFDs of the
+    # base image — this is what tiffslide/openslide use to discover the pyramid.
+    with tifffile.TiffWriter(out_path, bigtiff=True) as tif:
+        for i, level_img in enumerate(levels):
+            tif.write(
+                level_img,
+                subfiletype=1 if i > 0 else 0,
+                photometric="rgb",
+                tile=(tile_size, tile_size),
+                compression=compression,
+            )
+ 
+    # Useful for debugging: log the pyramid depth so issues are easy to spot.
+    h, w = rgba.shape[:2]
+    print(
+        f"[pyramidal_tiff] Wrote {out_path}: base={w}x{h}, "
+        f"levels={len(levels)}, deepest={levels[-1].shape[1]}x{levels[-1].shape[0]}",
+        flush=True,
+    )
+
+
 def write_progress(pct: int, message: str) -> None:
     """
     Write progress.json atomically so the API never reads a partial file.
@@ -118,7 +195,7 @@ def close_tumor(pred_mask: np.ndarray, tumor_class: int) -> np.ndarray:
 def main() -> None:
     wsi_name = os.path.splitext(os.path.basename(SCAN_PATH))[0]
     downsample_factor = 1
-
+    roi_path = ROI
     # ── Pre-flight checks ──────────────────────────────────────────────────────
     if not os.path.isfile(SCAN_PATH):
         raise FileNotFoundError(f"WSI not found: {SCAN_PATH}")
@@ -155,17 +232,19 @@ def main() -> None:
     )
 
     # Generate the global tissue mask (since ln_seg_path isn't provided dynamically yet)
-    if USE_TISSUE_MASK and ROI == "null":
-        tissue_mask, _ = detect_tissue_mask(SCAN_PATH)
-    elif ROI is not None and ROI != "null":
-        with open(ROI, "r") as f:
+    if roi_path is not None and roi_path != "null":
+        with open(roi_path, "r") as f:
             roi_data = json.load(f)
+
         tissue_mask = create_mask_from_contours(
             geojson=roi_data,
             mask_shape=original_dim,
             level_downsampling=level_downsampling,
             category_dict={"user_roi": 1}
         )
+
+    elif USE_TISSUE_MASK:
+        tissue_mask, _ = detect_tissue_mask(SCAN_PATH)
     else:
         tissue_mask = np.ones((5, 5), dtype=np.uint8)
 
@@ -201,48 +280,28 @@ def main() -> None:
     )
 
     write_progress(85, "Rasterizing mask to Pyramidal OME-TIFF...")
-
+ 
     tiff_path = os.path.join(RESULT_DIR, f"{wsi_name}_overlay.ome.tif")
-
+ 
     ignore_ids = [
         LABEL2ID.get("Unanotated", 0),
-        LABEL2ID.get("Background", 1)
+        LABEL2ID.get("Background", 1),
     ]
-
-    # 1. Build an RGBA Look-Up Table (LUT)
-    # Note: tifffile expects standard RGBA (Red, Green, Blue, Alpha)
+ 
+    # 1. Build the RGBA Look-Up Table
     lut_rgba = np.zeros((256, 4), dtype=np.uint8)
     for class_name, class_id in LABEL2ID.items():
         if class_id in ignore_ids:
-            lut_rgba[class_id] = [0, 0, 0, 0]  # Transparent
+            lut_rgba[class_id] = [0, 0, 0, 0]                       # Fully transparent
         else:
             r, g, b = COLORMAP.get(class_name, (0, 0, 0))
-            lut_rgba[class_id] = [r, g, b, 150] # 150 Alpha for translucency
-
-    # 2. Apply LUT to the mask
+            lut_rgba[class_id] = [r, g, b, 150]                     # 150 alpha = translucent
+ 
+    # 2. Apply LUT to the prediction mask  →  (H, W, 4) uint8 RGBA
     rgba_mask = lut_rgba[pred_mask]
-
-    # 3. Generate Pyramid Levels (halving resolution until < 512px)
-    levels = [rgba_mask]
-    current = rgba_mask
-    while min(current.shape[:2]) > 512:
-        current = cv2.resize(
-            current, 
-            (current.shape[1] // 2, current.shape[0] // 2), 
-            interpolation=cv2.INTER_NEAREST # Use NEAREST to preserve solid class colors
-        )
-        levels.append(current)
-
-    # 4. Save as Highly Compressed Pyramidal TIFF
-    with tifffile.TiffWriter(tiff_path, bigtiff=True) as tif:
-        for i, level_img in enumerate(levels):
-            tif.write(
-                level_img,
-                subfiletype=1 if i > 0 else 0,
-                photometric='rgb', 
-                tile=(256, 256), 
-                compression='deflate' # Lossless ZLIB compression
-            )
+ 
+    # 3. Write a fully pyramidal, tiled OME-TIFF.
+    save_pyramidal_overlay_tiff(rgba_mask, tiff_path)
 
     # ── Slide-level tissue composition ─────────────────────────────────────────
     write_progress(92, "Computing tissue composition percentages...")

@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg id="Layer_2" data-name="Layer 2" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 30.38 30.38">
+  <defs>
+    <style>
+      /* ── Light mode (default) ── */
+      .bg-rect    { fill: none; stroke: #7785a0; stroke-width: .25px; stroke-miterlimit: 10; }
+      .arc        { fill: none; stroke: #171c4b; stroke-linecap: round; stroke-miterlimit: 10; }
+      .dot-navy   { fill: #171c4b; }
+      .dot-slate  { fill: #4e6198; }
+      .dot-teal   { fill: #0e988d; }
+
+      /* ── Dark mode ── */
+      @media (prefers-color-scheme: dark) {
+        .bg-rect   { fill: #171c4b; stroke: #171c4b; stroke-width: .25px; stroke-miterlimit: 10; }
+        .arc       { fill: none; stroke: #ffffff; stroke-linecap: round; stroke-miterlimit: 10; }
+        .dot-navy  { fill: #fafaf8; }
+        .dot-slate { fill: #afb2c1; }
+        .dot-teal  { fill: #7d9eaf; }
+      }
+    </style>
+  </defs>
+  <g id="Layer_1-2" data-name="Layer 1">
+    <g>
+      <rect class="bg-rect" x=".12" y=".12" width="30.13" height="30.13" rx="4.58" ry="4.58"/>
+      <g>
+        <path class="arc" d="M18.05,4.51c4.99,1.21,8.68,5.53,8.68,10.68s-3.69,9.46-8.68,10.67"/>
+        <path class="arc" d="M12.6,25.93c-5.13-1.12-8.95-5.5-8.95-10.74S7.47,5.57,12.6,4.44"/>
+        <g>
+          <circle class="dot-navy"  cx="10.34" cy="10.08" r="1.7"/>
+          <circle class="dot-navy"  cx="15.33" cy="10.08" r="1.7"/>
+          <circle class="dot-slate" cx="20.31" cy="10.08" r="1.7"/>
+          <circle class="dot-slate" cx="20.31" cy="15.11" r="1.7"/>
+          <circle class="dot-slate" cx="20.31" cy="20.14" r="1.7"/>
+          <circle class="dot-slate" cx="10.34" cy="20.14" r="1.7"/>
+          <circle class="dot-teal"  cx="15.33" cy="15.11" r="1.7"/>
+          <circle class="dot-navy"  cx="10.34" cy="15.11" r="1.7"/>
+          <circle class="dot-navy"  cx="15.33" cy="20.14" r="1.7"/>
+        </g>
+      </g>
+    </g>
+  </g>
+</svg>

@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { api } from '../../api'
-import { fetchAndRenderOverlay, clearOverlay } from '../../lib/overlayRenderer'
+import { fetchAndRenderOverlay, clearOverlay, clearAllOverlays } from '../../lib/overlayRenderer'
 import ClinicalPanel  from './ClinicalPanel'
 import Filmstrip      from './Filmstrip'
 import ModelsPanel    from './ModelsPanel'
@@ -124,6 +124,14 @@ export default function SlideViewer() {
 
   // ── Gamma SVG filter ───────────────────────────────────────────────────────
   useGammaFilter(gamma)
+
+  // ── Cleanup OSD overlays on unmount
+  useEffect(() => {
+    return () => {
+      if (osdLeftRef.current)  clearAllOverlays(osdLeftRef.current)
+      if (osdRightRef.current) clearAllOverlays(osdRightRef.current)
+    }
+  }, [])
 
   // ── OSD viewers (left + optional right for compare mode) ────────────────────
   // Both share the same setup, scalebar, and script-loading via the hook.
