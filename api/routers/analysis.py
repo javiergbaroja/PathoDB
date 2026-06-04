@@ -498,15 +498,20 @@ def _sync_job_status(job: AnalysisJob, db: Session, slurm_state=_FETCH_STATE) ->
         elif slurm_state in ("COMPLETED", None):
             result_file = _job_result_dir(job.id) / "result.json"
             is_batch = bool(job.params_json.get("is_batch"))
+            file_ready = False
+            result_error = None
 
             if is_batch:
-                file_ready = False
                 if result_file.exists():
                     try:
                         res_data = json.loads(result_file.read_text(encoding="utf-8"))
-                        file_ready = res_data.get("job_status") == "complete"
+                        job_status = res_data.get("job_status")
+                        if job_status == "complete":
+                            file_ready = True
+                        elif job_status == "failed":
+                            result_error = res_data.get("error", "Batch job reported failure.")
                     except Exception:
-                        pass
+                        result_error = "Failed to parse result.json."
             else:
                 file_ready = result_file.exists()
 
@@ -515,10 +520,17 @@ def _sync_job_status(job: AnalysisJob, db: Session, slurm_state=_FETCH_STATE) ->
                 job.progress    = 100
                 job.result_path = str(_job_result_dir(job.id))
                 changed = True
-            elif slurm_state == "COMPLETED" and not is_batch:
-                # Non-batch SLURM-completed but no result → genuinely failed
+            elif result_error:
                 job.status        = "failed"
-                job.error_message = "SLURM job completed but no result.json was produced."
+                job.error_message = result_error
+                changed = True
+            elif slurm_state == "COMPLETED":
+                job.status        = "failed"
+                job.error_message = "SLURM job completed but no valid result was produced."
+                changed = True
+            elif slurm_state is None:
+                job.status        = "failed"
+                job.error_message = "Job is no longer tracked by SLURM and no valid result was produced."
                 changed = True
 
         elif slurm_state in ("FAILED", "TIMEOUT", "NODE_FAIL", "OUT_OF_MEMORY"):
