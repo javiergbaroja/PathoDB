@@ -830,6 +830,7 @@ async def import_annotations(
     project_id: int, scan_id: int,
     file: UploadFile = File(...),
     import_mode: str = Form("keep_all"),  # "keep_all" or "match_only"
+    class_mapping: Optional[str] = Form(None),
     db: Session = Depends(get_db),
     user: User = Depends(get_current_active_user)
 ):
@@ -850,13 +851,21 @@ async def import_annotations(
     # Map project classes (case-insensitive for robust matching from other software)
     class_map = {c["name"].lower(): c for c in proj.classes}
 
+    # Parse optional class_mapping JSON (sent when user manually maps file classes to project classes)
+    mapping = None
+    if class_mapping:
+        try:
+            mapping = json.loads(class_mapping)
+        except json.JSONDecodeError:
+            raise HTTPException(400, "Invalid class_mapping JSON")
+
     imported_count = 0
     features = data.get("features", [])
 
     for feat in features:
         geom = feat.get("geometry")
         if not geom: continue
-        
+
         # Extract Class Name (handles QuPath, standard GeoJSON, and PathoDB exports)
         props = feat.get("properties", {})
         class_name = props.get("name")
@@ -864,11 +873,21 @@ async def import_annotations(
             class_name = props["classification"].get("name")
         if not class_name:
             class_name = props.get("class_name")
-            
+
         class_id = None
         final_class_name = None
-        
-        if class_name:
+
+        if class_name and mapping:
+            mapped_value = mapping.get(class_name)
+            if not mapped_value or mapped_value == "IGNORE":
+                continue
+            matched = class_map.get(mapped_value.lower())
+            if matched:
+                class_id = matched["id"]
+                final_class_name = matched["name"]
+            else:
+                continue
+        elif class_name:
             matched = class_map.get(class_name.lower())
             if matched:
                 class_id = matched["id"]
@@ -876,7 +895,6 @@ async def import_annotations(
             else:
                 if import_mode == "match_only":
                     continue
-                # keep_all -> Leave class_id empty, but preserve the string name as Unclassified
                 final_class_name = class_name
         else:
             if import_mode == "match_only":

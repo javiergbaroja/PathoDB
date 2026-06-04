@@ -416,7 +416,7 @@ export default function ProjectDetail() {
   }, [activeScanId, projectId, readOnly, queryClient, refetchAnnotations, enqueueSave]) // eslint-disable-line
 
   // ── GeoJSON import from file (Import button) ───────────────────────────────
-  const handleImportGeoJSON = async (file, mode) => {
+  const handleImportGeoJSON = async (file, mode, classMapping) => {
     if (!readOnly && activeScanId && localAnnotationsRef.current.length > 0) {
       clearTimeout(saveTimerRef.current)
       await enqueueSave(activeScanId, localAnnotationsRef.current)
@@ -424,6 +424,7 @@ export default function ProjectDetail() {
     const formData = new FormData()
     formData.append('file', file)
     formData.append('import_mode', mode)
+    if (classMapping) formData.append('class_mapping', JSON.stringify(classMapping))
     await api.importAnnotations(projectId, activeScanId, formData)
     await refetchAnnotations()
     queryClient.invalidateQueries({ queryKey: ['project-progress', projectId] })
@@ -930,6 +931,7 @@ export default function ProjectDetail() {
         isOpen={showImportModal}
         onClose={() => setShowImportModal(false)}
         onImport={handleImportGeoJSON}
+        projectClasses={project?.classes || []}
       />
       <BatchAIModal 
         isOpen={showBatchAIModal} 
