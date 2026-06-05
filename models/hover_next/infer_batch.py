@@ -1,38 +1,59 @@
 """
 PathoDB — HoVer-Net Next (BATCH MODE)
-===================================
+====================================
 
-Batch wrapper for HoVer-NeXt, modelled after the CRC tissue segmentation
-batch scripts.
+Batch wrapper for HoVer-NeXt.
 
-Inputs arrive via a batch_context.json file passed as sys.argv[1].
-The expected schema matches PathoDB's batch runner:
+Unlike the earlier "loop over infer.py" approach, HoVer-NeXt's upstream
+entry point can run *multiple slides in one invocation*, loading the model
+only once:
+
+  /storage/research/igmp_dp_workspace/baumann_elias/hover_next_inference/main.py
+
+This script:
+  - reads a PathoDB batch_context.json passed as argv[1]
+  - runs HoVer-NeXt in one go on the list of slide paths
+  - tracks per-slide output files to update progress + aggregated result.json
+
+Input (batch_context.json)
+--------------------------
+Expected keys (same contract as crc_tissue_segmentation/infer_batch.py):
 
   {
     "job_id": "...",
     "result_dir": "/path/for/progress_and_result_json",
-    "output_dir": "/path/for_heavy_outputs",   # optional, falls back to result_dir
-    "params": { ... model params ... },
+    "output_dir": "/path/for_heavy_outputs",  # optional, defaults to result_dir
+    "params": { ... },
     "targets": [
-      {"scan_id": 123, "file_path": "/abs/path/to/slide.svs", "roi": <optional>},
+      {"scan_id": 123, "file_path": "/abs/path/to/slide.svs"},
       ...
     ]
   }
 
-Outputs written to RESULT_DIR (lightweight API-polled files):
-  - progress.json  (live progress)
-  - result.json    (aggregated per-slide summary)
-  - error.txt      (only on catastrophic failure)
+Notes / constraints
+-------------------
+- Current HoVer-NeXt wrapper (infer.py) supports ROI via PATHODB_ROI, but the
+  upstream multi-slide mode may not. For now this batch runner ignores per-target
+  ROI fields.
+- The upstream tool is assumed to write per-slide outputs under OUTPUT_DIR
+  in per-slide subfolders, containing a class_inst.json. We watch for those
+  files to determine when each slide completes.
 
-Per-slide heavy outputs are written to OUTPUT_DIR:
-  - <wsi>_cells.geojson
+Outputs
+-------
+Written to RESULT_DIR:
+  - progress.json  (polled by API)
+  - result.json    (aggregated scan results)
+  - error.txt      (on fatal failure)
 
 """
 
 from __future__ import annotations
 
+import glob
 import json
 import os
+import subprocess
 import sys
 import time
 import traceback
@@ -51,11 +72,16 @@ JOB_ID = CONTEXT.get("job_id", "unknown")
 RESULT_DIR = CONTEXT.get("result_dir", os.getcwd())
 OUTPUT_DIR = CONTEXT.get("output_dir", RESULT_DIR)
 PARAMS = CONTEXT.get("params", {})
-TARGETS = CONTEXT.get("targets", [])  # List of {scan_id, file_path, roi?}
+TARGETS = CONTEXT.get("targets", [])  # List of {scan_id, file_path, ...}
 MODEL_ID = "hover_next"
 
 os.makedirs(RESULT_DIR, exist_ok=True)
 os.makedirs(OUTPUT_DIR, exist_ok=True)
+
+
+# ── HoverNext entry point ──────────────────────────────────────────────────────
+PYTHON = sys.executable
+HOVERNEXT_MAIN_PY = "/storage/research/igmp_dp_workspace/baumann_elias/hover_next_inference/main.py"
 
 
 def _atomic_write_json(path: str, payload: dict) -> None:
@@ -66,7 +92,6 @@ def _atomic_write_json(path: str, payload: dict) -> None:
 
 
 def update_progress(state: dict, global_pct: int | None = None, global_msg: str | None = None) -> None:
-    """Write detailed live progress.json atomically."""
     if global_pct is not None:
         state["pct"] = max(0, min(100, int(global_pct)))
     if global_msg is not None:
@@ -76,15 +101,45 @@ def update_progress(state: dict, global_pct: int | None = None, global_msg: str 
     _atomic_write_json(os.path.join(RESULT_DIR, "progress.json"), state)
 
 
-def write_result_json(final_result: dict) -> None:
+def write_result_json(payload: dict) -> None:
     with open(os.path.join(RESULT_DIR, "result.json"), "w") as f:
-        json.dump(final_result, f, indent=2)
+        json.dump(payload, f, indent=2)
+
+
+def _slide_expected_class_inst_glob(output_dir: str, slide_path: str) -> str:
+    """Best-effort: HoVer-NeXt commonly writes <output_root>/<wsi_stem>/class_inst.json."""
+    stem = os.path.splitext(os.path.basename(slide_path))[0]
+    return os.path.join(output_dir, stem, "class_inst.json")
+
+
+def _find_latest_class_inst(output_dir: str, slide_path: str) -> str | None:
+    """Fallback search if canonical path differs (e.g., extension handling)."""
+    stem = os.path.splitext(os.path.basename(slide_path))[0]
+
+    # 1) canonical
+    canonical = _slide_expected_class_inst_glob(output_dir, slide_path)
+    if os.path.exists(canonical):
+        return canonical
+
+    # 2) try any class_inst.json under output_dir that contains the stem in the folder name
+    hits = glob.glob(os.path.join(output_dir, f"*{stem}*", "class_inst.json"))
+    if hits:
+        hits.sort(key=os.path.getmtime, reverse=True)
+        return hits[0]
+
+    # 3) last resort: any class_inst.json under output_dir
+    hits = glob.glob(os.path.join(output_dir, "*", "class_inst.json"))
+    if hits:
+        hits.sort(key=os.path.getmtime, reverse=True)
+        return hits[0]
+
+    return None
 
 
 def main() -> None:
-    total_slides = len(TARGETS)
+    total = len(TARGETS)
 
-    # 1) Initialize live state
+    # Live state for progress.json (matches CRC tissue batch structure)
     state = {
         "pct": 0,
         "message": "Initializing batch…",
@@ -99,7 +154,26 @@ def main() -> None:
         },
     }
 
-    if total_slides == 0:
+    empty_scan_result = {
+        "scan_id": None,
+        "scan_path": None,
+        "status": None,
+        "error": None,
+        "timing_s": None,
+        "files": {},
+        "outcome": None,
+        "overlays": None,
+    }
+
+    scans: list[dict] = [
+        {**empty_scan_result, "scan_id": t.get("scan_id"), "scan_path": t.get("file_path")}
+        for t in TARGETS
+    ]
+
+    successful = 0
+    failed = 0
+
+    if total == 0:
         update_progress(state, 100, "No targets provided. Exiting.")
         write_result_json(
             {
@@ -114,181 +188,259 @@ def main() -> None:
         )
         return
 
-    print(f"=== PathoDB HoVer-Net Next (BATCH) ===")
-    print(f"Context    : {CONTEXT_FILE}")
-    print(f"Result dir : {RESULT_DIR}")
-    print(f"Output dir : {OUTPUT_DIR}")
-    print(f"Targets    : {total_slides} slides", flush=True)
-
-    empty_result = {
-        "scan_id": None,
-        "scan_path": None,
-        "status": None,
-        "error": None,
-        "timing_s": None,
-        "files": {},
-        "outcome": None,
-        "overlays": None,
-    }
-
-    batch_results: list[dict] = []
-    for t in TARGETS:
-        batch_results.append({**empty_result, "scan_id": t.get("scan_id"), "scan_path": t.get("file_path")})
-
-    successful = 0
-    failed = 0
-
-    # create result.json early so API can read it even while running
+    # write early result.json so API can read it
     final_result: dict = {
         "model_id": MODEL_ID,
         "scope": "batch",
         "job_id": JOB_ID,
         "job_status": "running",
         "params": PARAMS,
-        "batch_summary": {"total_slides": total_slides, "successful": successful, "failed": failed},
-        "scans": batch_results,
+        "batch_summary": {"total_slides": total, "successful": successful, "failed": failed},
+        "scans": scans,
     }
     write_result_json(final_result)
 
-    update_progress(state, 1, "Starting batch…")
+    print("=== PathoDB HoVer-Net Next (BATCH) ===", flush=True)
+    print(f"Context    : {CONTEXT_FILE}", flush=True)
+    print(f"Result dir : {RESULT_DIR}", flush=True)
+    print(f"Output dir : {OUTPUT_DIR}", flush=True)
+    print(f"Targets    : {total} slides", flush=True)
 
-    # 2) Process each slide by delegating to the existing per-slide wrapper
-    #    (models/hover_next/infer.py), using env vars just like run.sh.
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-    infer_script = os.path.join(script_dir, "infer.py")
+    # Validate inputs
+    slide_paths: list[str] = []
+    bad_idxs: list[int] = []
+    for i, t in enumerate(TARGETS):
+        p = t.get("file_path")
+        if not p or not os.path.isfile(p):
+            bad_idxs.append(i)
+            continue
+        slide_paths.append(p)
 
-    for idx, target in enumerate(TARGETS):
-        scan_id = target.get("scan_id")
-        scan_id_str = str(scan_id)
-        scan_path = target.get("file_path")
-        roi = target.get("roi", None)
-
-        wsi_name = os.path.splitext(os.path.basename(scan_path or ""))[0] or f"scan_{scan_id}"
-
-        # leave 1% for init, 1% for finalization
-        base_pct = 1 + (idx / total_slides) * 98
-
-        def slide_prog(sub_pct: int, msg: str) -> None:
-            global_pct = int(base_pct + (sub_pct / 100.0) * (98 / total_slides))
-            state["slides"][scan_id_str]["status"] = "running"
-            state["slides"][scan_id_str]["progress"] = int(sub_pct)
-            state["slides"][scan_id_str]["message"] = msg
-            update_progress(state, global_pct, f"[{idx+1}/{total_slides}] {wsi_name}: {msg}")
-
-        try:
-            if not scan_path or not os.path.isfile(scan_path):
-                raise FileNotFoundError(f"WSI not found on disk: {scan_path}")
-
-            slide_prog(5, "Launching per-slide inference…")
-
-            env = os.environ.copy()
-            env["PATHODB_JOB_ID"] = str(JOB_ID)
-            env["PATHODB_SCAN_PATH"] = scan_path
-            env["PATHODB_RESULT_DIR"] = OUTPUT_DIR  # heavy outputs should go here
-            env["PATHODB_SCOPE"] = "whole_slide"
-            env["PATHODB_PARAMS"] = json.dumps(PARAMS)
-            env["PATHODB_ROI"] = json.dumps(roi) if roi is not None else "null"
-
-            start = time.time()
-            # infer.py handles progress.json/result.json writing for single-slide, but
-            # we still keep our own aggregate progress/result for the batch contract.
-            # We just run it as a subprocess and then read its result.json.
-            import subprocess
-
-            proc = subprocess.run([sys.executable, infer_script], env=env, capture_output=True, text=True)
-            if proc.returncode != 0:
-                # write stderr to batch RESULT_DIR for visibility
-                err_path = os.path.join(RESULT_DIR, f"{wsi_name}_error.txt")
-                with open(err_path, "w") as f:
-                    f.write(proc.stdout)
-                    f.write("\n--- stderr ---\n")
-                    f.write(proc.stderr)
-                raise RuntimeError(f"Slide inference failed (exit={proc.returncode}). See {err_path}")
-
-            # infer.py writes its own result.json under OUTPUT_DIR
-            per_slide_result_path = os.path.join(OUTPUT_DIR, "result.json")
-            if not os.path.exists(per_slide_result_path):
-                raise FileNotFoundError(
-                    f"Expected per-slide result.json not found at {per_slide_result_path}. "
-                    "Check hover_next/infer.py output contract."
-                )
-
-            with open(per_slide_result_path, "r") as f:
-                per_res = json.load(f)
-
-            # Move the GeoJSON next to batch OUTPUT_DIR if needed (infer.py already writes there).
-            geojson_path = per_res.get("files", {}).get("download_file")
-
-            batch_results[idx] = {
-                "scan_id": scan_id,
-                "scan_path": scan_path,
-                "status": "success",
-                "timing_s": round(time.time() - start, 2),
-                "files": {
-                    "download_file": geojson_path,
-                    "geojson_overlay": geojson_path,
-                    "per_slide_result": per_slide_result_path,
-                },
-                "outcome": per_res.get("outcome"),
-                "overlays": per_res.get("overlays"),
-            }
-            successful += 1
-
-            state["slides"][scan_id_str]["status"] = "success"
-            state["slides"][scan_id_str]["progress"] = 100
-            state["slides"][scan_id_str]["message"] = "Processed successfully."
-            update_progress(state)
-
-            slide_prog(100, "Done")
-
-        except Exception as e:
-            tb = traceback.format_exc()
-            print(f"\n[ERROR] Slide {wsi_name} failed:\n{tb}", file=sys.stderr)
-
-            batch_results[idx] = {
-                "scan_id": scan_id,
-                "scan_path": scan_path,
-                "status": "failed",
-                "error": str(e),
-            }
+    if bad_idxs:
+        for i in bad_idxs:
+            t = TARGETS[i]
+            sid = t.get("scan_id")
+            scans[i] = {"scan_id": sid, "scan_path": t.get("file_path"), "status": "failed", "error": "WSI not found on disk"}
+            state["slides"][str(sid)]["status"] = "failed"
+            state["slides"][str(sid)]["message"] = "WSI not found on disk"
+            state["slides"][str(sid)]["progress"] = 0
             failed += 1
 
-            state["slides"][scan_id_str]["status"] = "failed"
-            state["slides"][scan_id_str]["progress"] = 0
-            state["slides"][scan_id_str]["message"] = f"Error: {str(e)}"
-            update_progress(state)
+        final_result["batch_summary"] = {"total_slides": total, "successful": successful, "failed": failed}
+        write_result_json(final_result)
+        update_progress(state)
 
-        finally:
-            final_result = {
-                "model_id": MODEL_ID,
-                "scope": "batch",
-                "job_id": JOB_ID,
-                "job_status": "running",
-                "params": PARAMS,
-                "batch_summary": {"total_slides": total_slides, "successful": successful, "failed": failed},
-                "scans": batch_results,
-            }
+        # still proceed if at least one slide is valid
+        if len(slide_paths) == 0:
+            final_result["job_status"] = "complete"
             write_result_json(final_result)
+            update_progress(state, 100, "Batch complete (no valid slides).")
+            return
 
-    final_result["job_status"] = "complete"
-    write_result_json(final_result)
-    update_progress(state, 100, f"Batch complete. {successful}/{total_slides} successful.")
+    # Map scan_id -> index for updates
+    scan_id_to_idx = {str(t.get("scan_id")): i for i, t in enumerate(TARGETS)}
+
+    # Mark all valid as running
+    update_progress(state, 2, "Starting HoVer-NeXt multi-slide inference…")
+    for t in TARGETS:
+        sid = t.get("scan_id")
+        sid_str = str(sid)
+        if sid_str not in state["slides"]:
+            continue
+        if state["slides"][sid_str]["status"] == "failed":
+            continue
+        state["slides"][sid_str]["status"] = "running"
+        state["slides"][sid_str]["progress"] = 1
+        state["slides"][sid_str]["message"] = "Running"
+
+    update_progress(state)
+
+    # Build command for upstream tool
+    # NOTE: We assume the tool supports multiple --input entries. If instead it expects
+    # a single --input with a text file, adapt here accordingly.
+    cp = PARAMS.get("cp", "lizard_convnextv2_large")
+    tta = str(PARAMS.get("tta", 8))
+    pp_tiling = str(PARAMS.get("pp_tiling", 8))
+    inf_workers = str(PARAMS.get("inf_workers", 12))
+    inf_writers = str(PARAMS.get("inf_writers", 4))
+
+    cmd: list[str] = [
+        PYTHON,
+        HOVERNEXT_MAIN_PY,
+        "--output_root",
+        OUTPUT_DIR,
+        "--cp",
+        str(cp),
+        "--tta",
+        str(tta),
+        "--inf_workers",
+        str(inf_workers),
+        "--inf_writers",
+        str(inf_writers),
+        "--pp_workers",
+        str(inf_workers),
+        "--pp_tiling",
+        str(pp_tiling),
+    ]
+
+    for p in slide_paths:
+        cmd += ["--input", p]
+
+    start_time = time.time()
+
+    # Launch inference
+    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, bufsize=1)
+
+    # Poll for output files to drive progress.
+    # We treat a slide as complete when we see its class_inst.json.
+    done: set[str] = set()
+    last_msg_t = 0.0
+
+    try:
+        while True:
+            # update done set
+            for t in TARGETS:
+                sid = t.get("scan_id")
+                sid_str = str(sid)
+
+                if state["slides"].get(sid_str, {}).get("status") in ("failed", "success"):
+                    continue
+
+                slide_path = t.get("file_path")
+                if not slide_path or not os.path.isfile(slide_path):
+                    continue
+
+                class_inst = _find_latest_class_inst(OUTPUT_DIR, slide_path)
+                if class_inst and os.path.exists(class_inst):
+                    # mark slide as done once
+                    if sid_str not in done:
+                        done.add(sid_str)
+                        state["slides"][sid_str]["status"] = "success"
+                        state["slides"][sid_str]["progress"] = 100
+                        state["slides"][sid_str]["message"] = "Inference complete"
+
+                        # Update aggregated result entry
+                        idx = scan_id_to_idx.get(sid_str)
+                        if idx is not None:
+                            scans[idx] = {
+                                "scan_id": sid,
+                                "scan_path": slide_path,
+                                "status": "success",
+                                "timing_s": None,
+                                "files": {
+                                    "class_inst": class_inst,
+                                },
+                                "outcome": None,
+                                "overlays": None,
+                            }
+                        successful += 1
+
+            # Global pct: 2% init + 96% based on done + 2% final
+            completed = len(done) + failed
+            pct = int(2 + (completed / total) * 96)
+            msg = f"Running… ({completed}/{total} completed)"
+
+            now = time.time()
+            if now - last_msg_t > 2.0:
+                update_progress(state, pct, msg)
+                final_result["batch_summary"] = {"total_slides": total, "successful": successful, "failed": failed}
+                final_result["scans"] = scans
+                write_result_json(final_result)
+                last_msg_t = now
+
+            # Exit condition
+            if completed >= total:
+                break
+
+            # Check process
+            rc = proc.poll()
+            if rc is not None:
+                # process ended before we saw all outputs
+                break
+
+            time.sleep(1.0)
+
+        # Wait for the process to finish and capture stderr in case of failure
+        stdout, stderr = proc.communicate(timeout=30)
+        rc = proc.returncode
+
+        if rc != 0:
+            err_path = os.path.join(RESULT_DIR, "error.txt")
+            with open(err_path, "w") as f:
+                f.write("Command:\n")
+                f.write(" ".join(cmd) + "\n\n")
+                f.write("--- stdout ---\n")
+                f.write(stdout or "")
+                f.write("\n--- stderr ---\n")
+                f.write(stderr or "")
+
+            # mark remaining pending/running as failed
+            for t in TARGETS:
+                sid = str(t.get("scan_id"))
+                if state["slides"].get(sid, {}).get("status") in ("success", "failed"):
+                    continue
+                state["slides"][sid]["status"] = "failed"
+                state["slides"][sid]["progress"] = 0
+                state["slides"][sid]["message"] = f"Failed (see error.txt)"
+
+                idx = scan_id_to_idx.get(sid)
+                if idx is not None:
+                    scans[idx] = {
+                        "scan_id": t.get("scan_id"),
+                        "scan_path": t.get("file_path"),
+                        "status": "failed",
+                        "error": f"HoVer-NeXt failed (exit={rc})",
+                    }
+                failed += 1
+
+            raise RuntimeError(f"HoVer-NeXt batch process failed (exit={rc}). See {err_path}")
+
+        # Success: fill timing + (best-effort) outputs
+        elapsed = round(time.time() - start_time, 2)
+        for t in TARGETS:
+            sid_str = str(t.get("scan_id"))
+            if state["slides"].get(sid_str, {}).get("status") != "success":
+                continue
+            idx = scan_id_to_idx.get(sid_str)
+            if idx is not None and isinstance(scans[idx], dict):
+                scans[idx]["timing_s"] = None
+
+        final_result["job_status"] = "complete"
+        final_result["batch_summary"] = {"total_slides": total, "successful": successful, "failed": failed}
+        final_result["scans"] = scans
+        write_result_json(final_result)
+        update_progress(state, 100, f"Batch complete. {successful}/{total} successful.")
+
+    except Exception:
+        # Ensure process is terminated
+        try:
+            proc.kill()
+        except Exception:
+            pass
+
+        tb = traceback.format_exc()
+        try:
+            with open(os.path.join(RESULT_DIR, "error.txt"), "a") as f:
+                f.write("\n\n--- Python exception ---\n")
+                f.write(tb)
+        except Exception:
+            pass
+
+        # If we haven't already written a fatal progress, do it.
+        try:
+            _atomic_write_json(
+                os.path.join(RESULT_DIR, "progress.json"),
+                {"pct": 0, "message": "Fatal batch failure — see error.txt", "slides": state.get("slides", {})},
+            )
+        except Exception:
+            pass
+
+        raise
 
 
 if __name__ == "__main__":
     try:
         main()
     except Exception:
-        tb = traceback.format_exc()
-        try:
-            _atomic_write_json(
-                os.path.join(RESULT_DIR, "progress.json"),
-                {"pct": 0, "message": "Fatal batch failure — see error.txt", "slides": {}},
-            )
-        except Exception:
-            pass
-
-        with open(os.path.join(RESULT_DIR, "error.txt"), "w") as f:
-            f.write(tb)
-        print(tb, file=sys.stderr)
+        # error.txt is written in main(); ensure non-zero exit
         sys.exit(1)
