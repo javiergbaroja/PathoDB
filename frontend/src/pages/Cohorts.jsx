@@ -21,6 +21,7 @@ const EMPTY_FILTER = {
   submission_date_from:    '',
   submission_date_to:      '',
   malignancy_flag:         null,
+  consent_statuses:        [],
   has_scan:                null,
   block_info_search:       '',
   return_level:            'block',
@@ -31,6 +32,7 @@ const EMPTY_LIST_FILTER = {
   topo_description_search: [],
   submission_types:        [],
   malignancy_flag:         null,
+  consent_statuses:        [],
   has_scan:                null,
   block_info_search:       '',
   submission_date_from:    '',
@@ -199,7 +201,7 @@ function ResultSummary({ rows, returnLevel, excludedTopos, excludedStains, onTog
 
 const SCAN_COLS = ['patient_code','lis_submission_id','lis_probe_id','snomed_topo_code',
                    'topo_description','submission_type','block_label','block_info',
-                   'stain_name','stain_category','file_path']
+                   'consent','stain_name','stain_category','file_path']
 const MONO_COLS = new Set(['lis_submission_id','lis_probe_id','snomed_topo_code'])
 const LIMIT     = 50
 
@@ -539,6 +541,12 @@ export default function Cohorts() {
   // Shared select options
   const HAS_SCAN_OPTS = [['', 'Any'], ['true', 'Has scan'], ['false', 'No scan']]
   const MALIGNANCY_OPTS = [['', 'Any'], ['true', 'Positive'], ['false', 'Negative']]
+  const CONSENT_OPTS = [
+    { value: 'consented', label: 'Consented' },
+    { value: 'informed',  label: 'Informed' },
+    { value: 'refused',   label: 'Refused' },
+    { value: 'unknown',   label: 'Unknown / empty' },
+  ]
 
   return (
     <Layout title="Cohort Builder" actions={actions}>
@@ -602,6 +610,38 @@ export default function Cohorts() {
                     </FormSelect>
                   </FormField>
                 </div>
+                <FormField label="Patient consent" style={{ marginTop: 10 }}>
+                  <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                    {CONSENT_OPTS.map(opt => {
+                      const active = (filter.consent_statuses || []).includes(opt.value)
+                      return (
+                        <button key={opt.value} type="button"
+                          onClick={() => setF('consent_statuses',
+                            active
+                              ? filter.consent_statuses.filter(v => v !== opt.value)
+                              : [...(filter.consent_statuses || []), opt.value]
+                          )}
+                          style={{
+                            padding: '4px 12px', borderRadius: 20, fontSize: 12,
+                            border: `1px solid ${active ? 'var(--navy)' : 'var(--border-l)'}`,
+                            background: active ? 'var(--navy-05)' : 'transparent',
+                            color: active ? 'var(--navy)' : 'var(--text-3)',
+                            fontWeight: active ? 600 : 400,
+                            cursor: 'pointer', transition: 'all 0.15s',
+                            fontFamily: 'var(--font-sans)',
+                          }}
+                        >{opt.label}</button>
+                      )
+                    })}
+                    {(filter.consent_statuses || []).length > 0 && (
+                      <button type="button" onClick={() => setF('consent_statuses', [])}
+                        style={{ padding: '4px 8px', borderRadius: 20, fontSize: 11,
+                          border: 'none', background: 'none', color: 'var(--text-3)',
+                          cursor: 'pointer', fontFamily: 'var(--font-sans)' }}
+                      >clear</button>
+                    )}
+                  </div>
+                </FormField>
 
                 {/* Block */}
                 <SectionLabel>Block</SectionLabel>
@@ -752,6 +792,38 @@ export default function Cohorts() {
                     </FormSelect>
                   </FormField>
                 </div>
+                <FormField label="Patient consent" style={{ marginTop: 10 }}>
+                  <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                    {CONSENT_OPTS.map(opt => {
+                      const active = (listFilter.consent_statuses || []).includes(opt.value)
+                      return (
+                        <button key={opt.value} type="button"
+                          onClick={() => setLF('consent_statuses',
+                            active
+                              ? listFilter.consent_statuses.filter(v => v !== opt.value)
+                              : [...(listFilter.consent_statuses || []), opt.value]
+                          )}
+                          style={{
+                            padding: '4px 12px', borderRadius: 20, fontSize: 12,
+                            border: `1px solid ${active ? 'var(--navy)' : 'var(--border-l)'}`,
+                            background: active ? 'var(--navy-05)' : 'transparent',
+                            color: active ? 'var(--navy)' : 'var(--text-3)',
+                            fontWeight: active ? 600 : 400,
+                            cursor: 'pointer', transition: 'all 0.15s',
+                            fontFamily: 'var(--font-sans)',
+                          }}
+                        >{opt.label}</button>
+                      )
+                    })}
+                    {(listFilter.consent_statuses || []).length > 0 && (
+                      <button type="button" onClick={() => setLF('consent_statuses', [])}
+                        style={{ padding: '4px 8px', borderRadius: 20, fontSize: 11,
+                          border: 'none', background: 'none', color: 'var(--text-3)',
+                          cursor: 'pointer', fontFamily: 'var(--font-sans)' }}
+                      >clear</button>
+                    )}
+                  </div>
+                </FormField>
 
                 <SectionLabel>Block</SectionLabel>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>

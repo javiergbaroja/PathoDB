@@ -46,6 +46,7 @@ def get_tools(db: Session, user: User) -> list:
         snomed_topo_codes: Optional[List[str]] = None,
         submission_types: Optional[List[str]] = None,
         malignancy_flag: Optional[bool] = None,
+        consent_statuses: Optional[List[str]] = None,
         submission_date_from: Optional[str] = None,
         submission_date_to: Optional[str] = None,
         has_scan: Optional[bool] = None,
@@ -72,6 +73,7 @@ def get_tools(db: Session, user: User) -> list:
             snomed_topo_codes=snomed_topo_codes,
             submission_types=submission_types,
             malignancy_flag=malignancy_flag,
+            consent_statuses=consent_statuses,
             submission_date_from=submission_date_from,
             submission_date_to=submission_date_to,
             has_scan=has_scan,
@@ -233,15 +235,16 @@ def get_tools(db: Session, user: User) -> list:
                     submission_date_to: Optional[str] = None,
                     has_scan: Optional[bool] = None,
                     stain_names: Optional[List[str]] = None,
-                    stain_categories: Optional[List[str]] = None) -> str:
+                    stain_categories: Optional[List[str]] = None,
+                    consent_statuses: Optional[List[str]] = None) -> str:
         """Save the current query as a named cohort. Requires user confirmation."""
         from ..routers.cohorts import save_cohort as _save
         from ..schemas import CohortSave, CohortFilter
         raw = dict(return_level=return_level, topo_description_search=topo_description_search,
                    snomed_topo_codes=snomed_topo_codes, submission_types=submission_types,
-                   malignancy_flag=malignancy_flag, submission_date_from=submission_date_from,
-                   submission_date_to=submission_date_to, has_scan=has_scan,
-                   stain_names=stain_names, stain_categories=stain_categories)
+                   malignancy_flag=malignancy_flag, consent_statuses=consent_statuses,
+                   submission_date_from=submission_date_from, submission_date_to=submission_date_to,
+                   has_scan=has_scan, stain_names=stain_names, stain_categories=stain_categories)
         try:
             f = CohortFilter(**{k: v for k, v in raw.items() if v is not None})
             cohort = _save(CohortSave(name=name, description=description, filter_json=f),

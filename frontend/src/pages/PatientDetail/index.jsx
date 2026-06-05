@@ -10,6 +10,7 @@ import { useAuth } from '../../context/AuthContext'
 import RegisterScanModal from './RegisterScanModal'
 import ScansDrawer from './ScansDrawer'
 import SummaryPanel from './SummaryPanel'
+import { ConsentIcon } from '../../components/ui/ConsentIcons'
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -641,6 +642,7 @@ export default function PatientDetail() {
                       <span style={{ fontSize: 11, color: 'var(--text-3)', flexShrink: 0 }}>
                         {sub.report_date || '—'}
                       </span>
+                      <ConsentIcon status={sub.consent} size={14} style={{ flexShrink: 0 }} />
                       {hasScannedBlocks && <ScannedIcon size={18} />}
                       {sub.malignancy_flag && <Badge variant="red">Malignant</Badge>}
                     </div>

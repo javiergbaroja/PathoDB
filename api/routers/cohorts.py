@@ -177,6 +177,7 @@ def _format_results(rows, return_level: str, db: Session, f=None) -> list[dict]:
                     "submission_type":   probe.submission_type,
                     "block_label":       block.block_label,
                     "block_info":        block.block_info,
+                    "consent":           sub.consent,
                     "block_id":          block.id,
                     "stain_name":        stain_name,
                     "stain_category":    stain_category,
@@ -197,6 +198,7 @@ def _format_results(rows, return_level: str, db: Session, f=None) -> list[dict]:
                     "patient_code":  patient.patient_code,
                     "date_of_birth": str(patient.date_of_birth) if patient.date_of_birth else None,
                     "sex":           patient.sex,
+                    "consent":       sub.consent,
                 })
 
         elif return_level == "submission":
@@ -225,7 +227,8 @@ def _format_results(rows, return_level: str, db: Session, f=None) -> list[dict]:
                     "snomed_topo_code":   probe.snomed_topo_code,
                     "topo_description":   probe.topo_description,
                     "submission_type":    probe.submission_type,
-                    "location_additional": probe.location_additional,
+                    "location_additional":probe.location_additional,
+                    "consent":            sub.consent,
                 })
 
         elif return_level == "block":
@@ -242,6 +245,7 @@ def _format_results(rows, return_level: str, db: Session, f=None) -> list[dict]:
                     "submission_type":   probe.submission_type,
                     "block_label":       block.block_label,
                     "block_info":        block.block_info,
+                    "consent":           sub.consent,
                     "stains":            stains,
                     "scan_count":        len(block.scans) if hasattr(block, 'scans') else 0,
                 })
@@ -271,6 +275,16 @@ def _apply_filters(db: Session, f: CohortFilter):
         q = q.filter(Probe.submission_type.in_(f.submission_types))
     if f.malignancy_flag is not None:
         q = q.filter(Submission.malignancy_flag == f.malignancy_flag)
+    if f.consent_statuses:
+        consent_conds = []
+        named = [s for s in f.consent_statuses if s != 'unknown']
+        if named:
+            consent_conds.append(Submission.consent.in_(named))
+        if 'unknown' in f.consent_statuses:
+            consent_conds.append(Submission.consent.is_(None))
+            consent_conds.append(Submission.consent == 'unknown')
+        if consent_conds:
+            q = q.filter(or_(*consent_conds))
     if f.submission_date_from:
         q = q.filter(Submission.report_date >= f.submission_date_from)
     if f.submission_date_to:
@@ -312,6 +326,7 @@ class ListQueryRequest(BaseModel):
     topo_description_search: Optional[list[str]] = None
     submission_types:        Optional[list[str]] = None
     malignancy_flag:         Optional[bool] = None
+    consent_statuses:        Optional[list[str]] = None
     has_scan:                Optional[bool] = None
     block_info_search:       Optional[str] = None
     stain_names:             Optional[list[str]] = None
@@ -343,6 +358,7 @@ def _scan_results_from_block_ids(db: Session, block_ids: set, f=None) -> list[di
             db.query(
                 Patient.patient_code,
                 Submission.lis_submission_id,
+                Submission.consent,
                 Probe.lis_probe_id,
                 Probe.snomed_topo_code,
                 Probe.topo_description,
@@ -383,6 +399,7 @@ def _scan_results_from_block_ids(db: Session, block_ids: set, f=None) -> list[di
                 results.append({
                     "patient_code":      row.patient_code,
                     "lis_submission_id": row.lis_submission_id,
+                    "consent":           row.consent,
                     "lis_probe_id":      row.lis_probe_id,
                     "snomed_topo_code":  row.snomed_topo_code,
                     "topo_description":  row.topo_description,

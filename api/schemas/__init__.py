@@ -197,6 +197,7 @@ class CohortFilter(BaseModel):
     topo_description_search: Optional[Union[str, List[str]]] = None
     submission_types: Optional[List[str]] = None
     malignancy_flag: Optional[bool] = None
+    consent_statuses: Optional[List[str]] = None
     submission_date_from: Optional[date] = None
     submission_date_to: Optional[date] = None
     block_info_search: Optional[str] = None
