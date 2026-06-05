@@ -12,7 +12,8 @@ only once:
 
 This script:
   - reads a PathoDB batch_context.json passed as argv[1]
-  - runs HoVer-NeXt in one go on the list of slide paths
+  - writes a temporary TXT list of slide paths
+  - runs HoVer-NeXt in one go on that list (via --input <slides.txt>)
   - tracks per-slide output files to update progress + aggregated result.json
 
 Input (batch_context.json)
@@ -106,7 +107,7 @@ def write_result_json(payload: dict) -> None:
         json.dump(payload, f, indent=2)
 
 
-def _slide_expected_class_inst_glob(output_dir: str, slide_path: str) -> str:
+def _slide_expected_class_inst_path(output_dir: str, slide_path: str) -> str:
     """Best-effort: HoVer-NeXt commonly writes <output_root>/<wsi_stem>/class_inst.json."""
     stem = os.path.splitext(os.path.basename(slide_path))[0]
     return os.path.join(output_dir, stem, "class_inst.json")
@@ -116,19 +117,11 @@ def _find_latest_class_inst(output_dir: str, slide_path: str) -> str | None:
     """Fallback search if canonical path differs (e.g., extension handling)."""
     stem = os.path.splitext(os.path.basename(slide_path))[0]
 
-    # 1) canonical
-    canonical = _slide_expected_class_inst_glob(output_dir, slide_path)
+    canonical = _slide_expected_class_inst_path(output_dir, slide_path)
     if os.path.exists(canonical):
         return canonical
 
-    # 2) try any class_inst.json under output_dir that contains the stem in the folder name
     hits = glob.glob(os.path.join(output_dir, f"*{stem}*", "class_inst.json"))
-    if hits:
-        hits.sort(key=os.path.getmtime, reverse=True)
-        return hits[0]
-
-    # 3) last resort: any class_inst.json under output_dir
-    hits = glob.glob(os.path.join(output_dir, "*", "class_inst.json"))
     if hits:
         hits.sort(key=os.path.getmtime, reverse=True)
         return hits[0]
@@ -206,7 +199,7 @@ def main() -> None:
     print(f"Output dir : {OUTPUT_DIR}", flush=True)
     print(f"Targets    : {total} slides", flush=True)
 
-    # Validate inputs
+    # Validate inputs and build slide list
     slide_paths: list[str] = []
     bad_idxs: list[int] = []
     for i, t in enumerate(TARGETS):
@@ -227,10 +220,10 @@ def main() -> None:
             failed += 1
 
         final_result["batch_summary"] = {"total_slides": total, "successful": successful, "failed": failed}
+        final_result["scans"] = scans
         write_result_json(final_result)
         update_progress(state)
 
-        # still proceed if at least one slide is valid
         if len(slide_paths) == 0:
             final_result["job_status"] = "complete"
             write_result_json(final_result)
@@ -239,6 +232,13 @@ def main() -> None:
 
     # Map scan_id -> index for updates
     scan_id_to_idx = {str(t.get("scan_id")): i for i, t in enumerate(TARGETS)}
+
+    # Write the slide list as a txt file (one path per line)
+    slides_txt = os.path.join(RESULT_DIR, f"hover_next_slides_{JOB_ID}.txt")
+    with open(slides_txt, "w") as f:
+        for p in slide_paths:
+            f.write(p)
+            f.write("\n")
 
     # Mark all valid as running
     update_progress(state, 2, "Starting HoVer-NeXt multi-slide inference…")
@@ -256,8 +256,6 @@ def main() -> None:
     update_progress(state)
 
     # Build command for upstream tool
-    # NOTE: We assume the tool supports multiple --input entries. If instead it expects
-    # a single --input with a text file, adapt here accordingly.
     cp = PARAMS.get("cp", "lizard_convnextv2_large")
     tta = str(PARAMS.get("tta", 8))
     pp_tiling = str(PARAMS.get("pp_tiling", 8))
@@ -267,6 +265,8 @@ def main() -> None:
     cmd: list[str] = [
         PYTHON,
         HOVERNEXT_MAIN_PY,
+        "--input",
+        slides_txt,
         "--output_root",
         OUTPUT_DIR,
         "--cp",
@@ -283,9 +283,6 @@ def main() -> None:
         str(pp_tiling),
     ]
 
-    for p in slide_paths:
-        cmd += ["--input", p]
-
     start_time = time.time()
 
     # Launch inference
@@ -294,7 +291,7 @@ def main() -> None:
     # Poll for output files to drive progress.
     # We treat a slide as complete when we see its class_inst.json.
     done: set[str] = set()
-    last_msg_t = 0.0
+    last_update_t = 0.0
 
     try:
         while True:
@@ -312,14 +309,12 @@ def main() -> None:
 
                 class_inst = _find_latest_class_inst(OUTPUT_DIR, slide_path)
                 if class_inst and os.path.exists(class_inst):
-                    # mark slide as done once
                     if sid_str not in done:
                         done.add(sid_str)
                         state["slides"][sid_str]["status"] = "success"
                         state["slides"][sid_str]["progress"] = 100
                         state["slides"][sid_str]["message"] = "Inference complete"
 
-                        # Update aggregated result entry
                         idx = scan_id_to_idx.get(sid_str)
                         if idx is not None:
                             scans[idx] = {
@@ -335,24 +330,21 @@ def main() -> None:
                             }
                         successful += 1
 
-            # Global pct: 2% init + 96% based on done + 2% final
             completed = len(done) + failed
             pct = int(2 + (completed / total) * 96)
             msg = f"Running… ({completed}/{total} completed)"
 
             now = time.time()
-            if now - last_msg_t > 2.0:
+            if now - last_update_t > 2.0:
                 update_progress(state, pct, msg)
                 final_result["batch_summary"] = {"total_slides": total, "successful": successful, "failed": failed}
                 final_result["scans"] = scans
                 write_result_json(final_result)
-                last_msg_t = now
+                last_update_t = now
 
-            # Exit condition
             if completed >= total:
                 break
 
-            # Check process
             rc = proc.poll()
             if rc is not None:
                 # process ended before we saw all outputs
@@ -360,7 +352,6 @@ def main() -> None:
 
             time.sleep(1.0)
 
-        # Wait for the process to finish and capture stderr in case of failure
         stdout, stderr = proc.communicate(timeout=30)
         rc = proc.returncode
 
@@ -381,7 +372,7 @@ def main() -> None:
                     continue
                 state["slides"][sid]["status"] = "failed"
                 state["slides"][sid]["progress"] = 0
-                state["slides"][sid]["message"] = f"Failed (see error.txt)"
+                state["slides"][sid]["message"] = "Failed (see error.txt)"
 
                 idx = scan_id_to_idx.get(sid)
                 if idx is not None:
@@ -395,16 +386,8 @@ def main() -> None:
 
             raise RuntimeError(f"HoVer-NeXt batch process failed (exit={rc}). See {err_path}")
 
-        # Success: fill timing + (best-effort) outputs
-        elapsed = round(time.time() - start_time, 2)
-        for t in TARGETS:
-            sid_str = str(t.get("scan_id"))
-            if state["slides"].get(sid_str, {}).get("status") != "success":
-                continue
-            idx = scan_id_to_idx.get(sid_str)
-            if idx is not None and isinstance(scans[idx], dict):
-                scans[idx]["timing_s"] = None
-
+        # Success
+        _ = round(time.time() - start_time, 2)
         final_result["job_status"] = "complete"
         final_result["batch_summary"] = {"total_slides": total, "successful": successful, "failed": failed}
         final_result["scans"] = scans
@@ -412,7 +395,6 @@ def main() -> None:
         update_progress(state, 100, f"Batch complete. {successful}/{total} successful.")
 
     except Exception:
-        # Ensure process is terminated
         try:
             proc.kill()
         except Exception:
@@ -426,7 +408,6 @@ def main() -> None:
         except Exception:
             pass
 
-        # If we haven't already written a fatal progress, do it.
         try:
             _atomic_write_json(
                 os.path.join(RESULT_DIR, "progress.json"),
@@ -442,5 +423,4 @@ if __name__ == "__main__":
     try:
         main()
     except Exception:
-        # error.txt is written in main(); ensure non-zero exit
         sys.exit(1)
