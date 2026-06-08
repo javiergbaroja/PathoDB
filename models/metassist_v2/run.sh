@@ -1,8 +1,8 @@
 #!/bin/bash
 # =============================================================================
-# TIL Density — SLURM inference script
+# MetAssist v2 — SLURM inference script
 # Submitted by the PathoDB API via sbatch.
-# All parameters arrive as environment variables exported by the API:
+# All parameters arrive as environment variables read from the context JSON:
 #
 #   PATHODB_JOB_ID      PathoDB analysis_jobs.id
 #   PATHODB_SCAN_ID     PathoDB scans.id
@@ -14,17 +14,17 @@
 # =============================================================================
 #SBATCH --mail-type=fail
 #SBATCH --mail-user=javier.garcia@unibe.ch
-#SBATCH --time=1:00:00
+#SBATCH --time=1:30:00
 #SBATCH --account=gratis
 #SBATCH --mem=80G
 #SBATCH --nodes=1
-#SBATCH --cpus-per-task=4
+#SBATCH --cpus-per-task=7
 #SBATCH --partition=gpu-invest
 #SBATCH --gres=gpu:a100:1
 #SBATCH --job-name=metassist2
 #SBATCH --qos=job_gpu_preemptable
-# SBATCH --output=/storage/research/igmp_dp_workspace/garciabaroja_javier/PW_reports/database/pathodb/logs/metassist_v2_%j.out
-# SBATCH --error=/storage/research/igmp_dp_workspace/garciabaroja_javier/PW_reports/database/pathodb/logs/metassist_v2_%j.err
+#SBATCH --output=/storage/research/igmp_dp_workspace/garciabaroja_javier/PW_reports/database/pathodb/logs/metassist_v2_%j.out
+#SBATCH --error=/storage/research/igmp_dp_workspace/garciabaroja_javier/PW_reports/database/pathodb/logs/metassist_v2_%j.err
 
 set -euo pipefail
 
@@ -40,37 +40,31 @@ export PATHODB_SCOPE="$(jq -r '.scope' "${CONTEXT_FILE}")"
 export PATHODB_PARAMS="$(jq -c '.params' "${CONTEXT_FILE}")"
 export PATHODB_ROI="$(jq -c '.roi' "${CONTEXT_FILE}")"
 
-echo "=== PathoDB MetAssist 2.0 ==="
+echo "=== PathoDB MetAssist v2 ==="
 echo "Started     : $(date)"
 echo "Node        : $(hostname)"
 echo "Job ID      : $SLURM_JOB_ID"
 echo "PathoDB job : ${PATHODB_JOB_ID}"
 echo "Scan        : ${PATHODB_SCAN_PATH}"
 echo "Params      : ${PATHODB_PARAMS}"
+echo "ROI         : ${PATHODB_ROI}"
 echo ""
 
-# 2. Clean environment and activate Conda safely
+# 2. Clean environment — use Apptainer container (same env as CRC model)
 module purge
-module load Anaconda3
+export APPTAINER_BIND="/storage:/storage"
 module load CUDA/11.8.0
 module load GCCcore/10.3.0
 
-source activate metassist
-
-echo "=== PathoDB MetAssist 2.0 ==="
-echo "Started     : $(date)"
-echo "Node        : $(hostname)"
-echo "Job ID      : $SLURM_JOB_ID"
-echo "PathoDB job : ${PATHODB_JOB_ID}"
-echo "Scan        : ${PATHODB_SCAN_PATH}"
-echo "Params      : ${PATHODB_PARAMS}"
-echo ""
+container_path="/storage/research/igmp_slide_workspace/GRP Zlobec/Amjad/qupath/metassist-v1/MetAssist_expansion/crc-ugi/code/package_refactored/singularity/metassist_env.sif"
 
 # ── Run inference ─────────────────────────────────────────────────────────────
-# get absolute folder for this bash script.
 PROJECT_DIR="/storage/research/igmp_dp_workspace/garciabaroja_javier/PW_reports/database/pathodb"
 INFERENCE_SCRIPT="${PROJECT_DIR}/models/metassist_v2/infer.py"
-python3 "${INFERENCE_SCRIPT}"
+
+apptainer exec --nv "${container_path}" \
+    /opt/conda/envs/metassist_infer/bin/python3 \
+    "${INFERENCE_SCRIPT}"
 
 echo ""
 echo "=== Finished : $(date) ==="

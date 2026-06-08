@@ -6,6 +6,7 @@ import DetectionSummary from './DetectionSummary'
 import ScoringSummary from './ScoringSummary'
 import SegmentationSummary from './SegmentationSummary'
 import MultiClassDetectionSummary from './MultiClassDetectionSummary'
+import MetastasisSummary from './MetastasisSummary'
 
 export default function JobOutcomeDispatcher({ jobId, model }) {
   // These are the state variables that were missing!
@@ -27,21 +28,24 @@ export default function JobOutcomeDispatcher({ jobId, model }) {
 
   // Route the data to the correct UI component based on the model's schema
   switch (model?.result_type) {
-    case 'segmentation': 
+    case 'segmentation':
       return <SegmentationSummary outcome={outcome} />
-      
-    case 'classification':      
+
+    case 'classification':
       return <ScoringSummary outcome={outcome} />
-      
+
+    case 'ln_metastasis':
+      return <MetastasisSummary outcome={outcome} />
+
     case 'panoptic':
     case 'multiclass_detection':
       return <MultiClassDetectionSummary outcome={outcome} />
-      
-    case 'counting':    
+
+    case 'counting':
     case 'detection':
       return <DetectionSummary outcome={outcome} />
-      
+
     default:
-      return <DetectionSummary outcome={outcome} /> 
+      return <DetectionSummary outcome={outcome} />
   }
 }
