@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef } from 'react'
+import { useState, useCallback } from 'react'
 import { useQuery, useMutation } from '@tanstack/react-query'
 import Layout from '../components/Layout'
 import { Btn, SpinnerPage, ErrorMsg, FormField, FormInput, FormSelect, FormLabel, SectionHeader } from '../components/ui'
@@ -72,19 +72,18 @@ export default function BatchAnalysis() {
   const [filteredTargets, setFilteredTargets] = useState([])
   const [errorMsg, setErrorMsg]               = useState('')
   const [successMsg, setSuccessMsg]           = useState('')
-  const dirPickerRef                          = useRef(null)
-
   const outputDir      = convertToHPCPath(rawOutputDir)
   const outputDirError = rawOutputDir.trim() !== '' && !outputDir.startsWith('/storage/research/')
     ? 'Path must point to the research storage (\\\\resstore.unibe.ch\\… or /storage/research/…)'
     : ''
 
-  const handleDirPicked = (e) => {
-    const files = Array.from(e.target.files || [])
-    if (!files.length) return
-    const topDir = files[0].webkitRelativePath?.split('/')[0] || ''
-    if (topDir) setRawOutputDir(prev => prev || topDir)
-    e.target.value = ''
+  const handleBrowse = async () => {
+    if (!window.showDirectoryPicker) return
+    try {
+      await window.showDirectoryPicker()
+    } catch (err) {
+      if (err.name !== 'AbortError') console.error('Directory picker error:', err)
+    }
   }
 
   const { data: catalog, isLoading: modelsLoading } = useQuery({
@@ -177,19 +176,13 @@ export default function BatchAnalysis() {
                     onChange={e => setRawOutputDir(e.target.value)}
                     style={{ flex: 1 }}
                   />
-                  <input
-                    ref={dirPickerRef}
-                    type="file"
-                    webkitdirectory=""
-                    style={{ display: 'none' }}
-                    onChange={handleDirPicked}
-                  />
                   <Btn
                     variant="ghost"
                     small
-                    onClick={() => dirPickerRef.current?.click()}
+                    onClick={handleBrowse}
                     icon={<FolderIcon />}
-                    title="Select output directory"
+                    title="Browse for directory"
+                    disabled={!window.showDirectoryPicker}
                   >
                     Browse
                   </Btn>
