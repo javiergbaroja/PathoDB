@@ -8,11 +8,14 @@ import DirBrowserModal from '../components/DirBrowserModal'
 
 // \\resstore.unibe.ch\X\Y  →  /storage/research/X/Y
 function convertToHPCPath(raw) {
-  if (!raw) return raw
-  const normalized = raw.trim().replace(/\\/g, '/')
-  const m = normalized.match(/^\/\/resstore\.unibe\.ch\/(.+)/i)
-  if (m) return '/storage/research/' + m[1].replace(/\/$/, '')
-  return normalized
+  if (!raw || !raw.trim()) return raw
+  // Use split/join to replace backslashes — no regex escaping involved
+  const slashified = raw.trim().split('\\').join('/')
+  const UNC_PREFIX = '//resstore.unibe.ch/'
+  if (slashified.toLowerCase().startsWith(UNC_PREFIX)) {
+    return '/storage/research/' + slashified.slice(UNC_PREFIX.length).replace(/\/$/, '')
+  }
+  return slashified
 }
 
 const FolderIcon = () => (

@@ -28,6 +28,7 @@ import re
 import shutil
 import logging
 import subprocess
+from urllib.parse import unquote as _url_unquote
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import List, Optional
@@ -375,9 +376,10 @@ def browse_fs(
 ):
     """List immediate subdirectories for the batch output directory picker.
     Restricted to /storage/research/."""
-    # Normalise without following symlinks — prevents ../ traversal while
-    # remaining stable regardless of how /storage is mounted on the HPC.
-    normalized = os.path.normpath("/" + path.lstrip("/"))
+    # Decode in case the query parameter arrives still percent-encoded,
+    # then normalise without following symlinks (prevents ../ traversal and
+    # is stable regardless of how /storage is mounted or symlinked on the HPC).
+    normalized = os.path.normpath("/" + _url_unquote(path).lstrip("/"))
     if normalized != _BROWSE_ROOT and not normalized.startswith(_BROWSE_ROOT + "/"):
         raise HTTPException(status_code=403, detail="Path is outside /storage/research")
 
