@@ -24,6 +24,7 @@ the DB. Progress (0-100) is read from a progress.json sidecar the model writes.
 
 import json
 import os
+import re
 import shutil
 import logging
 import subprocess
@@ -299,6 +300,18 @@ _FORBIDDEN_OUTPUT_ROOTS = (
 )
 
 
+def _convert_windows_unc_path(path_str: str) -> str:
+    """Convert a Windows UNC resstore path to its HPC (Linux) equivalent.
+
+    \\\\resstore.unibe.ch\\X\\Y  →  /storage/research/X/Y
+    """
+    normalized = path_str.replace("\\", "/")
+    m = re.match(r"^//resstore\.unibe\.ch/(.+)", normalized, re.IGNORECASE)
+    if m:
+        return "/storage/research/" + m.group(1).rstrip("/")
+    return normalized
+
+
 def _validate_output_directory(output_directory: str) -> Path:
     """Resolve and authorize a user-supplied batch output directory.
 
@@ -309,6 +322,8 @@ def _validate_output_directory(output_directory: str) -> Path:
       system directories) without forcing every deployment to pre-register its
       NFS research roots.
     """
+    # Accept Windows-style UNC paths from Windows clients and convert them.
+    output_directory = _convert_windows_unc_path(output_directory)
     candidate = Path(output_directory)
     if not candidate.is_absolute():
         raise HTTPException(status_code=400, detail="output_directory must be an absolute path")
