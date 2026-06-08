@@ -19,7 +19,7 @@ const SVG_POINT_THRESHOLD = 500
 // ─────────────────────────────────────────────────────────────────────────────
 // fetchAndRenderOverlay
 // ─────────────────────────────────────────────────────────────────────────────
-export async function fetchAndRenderOverlay(viewer, jobId, overlayDef, token, slideInfo) {
+export async function fetchAndRenderOverlay(viewer, jobId, overlayDef, token, slideInfo, scanId = null) {
   const { file_key: fileKey, legend = {}, type } = overlayDef
 
   // ── Deduplication guard ────────────────────────────────────────────────────
@@ -30,6 +30,9 @@ export async function fetchAndRenderOverlay(viewer, jobId, overlayDef, token, sl
 
   if (!activeOverlays.has(jobId)) activeOverlays.set(jobId, [])
   const jobRefs = activeOverlays.get(jobId)
+
+  // Build scan_id query suffix for batch result lookups (empty for single-slide jobs)
+  const scanParam = scanId != null ? `&scan_id=${scanId}` : ''
 
   try {
     // ─────────────────────────────────────────────────────────────────────────
@@ -45,7 +48,7 @@ export async function fetchAndRenderOverlay(viewer, jobId, overlayDef, token, sl
           width: maskWidth, height: maskHeight,
           tileSize: 256, minLevel: 0, maxLevel,
           getTileUrl: (level, x, y) =>
-            `/api/analysis/jobs/${jobId}/tiles/${fileKey}?level=${level}&x=${x}&y=${y}&token=${token}`,
+            `/api/analysis/jobs/${jobId}/tiles/${fileKey}?level=${level}&x=${x}&y=${y}&token=${token}${scanParam}`,
         },
         opacity: 0.7, x: 0, y: 0, width: 1.0,
         success: e => jobRefs.push({ tiledImage: e.item }),
@@ -58,7 +61,7 @@ export async function fetchAndRenderOverlay(viewer, jobId, overlayDef, token, sl
     // ─────────────────────────────────────────────────────────────────────────
     if (type === 'image') {
       viewer.addTiledImage({
-        tileSource: { type: 'image', url: `/api/analysis/jobs/${jobId}/overlay?file=${fileKey}` },
+        tileSource: { type: 'image', url: `/api/analysis/jobs/${jobId}/overlay?file=${fileKey}${scanParam}` },
         opacity: 0.65, x: 0, y: 0, width: 1,
         success: e => jobRefs.push({ tiledImage: e.item }),
       })
@@ -94,7 +97,7 @@ export async function fetchAndRenderOverlay(viewer, jobId, overlayDef, token, sl
       // Fetch the full GeoJSON once (may be large — 50–200 MB for a whole slide)
       let geojson
       try {
-        geojson = await api.getAnalysisOverlay(jobId, fileKey)
+        geojson = await api.getAnalysisOverlay(jobId, fileKey, scanId)
       } catch (e) {
         console.error(`[overlayRenderer] Failed to fetch point cloud for job ${jobId}:`, e)
         return
@@ -229,7 +232,7 @@ export async function fetchAndRenderOverlay(viewer, jobId, overlayDef, token, sl
     //     routed to a lightweight canvas overlay instead to avoid DOM bloat.
     // ─────────────────────────────────────────────────────────────────────────
     try {
-      let geojson = await api.getAnalysisOverlay(jobId, fileKey)
+      let geojson = await api.getAnalysisOverlay(jobId, fileKey, scanId)
       const slW   = slideInfo?.width
       const slH   = slideInfo?.height
 
@@ -254,7 +257,7 @@ export async function fetchAndRenderOverlay(viewer, jobId, overlayDef, token, sl
         await fetchAndRenderOverlay(
           viewer, jobId,
           { ...overlayDef, type: 'points' },
-          token, slideInfo
+          token, slideInfo, scanId
         )
         geojson = null
         return

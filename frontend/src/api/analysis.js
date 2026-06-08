@@ -11,7 +11,8 @@ export const submitAnalysis     = (scanId, body)        => request('POST', `/ana
 export const cancelAnalysis     = (jobId)               => request('DELETE', `/analysis/jobs/${jobId}`)
 export const deleteAnalysis     = (jobId)               => request('DELETE', `/analysis/jobs/${jobId}?purge=true`)
 export const getAnalysisResult  = (jobId)               => request('GET', `/analysis/jobs/${jobId}/result`)
-export const getAnalysisOverlay = (jobId, file)         => request('GET', `/analysis/jobs/${jobId}/overlay?file=${file}`)
+export const getAnalysisOverlay = (jobId, file, scanId = null) =>
+  request('GET', `/analysis/jobs/${jobId}/overlay?file=${file}${scanId != null ? `&scan_id=${scanId}` : ''}`)
 export const getLiveJobState    = (jobId)               => request('GET', `/analysis/jobs/${jobId}/live-state`)
 export const downloadAnalysisFile = async (jobId, fileKey = 'download_file') => {
   const token = getToken()

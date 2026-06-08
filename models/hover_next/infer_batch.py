@@ -69,12 +69,13 @@ CONTEXT_FILE = sys.argv[1]
 with open(CONTEXT_FILE, "r") as f:
     CONTEXT = json.load(f)
 
-JOB_ID = CONTEXT.get("job_id", "unknown")
-RESULT_DIR = CONTEXT.get("result_dir", os.getcwd())
-OUTPUT_DIR = CONTEXT.get("output_dir", RESULT_DIR)
-PARAMS = CONTEXT.get("params", {})
-TARGETS = CONTEXT.get("targets", [])  # List of {scan_id, file_path, ...}
-MODEL_ID = "hover_next"
+JOB_ID             = CONTEXT.get("job_id", "unknown")
+RESULT_DIR         = CONTEXT.get("result_dir", os.getcwd())
+OUTPUT_DIR         = CONTEXT.get("output_dir", RESULT_DIR)
+PARAMS             = CONTEXT.get("params", {})
+TARGETS            = CONTEXT.get("targets", [])  # List of {scan_id, file_path, ...}
+MODEL_ID           = "hover_next"
+SAVE_VISUALIZATION = bool(PARAMS.get("save_visualization", False))
 
 os.makedirs(RESULT_DIR, exist_ok=True)
 os.makedirs(OUTPUT_DIR, exist_ok=True)
@@ -387,16 +388,24 @@ def main() -> None:
 
                         idx = scan_id_to_idx.get(sid_str)
                         if idx is not None:
+                            slide_files = {"download_file": class_inst, "class_inst": class_inst}
+                            slide_overlays = None
+                            if SAVE_VISUALIZATION:
+                                slide_files["geojson_overlay"] = class_inst
+                                slide_overlays = [{
+                                    "name":     "Cell Detections",
+                                    "file_key": "geojson_overlay",
+                                    "type":     "points",
+                                    "legend":   {},
+                                }]
                             scans[idx] = {
-                                "scan_id": sid,
+                                "scan_id":  sid,
                                 "scan_path": slide_path,
-                                "status": "success",
+                                "status":   "success",
                                 "timing_s": None,
-                                "files": {
-                                    "class_inst": class_inst,
-                                },
-                                "outcome": None,
-                                "overlays": None,
+                                "files":    slide_files,
+                                "outcome":  None,
+                                "overlays": slide_overlays,
                             }
                         successful += 1
 

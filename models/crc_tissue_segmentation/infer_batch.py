@@ -31,12 +31,13 @@ CONTEXT_FILE = sys.argv[1]
 with open(CONTEXT_FILE, "r") as f:
     CONTEXT = json.load(f)
 
-JOB_ID     = CONTEXT.get("job_id", "unknown")
-RESULT_DIR = CONTEXT.get("result_dir", os.getcwd()) # For progress.json / result.json
-OUTPUT_DIR = CONTEXT.get("output_dir", os.getcwd()) # For heavy GeoJSONs
-PARAMS     = CONTEXT.get("params", {})
-TARGETS    = CONTEXT.get("targets", [])  # List of {"scan_id": int, "file_path": str}
-MODEL_ID   = "crc_tissue_seg"
+JOB_ID             = CONTEXT.get("job_id", "unknown")
+RESULT_DIR         = CONTEXT.get("result_dir", os.getcwd()) # For progress.json / result.json
+OUTPUT_DIR         = CONTEXT.get("output_dir", os.getcwd()) # For heavy GeoJSONs
+PARAMS             = CONTEXT.get("params", {})
+TARGETS            = CONTEXT.get("targets", [])  # List of {"scan_id": int, "file_path": str}
+MODEL_ID           = "crc_tissue_seg"
+SAVE_VISUALIZATION = bool(PARAMS.get("save_visualization", False))
 
 os.makedirs(RESULT_DIR, exist_ok=True)
 
@@ -290,24 +291,28 @@ def main() -> None:
             tissue_composition = dict(sorted(tissue_composition.items(), key=lambda item: item[1], reverse=True))
 
             # Store result for this slide
+            slide_files = {"download_file": geojson_mask}
+            slide_overlays = None
+            if SAVE_VISUALIZATION:
+                slide_files["geojson_overlay"] = geojson_mask
+                slide_overlays = [{
+                    "name": "Tissue Classes",
+                    "file_key": "geojson_overlay",
+                    "type": "geojson",
+                    "legend": {
+                        c: "#{:02x}{:02x}{:02x}".format(*COLORMAP.get(c, (0, 0, 0)))
+                        for c in LABEL2ID.keys() if c not in IGNORE_IDS
+                    }
+                }]
+
             batch_results[idx] = {
                 "scan_id": scan_id,
                 "scan_path": scan_path,
                 "status": "success",
                 "timing_s": round(inf_time, 2),
                 "composition_pct": tissue_composition,
-                "files": {
-                    "download_file": geojson_mask,
-                    "geojson_overlay": geojson_mask
-                },
-                "overlays": [{
-                    "name": "Tissue Classes",
-                    "file_key": "geojson_overlay",
-                    "type": "geojson",
-                    "legend": {
-                        c: "#{:02x}{:02x}{:02x}".format(*COLORMAP.get(c, "#000000")) for c in LABEL2ID.keys() if c not in IGNORE_IDS
-                    }
-                }]
+                "files": slide_files,
+                "overlays": slide_overlays,
             }
             successful += 1
 

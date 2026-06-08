@@ -34,7 +34,11 @@ export function useAnalysisJobs(scanId) {
   })
 
   // 2. Determine if we need to poll
-  const jobs = query.data || []
+  // Exclude batch-only (download-only) jobs from the viewer — they are never visualisable.
+  const allJobs = query.data || []
+  const jobs = allJobs.filter(
+    j => !j.params_json?.is_batch || j.params_json?.save_visualization === true
+  )
   const hasActiveJobs = jobs.some(j => j.status === 'queued' || j.status === 'running')
 
   // 3. Polling query (runs seamlessly in the background)
@@ -42,7 +46,7 @@ export function useAnalysisJobs(scanId) {
     queryKey: ['jobs', scanId],
     queryFn: () => api.getAnalysisJobs(scanId),
     enabled: hasActiveJobs,
-    refetchInterval: 5000 
+    refetchInterval: 5000
   })
 
   return { ...query, data: jobs }

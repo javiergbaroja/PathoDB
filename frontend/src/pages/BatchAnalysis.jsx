@@ -66,12 +66,13 @@ function ParamRow({ param, value, onChange }) {
 
 // ── Main Page ────────────────────────────────────────────────────────────────
 export default function BatchAnalysis() {
-  const [selectedModelId, setSelectedModelId] = useState('')
-  const [modelParams, setModelParams]         = useState({})
-  const [rawOutputDir, setRawOutputDir]       = useState('')
-  const [filteredTargets, setFilteredTargets] = useState([])
-  const [errorMsg, setErrorMsg]               = useState('')
-  const [successMsg, setSuccessMsg]           = useState('')
+  const [selectedModelId,   setSelectedModelId]   = useState('')
+  const [modelParams,       setModelParams]        = useState({})
+  const [rawOutputDir,      setRawOutputDir]       = useState('')
+  const [saveVisualization, setSaveVisualization]  = useState(false)
+  const [filteredTargets,   setFilteredTargets]    = useState([])
+  const [errorMsg,          setErrorMsg]           = useState('')
+  const [successMsg,        setSuccessMsg]         = useState('')
   const outputDir      = convertToHPCPath(rawOutputDir)
   const outputDirError = rawOutputDir.trim() !== '' && !outputDir.startsWith('/storage/research/')
     ? 'Path must point to the research storage (\\\\resstore.unibe.ch\\… or /storage/research/…)'
@@ -127,9 +128,9 @@ export default function BatchAnalysis() {
     if (!filteredTargets.length) return
     const payload = {
       model_id:         selectedModelId,
-      output_directory: outputDir,   // always the resolved HPC path
+      output_directory: outputDir,
       scan_ids:         filteredTargets.map(m => m.scan_id),
-      params:           modelParams,
+      params:           { ...modelParams, save_visualization: saveVisualization },
     }
     submitMutation.mutate(payload)
   }
@@ -188,6 +189,42 @@ export default function BatchAnalysis() {
                   </Btn>
                 </div>
               </FormField>
+
+              {/* Visualization toggle */}
+              <button
+                type="button"
+                onClick={() => setSaveVisualization(v => !v)}
+                style={{
+                  display: 'flex', alignItems: 'flex-start', gap: 12,
+                  background: saveVisualization ? 'rgba(27,153,139,0.07)' : 'var(--navy-05)',
+                  border: `1px solid ${saveVisualization ? 'rgba(27,153,139,0.35)' : 'var(--border-l)'}`,
+                  borderRadius: 'var(--radius-lg)', padding: '12px 14px',
+                  cursor: 'pointer', textAlign: 'left', transition: 'var(--transition-base)', width: '100%',
+                }}
+              >
+                {/* Toggle pill */}
+                <div style={{
+                  position: 'relative', width: 36, height: 20, borderRadius: 10, flexShrink: 0, marginTop: 1,
+                  background: saveVisualization ? 'var(--teal)' : 'var(--border)',
+                  transition: 'background 0.2s',
+                }}>
+                  <div style={{
+                    position: 'absolute', top: 3, left: saveVisualization ? 19 : 3,
+                    width: 14, height: 14, borderRadius: '50%', background: 'white',
+                    transition: 'left 0.2s', boxShadow: '0 1px 3px rgba(0,0,0,0.2)',
+                  }} />
+                </div>
+                <div>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: saveVisualization ? 'var(--teal)' : 'var(--text-2)', marginBottom: 2 }}>
+                    Save visualization overlays
+                  </div>
+                  <div style={{ fontSize: 12, color: 'var(--text-3)', lineHeight: 1.5 }}>
+                    {saveVisualization
+                      ? 'Overlay images will be generated and saved alongside your results. Jobs will be trackable from the slide viewer with live progress.'
+                      : 'Only downloadable result files are saved. Faster processing and less disk space. Track progress in the Job Tracker.'}
+                  </div>
+                </div>
+              </button>
             </div>
 
             <div style={{ background: 'var(--navy-05)', padding: 16, borderRadius: 'var(--radius-lg)', border: '1px solid var(--border-l)' }}>

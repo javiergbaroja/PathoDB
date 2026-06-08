@@ -1,5 +1,6 @@
 // frontend/src/pages/SlideViewer/ModelsPanel.jsx
 import { useState, useEffect } from 'react'
+import { useQuery } from '@tanstack/react-query'
 import { api } from '../../api'
 import JobOutcomeDispatcher from '../../components/AnalysisOutcomes/JobOutcomeDispatcher'
 import { CATEGORY_COLORS } from '../../constants/viewer'
@@ -168,9 +169,64 @@ function ScopeSelector({ modelId, scope, hasPolygons, polygonCount, onScopeChang
 
 // ── Model run area ─────────────────────────────────────────────────────────────
 
-function ModelRunArea({ latest, model, submitting, scanInfo, onRun, onCancel }) {
+function BatchLiveProgress({ jobId, scanId }) {
+  const isActive = true // only rendered when running/queued
+  const { data: liveState } = useQuery({
+    queryKey: ['job-live-viewer', jobId],
+    queryFn:  () => api.getLiveJobState(jobId),
+    refetchInterval: 3000,
+    staleTime: 0,
+  })
+
+  if (!liveState) return null
+
+  const slides = liveState.slides || {}
+  const slideKeys = Object.keys(slides)
+  if (!slideKeys.length) return null
+
+  const thisScan = scanId ? slides[String(scanId)] : null
+
+  return (
+    <div style={{ marginTop: 6, fontSize: 10, color: 'var(--text-dark-2)' }}>
+      {/* Global pct message */}
+      <div style={{ marginBottom: 4, color: 'rgba(255,255,255,0.4)' }}>{liveState.message}</div>
+
+      {/* Per-slide mini rows — show current scan prominently if present */}
+      {slideKeys.map(sid => {
+        const s       = slides[sid]
+        const isCurrent = scanId && sid === String(scanId)
+        const statusColor = s.status === 'success' ? 'var(--viewer-teal-light)'
+                          : s.status === 'failed'  ? 'var(--viewer-red)'
+                          : s.status === 'running' ? 'var(--viewer-amber)'
+                          : 'rgba(255,255,255,0.3)'
+        return (
+          <div key={sid} style={{
+            display: 'flex', alignItems: 'center', gap: 6, marginBottom: 3,
+            opacity: isCurrent ? 1 : 0.55,
+          }}>
+            <div style={{ width: 5, height: 5, borderRadius: '50%', background: statusColor, flexShrink: 0 }} />
+            <div style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              {isCurrent ? <strong style={{ color: 'rgba(255,255,255,0.7)' }}>This slide</strong>
+                         : `Slide ${sid}`}
+              {s.status === 'running' && ` — ${s.progress || 0}%`}
+            </div>
+            {s.status === 'running' && (
+              <div style={{ width: 40, height: 2, background: 'rgba(255,255,255,0.1)', borderRadius: 1, flexShrink: 0 }}>
+                <div style={{ width: `${s.progress || 0}%`, height: '100%', background: 'var(--viewer-teal-light)', borderRadius: 1 }} />
+              </div>
+            )}
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
+function ModelRunArea({ latest, model, submitting, scanInfo, scanId, onRun, onCancel }) {
   const stainOk = !model.stain_compatibility?.length ||
     model.stain_compatibility.includes(scanInfo?.stain_category)
+
+  const isBatchViz = latest?.params_json?.is_batch && latest?.params_json?.save_visualization
 
   if (latest && (latest.status === 'queued' || latest.status === 'running')) {
     return (
@@ -180,9 +236,17 @@ function ModelRunArea({ latest, model, submitting, scanInfo, onRun, onCancel }) 
           <ElapsedTimer since={latest.created_at} status={latest.status} />
         </div>
         <ProgressBar value={latest.progress || 0} height={2} style={{ marginBottom: 5 }} />
-        <div style={{ fontSize: 10, color: 'var(--text-dark-2)', marginBottom: 8 }}>
+        <div style={{ fontSize: 10, color: 'var(--text-dark-2)', marginBottom: isBatchViz ? 0 : 8 }}>
           {latest.status === 'queued' ? 'Waiting in queue…' : `Processing… ${latest.progress || 0}%`}
         </div>
+
+        {/* For batch+visualization jobs: live per-slide breakdown */}
+        {isBatchViz && latest.status === 'running' && (
+          <div style={{ marginBottom: 8 }}>
+            <BatchLiveProgress jobId={latest.id} scanId={scanId} />
+          </div>
+        )}
+
         <button
           onClick={onCancel}
           style={{
@@ -262,8 +326,9 @@ function PastJobsList({ jobs, catalog, activeOverlays, onToggleOverlay, onDelete
         const scopeLabel  = job.scope === 'roi' ? ' · ROI' : job.scope === 'visible_region' ? ' · Visible' : ''
         const isActive    = activeOverlays[job.id]
 
-        // Batch/annotation jobs write GeoJSON only — no tiled overlay to display in the viewer.
-        const isBatchAnnotation = !!job.params_json?.is_batch
+        // Batch jobs without visualization: annotation-only, no overlay in the viewer.
+        // Batch jobs WITH visualization: treat like single-slide (overlay is viewable).
+        const isBatchAnnotation = !!job.params_json?.is_batch && !job.params_json?.save_visualization
 
         return (
           <div key={job.id} style={{ marginBottom: 12 }}>
@@ -547,6 +612,7 @@ export default function ModelsPanel({
                     model={model}
                     submitting={submitting}
                     scanInfo={scanInfo}
+                    scanId={scanId}
                     onRun={() => handleRun(model)}
                     onCancel={() => handleCancel(latest)}
                   />

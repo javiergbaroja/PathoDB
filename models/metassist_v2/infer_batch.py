@@ -49,12 +49,13 @@ CONTEXT_FILE = sys.argv[1]
 with open(CONTEXT_FILE, "r") as f:
     CONTEXT = json.load(f)
 
-JOB_ID     = CONTEXT.get("job_id", "unknown")
-RESULT_DIR = CONTEXT.get("result_dir", os.getcwd())
-OUTPUT_DIR = CONTEXT.get("output_dir", os.getcwd())
-PARAMS     = CONTEXT.get("params", {})
-TARGETS    = CONTEXT.get("targets", [])
-MODEL_ID   = "metassist_v2"
+JOB_ID             = CONTEXT.get("job_id", "unknown")
+RESULT_DIR         = CONTEXT.get("result_dir", os.getcwd())
+OUTPUT_DIR         = CONTEXT.get("output_dir", os.getcwd())
+PARAMS             = CONTEXT.get("params", {})
+TARGETS            = CONTEXT.get("targets", [])
+MODEL_ID           = "metassist_v2"
+SAVE_VISUALIZATION = bool(PARAMS.get("save_visualization", False))
 
 os.makedirs(RESULT_DIR, exist_ok=True)
 os.makedirs(OUTPUT_DIR, exist_ok=True)
@@ -295,27 +296,32 @@ def process_slide(scan_id, scan_path, ln_model, met_model, output_dir, slide_pro
         level_downsampling=ds_ln, category_dict={"Lymph node": 1},
     )
 
-    # ── Raster overlays ────────────────────────────────────────────────────────
-    slide_prog(82, "Rasterizing OME-TIFF overlays…")
-    tiff_ln_path  = os.path.join(output_dir, f"{wsi_name}_ln_overlay.ome.tif")
-    tiff_met_path = os.path.join(output_dir, f"{wsi_name}_met_overlay.ome.tif")
-
-    lut_ln = np.zeros((256, 4), dtype=np.uint8)
-    for class_name, class_id in LN_LABEL2ID.items():
-        if class_name == "Background":
-            continue
-        r, g, b = LN_COLORMAP.get(class_name, (128, 128, 128))
-        lut_ln[class_id] = [r, g, b, LN_ALPHA.get(class_name, 100)]
-    save_pyramidal_overlay_tiff(lut_ln[ln_seg_all], tiff_ln_path)
-
-    lut_met = np.zeros((256, 4), dtype=np.uint8)
-    for class_name, class_id in MET_LABEL2ID.items():
-        r, g, b = MET_COLORMAP.get(class_name, (0, 0, 0))
-        lut_met[class_id] = [r, g, b, MET_ALPHA.get(class_name, 0)]
-    # Capture shapes before arrays are released
+    # ── Raster overlays (only when save_visualization is requested) ───────────
     ln_h, ln_w   = ln_seg_all.shape[:2]
     met_h, met_w = met_pred_mask.shape[:2]
-    save_pyramidal_overlay_tiff(lut_met[met_pred_mask], tiff_met_path)
+    tiff_ln_path  = None
+    tiff_met_path = None
+
+    if SAVE_VISUALIZATION:
+        slide_prog(82, "Rasterizing OME-TIFF overlays…")
+        tiff_ln_path  = os.path.join(output_dir, f"{wsi_name}_ln_overlay.ome.tif")
+        tiff_met_path = os.path.join(output_dir, f"{wsi_name}_met_overlay.ome.tif")
+
+        lut_ln = np.zeros((256, 4), dtype=np.uint8)
+        for class_name, class_id in LN_LABEL2ID.items():
+            if class_name == "Background":
+                continue
+            r, g, b = LN_COLORMAP.get(class_name, (128, 128, 128))
+            lut_ln[class_id] = [r, g, b, LN_ALPHA.get(class_name, 100)]
+        save_pyramidal_overlay_tiff(lut_ln[ln_seg_all], tiff_ln_path)
+
+        lut_met = np.zeros((256, 4), dtype=np.uint8)
+        for class_name, class_id in MET_LABEL2ID.items():
+            r, g, b = MET_COLORMAP.get(class_name, (0, 0, 0))
+            lut_met[class_id] = [r, g, b, MET_ALPHA.get(class_name, 0)]
+        save_pyramidal_overlay_tiff(lut_met[met_pred_mask], tiff_met_path)
+    else:
+        slide_prog(82, "Skipping OME-TIFF overlays (visualization not requested)…")
 
     # ── LN-level statistics ────────────────────────────────────────────────────
     slide_prog(90, "Computing LN and metastasis counts…")
@@ -346,34 +352,16 @@ def process_slide(scan_id, scan_path, ln_model, met_model, output_dir, slide_pro
 
     total_s = time.time() - t_start
 
-    return {
-        "scan_id":   scan_id,
-        "scan_path": scan_path,
-        "status":    "success",
-        "error":     None,
-        "timing_s": {
-            "ln_s":    round(ln_time,  2),
-            "met_s":   round(met_time, 2),
-            "total_s": round(total_s,  2),
-        },
-        "outcome": {
-            "status":            status,
-            "label":             label,
-            "measurement_um":    round(float(measurement), 2),
-            "ln_count":          ln_count,
-            "positive_ln_count": positive_ln_count,
-            "primary_metric": {
-                "label": "Max Extent",
-                "value": f"{round(float(measurement) / 1000, 2)} mm" if measurement > 0 else "N/A",
-            },
-        },
-        "files": {
-            "metastasis_geojson": geojson_met,
-            "ln_geojson":         geojson_ln,
-            "raster_overlay_ln":  tiff_ln_path,
-            "raster_overlay_met": tiff_met_path,
-        },
-        "overlays": [
+    files = {
+        "download_file":      geojson_met,
+        "metastasis_geojson": geojson_met,
+        "ln_geojson":         geojson_ln,
+    }
+    overlays = []
+    if SAVE_VISUALIZATION and tiff_ln_path and tiff_met_path:
+        files["raster_overlay_ln"]  = tiff_ln_path
+        files["raster_overlay_met"] = tiff_met_path
+        overlays = [
             {
                 "name":        "Lymph Nodes",
                 "file_key":    "raster_overlay_ln",
@@ -396,7 +384,31 @@ def process_slide(scan_id, scan_path, ln_model, met_model, output_dir, slide_pro
                     for k in MET_LABEL2ID if k in MET_COLORMAP
                 },
             },
-        ],
+        ]
+
+    return {
+        "scan_id":   scan_id,
+        "scan_path": scan_path,
+        "status":    "success",
+        "error":     None,
+        "timing_s": {
+            "ln_s":    round(ln_time,  2),
+            "met_s":   round(met_time, 2),
+            "total_s": round(total_s,  2),
+        },
+        "outcome": {
+            "status":            status,
+            "label":             label,
+            "measurement_um":    round(float(measurement), 2),
+            "ln_count":          ln_count,
+            "positive_ln_count": positive_ln_count,
+            "primary_metric": {
+                "label": "Max Extent",
+                "value": f"{round(float(measurement) / 1000, 2)} mm" if measurement > 0 else "N/A",
+            },
+        },
+        "files":    files,
+        "overlays": overlays if overlays else None,
     }
 
 
