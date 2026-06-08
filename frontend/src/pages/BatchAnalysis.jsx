@@ -76,7 +76,8 @@ export default function BatchAnalysis() {
   const [dirBrowserOpen,  setDirBrowserOpen]  = useState(false)
 
   const outputDir      = convertToHPCPath(rawOutputDir)
-  const outputDirError = rawOutputDir.trim() !== '' && !outputDir.startsWith('/storage/research/')
+  const outputDirError = rawOutputDir.trim() !== '' &&
+    outputDir !== '/storage/research' && !outputDir.startsWith('/storage/research/')
     ? 'Path must point to the research storage (\\\\resstore.unibe.ch\\… or /storage/research/…)'
     : ''
 
