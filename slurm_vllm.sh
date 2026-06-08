@@ -15,29 +15,55 @@
 # =============================================================================
 # PathoDB Agent LLM — vLLM OpenAI-compatible server (one RTX-4090)
 #
-# Serves the conversational agent's LLM. Run this alongside slurm_api.sh; set
-# VLLM_BASE_URL in the API's .env to http://<this-node>:8001/v1
+# Start on-demand only — do not leave running when agent is not needed.
 #
-#   sbatch slurm_vllm.sh && squeue --me
-#   # note the node, then in the API .env: VLLM_BASE_URL=http://<node>:8001/v1
+#   bash scripts/start_vllm.sh          ← recommended (handles .env update)
+#   sbatch slurm_vllm.sh                ← direct submit (manual .env update needed)
+#
+# Stop when done:
+#   scancel --name=pathodb_vllm
+#
 # =============================================================================
 
 set -euo pipefail
 
+PROJECT_DIR="/storage/research/igmp_dp_workspace/garciabaroja_javier/PW_reports/database/pathodb"
 MODEL="${VLLM_MODEL:-Qwen/Qwen2.5-14B-Instruct-AWQ}"
 PORT="${VLLM_PORT:-8001}"
+ADDR_FILE="$PROJECT_DIR/vllm_address.txt"
 
-echo "=== PathoDB vLLM ($MODEL) on $(hostname) port $PORT ==="
+_shutdown() {
+    echo "vLLM shutting down at $(date)"
+    rm -f "$ADDR_FILE"
+}
+trap '_shutdown' EXIT
 
-# Activate the conda env that has vLLM installed
+echo "=== PathoDB vLLM ==="
+echo "Started : $(date)"
+echo "Node    : $(hostname)"
+echo "Model   : $MODEL"
+echo "Port    : $PORT"
+echo ""
+
 source "$(conda info --base)/etc/profile.d/conda.sh"
 conda activate langchain
 
-exec python -m vllm.entrypoints.openai.api_server \
+# Write address file once the server is about to start
+ADDR_TMP=$(mktemp "$PROJECT_DIR/.vllm_address.XXXXXX")
+echo "$(hostname):${PORT}" > "$ADDR_TMP"
+mv "$ADDR_TMP" "$ADDR_FILE"
+echo "vLLM address written → $ADDR_FILE"
+echo ""
+
+# Run vLLM in the foreground (NOT exec — the shell must survive so the
+# EXIT trap can clean up vllm_address.txt when the job ends)
+python -m vllm.entrypoints.openai.api_server \
   --model "$MODEL" \
   --quantization awq \
   --served-model-name "$MODEL" \
   --max-model-len 8192 \
   --gpu-memory-utilization 0.90 \
+  --enable-auto-tool-choice \
+  --tool-call-parser hermes \
   --host 0.0.0.0 \
   --port "$PORT"
