@@ -4,6 +4,7 @@ import Layout from '../components/Layout'
 import { Btn, SpinnerPage, ErrorMsg, FormField, FormInput, FormSelect, FormLabel, SectionHeader } from '../components/ui'
 import { api } from '../api'
 import SlideTargetManager from '../components/SlideTargetManager'
+import DirBrowserModal from '../components/DirBrowserModal'
 
 // \\resstore.unibe.ch\X\Y  →  /storage/research/X/Y
 function convertToHPCPath(raw) {
@@ -67,24 +68,17 @@ function ParamRow({ param, value, onChange }) {
 // ── Main Page ────────────────────────────────────────────────────────────────
 export default function BatchAnalysis() {
   const [selectedModelId, setSelectedModelId] = useState('')
-  const [modelParams, setModelParams]         = useState({})
-  const [rawOutputDir, setRawOutputDir]       = useState('')
+  const [modelParams,     setModelParams]     = useState({})
+  const [rawOutputDir,    setRawOutputDir]    = useState('')
   const [filteredTargets, setFilteredTargets] = useState([])
-  const [errorMsg, setErrorMsg]               = useState('')
-  const [successMsg, setSuccessMsg]           = useState('')
+  const [errorMsg,        setErrorMsg]        = useState('')
+  const [successMsg,      setSuccessMsg]      = useState('')
+  const [dirBrowserOpen,  setDirBrowserOpen]  = useState(false)
+
   const outputDir      = convertToHPCPath(rawOutputDir)
   const outputDirError = rawOutputDir.trim() !== '' && !outputDir.startsWith('/storage/research/')
     ? 'Path must point to the research storage (\\\\resstore.unibe.ch\\… or /storage/research/…)'
     : ''
-
-  const handleBrowse = async () => {
-    if (!window.showDirectoryPicker) return
-    try {
-      await window.showDirectoryPicker()
-    } catch (err) {
-      if (err.name !== 'AbortError') console.error('Directory picker error:', err)
-    }
-  }
 
   const { data: catalog, isLoading: modelsLoading } = useQuery({
     queryKey: ['models'],
@@ -179,10 +173,9 @@ export default function BatchAnalysis() {
                   <Btn
                     variant="ghost"
                     small
-                    onClick={handleBrowse}
+                    onClick={() => setDirBrowserOpen(true)}
                     icon={<FolderIcon />}
-                    title="Browse for directory"
-                    disabled={!window.showDirectoryPicker}
+                    title="Browse HPC storage"
                   >
                     Browse
                   </Btn>
@@ -245,6 +238,13 @@ export default function BatchAnalysis() {
         )}
 
       </div>
+
+      <DirBrowserModal
+        isOpen={dirBrowserOpen}
+        onClose={() => setDirBrowserOpen(false)}
+        onSelect={path => setRawOutputDir(path)}
+      />
+
     </Layout>
   )
 }

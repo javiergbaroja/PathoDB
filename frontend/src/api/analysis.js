@@ -50,6 +50,7 @@ export const downloadAnalysisFile = async (jobId, fileKey = 'download_file') => 
 }
 
 export const submitBatchAnalysis = (body) => request('POST', `/analysis/batch`, body)
+export const browseDirectory     = (path) => request('GET', `/analysis/fs/browse?path=${encodeURIComponent(path)}`)
 export const getAnalysisOverlayBlob = async (jobId, fileKey) => {
   const token = getToken()
   const headers = {}

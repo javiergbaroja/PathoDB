@@ -365,6 +365,48 @@ def _is_deletable_output_dir(path: Path) -> bool:
     return not any(s == root or s.startswith(root + "/") for root in _FORBIDDEN_OUTPUT_ROOTS)
 
 
+_FS_BROWSE_ROOT = Path("/storage/research")
+
+
+@router.get("/fs/browse")
+def browse_fs(
+    path: str = "/storage/research",
+    user: User = Depends(get_current_active_user),
+):
+    """List immediate subdirectories for the batch output directory picker.
+    Restricted to /storage/research/."""
+    try:
+        target = Path(path).resolve()
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid path")
+
+    browse_root = _FS_BROWSE_ROOT.resolve()
+    try:
+        target.relative_to(browse_root)
+    except ValueError:
+        raise HTTPException(status_code=403, detail="Path is outside /storage/research")
+
+    if not target.exists() or not target.is_dir():
+        raise HTTPException(status_code=404, detail="Directory not found")
+
+    try:
+        entries = []
+        for entry in sorted(target.iterdir(), key=lambda e: e.name.lower()):
+            if not entry.is_dir() or entry.name.startswith('.'):
+                continue
+            try:
+                has_children = any(
+                    e.is_dir() and not e.name.startswith('.')
+                    for e in entry.iterdir()
+                )
+            except PermissionError:
+                has_children = False
+            entries.append({"name": entry.name, "path": str(entry), "has_children": has_children})
+        return {"path": str(target), "entries": entries}
+    except PermissionError:
+        raise HTTPException(status_code=403, detail="Permission denied")
+
+
 def _job_result_dir(job_id: int) -> Path:
     return _results_dir() / str(job_id)
 

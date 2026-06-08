@@ -4,7 +4,7 @@ import { request } from './client'
 import { login, register, logout, getMe, getUsers, createUser, deactivateUser } from './auth'
 import { getPatients, getPatient, getHierarchy } from './patients'
 import { deleteCohort, getCohortResults, queryCohort, queryList, getCohorts, saveCohort, exportCohort } from './cohorts'
-import { getModels, getAnalysisJobs, getAnalysisJob, submitAnalysis, submitBatchAnalysis, cancelAnalysis, deleteAnalysis, getAnalysisResult, getLiveJobState, getAnalysisOverlay, downloadAnalysisFile, getAnalysisOverlayBlob } from './analysis'
+import { getModels, getAnalysisJobs, getAnalysisJob, submitAnalysis, submitBatchAnalysis, cancelAnalysis, deleteAnalysis, getAnalysisResult, getLiveJobState, getAnalysisOverlay, downloadAnalysisFile, getAnalysisOverlayBlob, browseDirectory } from './analysis'
 import { getSlideInfo, getThumbnailUrl, getRelatedScans, matchSlides } from './slides'
 import { getScansForBlock, registerScan, deleteScan } from './scans'
 import { getStains, createStain, updateStain } from './stains'
@@ -31,6 +31,7 @@ export const api = {
 
   getModels, getAnalysisJobs, getAnalysisJob, submitAnalysis, submitBatchAnalysis, cancelAnalysis, deleteAnalysis,
   getAnalysisResult, getAnalysisOverlay, downloadAnalysisFile, getAnalysisOverlayBlob, getLiveJobState,
+  browseDirectory,
 
   getSlideInfo, getThumbnailUrl, getRelatedScans, matchSlides,
   getScansForBlock, registerScan, deleteScan,
