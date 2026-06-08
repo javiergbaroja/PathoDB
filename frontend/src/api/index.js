@@ -12,6 +12,7 @@ import { search, lookup, getStats, getDashboardStats } from './search'
 import { createChatSession, listChatSessions, getChatSession, getAssistantHealth, streamChat, confirmAction } from './assistant'
 import { createTMA, uploadTMACoresCSV, uploadTMAScansCSV, getTMACores, getTMAs, getTMA, updateTMA, deleteTMA } from './tmas'
 import { getRegistration, autoRegister, saveRegistration, deleteRegistration } from './registration'
+import { browseDirectory, createDirectory } from './filesystem'
 import { 
   getProjects, getProject, createProject, updateProject, deleteProject,
   syncProject, getProjectProgress, createProjectFromFile,
@@ -55,4 +56,7 @@ export const api = {
 
   // Slide registration
   getRegistration, autoRegister, saveRegistration, deleteRegistration,
+
+  // Filesystem browsing
+  browseDirectory, createDirectory,
 }
