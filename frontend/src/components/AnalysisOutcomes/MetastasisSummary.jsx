@@ -22,18 +22,9 @@ export default function MetastasisSummary({ outcome }) {
       {/* Primary clinical finding */}
       <SummaryRow label="AI Impression" value={statusText} highlight={isPositive} />
 
-      {/* LN burden */}
+      {/* LN burden — reported as fragments; whole-node identity cannot be confirmed */}
       {outcome.ln_count != null && (
-        <SummaryRow label="LN Detected" value={outcome.ln_count} isMono />
-      )}
-
-      {outcome.positive_ln_count != null && outcome.positive_ln_count > 0 && (
-        <SummaryRow
-          label="LN with Metastasis"
-          value={outcome.positive_ln_count}
-          highlight
-          isMono
-        />
+        <SummaryRow label="LN Fragments" value={outcome.ln_count} isMono />
       )}
 
       {/* Extent — only meaningful for positive findings */}
