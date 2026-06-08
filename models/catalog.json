@@ -4,7 +4,7 @@
     "name": "MetAssist v2",
     "description": "Two-stage lymph node metastasis detector.\nStage 1 segments lymph nodes at low resolution; Stage 2 detects metastatic deposits within each node at full resolution.\nOutputs colour-coded overlays for LN boundaries and metastasis deposits, and a slide-level positive/negative call with maximum extent in mm.",
     "category": "Detection",
-    "supports_batch": false,
+    "supports_batch": true,
     "stain_compatibility": ["HE"],
     "estimated_minutes": 15,
     "result_type": "ln_metastasis",
