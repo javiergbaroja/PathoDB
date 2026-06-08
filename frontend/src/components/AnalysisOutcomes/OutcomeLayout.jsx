@@ -1,9 +1,13 @@
 // components/AnalysisOutcomes/OutcomeLayout.jsx
 import React from 'react'
 
-export function SummaryCard({ isPositive, children }) {
-  const bgColor = isPositive ? 'rgba(230,0,46,0.1)' : 'rgba(27,153,139,0.1)'
-  const borderColor = isPositive ? 'rgba(230,0,46,0.2)' : 'rgba(27,153,139,0.2)'
+export function SummaryCard({ isPositive, isWarning, children }) {
+  const bgColor     = isPositive ? 'rgba(230,0,46,0.1)'
+                    : isWarning  ? 'rgba(200,120,0,0.1)'
+                    :              'rgba(27,153,139,0.1)'
+  const borderColor = isPositive ? 'rgba(230,0,46,0.2)'
+                    : isWarning  ? 'rgba(200,120,0,0.2)'
+                    :              'rgba(27,153,139,0.2)'
   
   return (
     <div style={{ 
