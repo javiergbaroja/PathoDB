@@ -64,7 +64,7 @@
     "name": "HoVer-NeXt",
     "description": "Fast and efficient nuclei segmentation and classification pipeline. Identifies and phenotypically classifies individual cells.",
     "category": "Detection",
-    "supports_batch": false,
+    "supports_batch": true,
     "stain_compatibility": ["HE"],
     "estimated_minutes": 15,
     "result_type": "multiclass_detection",

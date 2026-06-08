@@ -6,14 +6,14 @@
 #SBATCH --mail-type=fail
 #SBATCH --mail-user=javier.garcia@unibe.ch
 #SBATCH --time=23:59:59
-#SBATCH --account=gratis
+#SBATCH --account=invest
 #SBATCH --mem=80G
 #SBATCH --nodes=1
 #SBATCH --cpus-per-task=16
 #SBATCH --partition=gpu-invest
 #SBATCH --gres=gpu:rtx4090:1
 #SBATCH --job-name=hovernext_batch
-#SBATCH --qos=job_gpu_preemptable
+#SBATCH --qos=job_gpu_igmp-tru
 
 set -euo pipefail
 
