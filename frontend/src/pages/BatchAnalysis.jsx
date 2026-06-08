@@ -74,8 +74,10 @@ export default function BatchAnalysis() {
   const [successMsg, setSuccessMsg]           = useState('')
   const dirPickerRef                          = useRef(null)
 
-  const outputDir    = convertToHPCPath(rawOutputDir)
-  const wasConverted = rawOutputDir.trim() !== '' && rawOutputDir.trim() !== outputDir
+  const outputDir      = convertToHPCPath(rawOutputDir)
+  const outputDirError = rawOutputDir.trim() !== '' && !outputDir.startsWith('/storage/research/')
+    ? 'Path must point to the research storage (\\\\resstore.unibe.ch\\… or /storage/research/…)'
+    : ''
 
   const handleDirPicked = (e) => {
     const files = Array.from(e.target.files || [])
@@ -166,7 +168,7 @@ export default function BatchAnalysis() {
                 )}
               </FormField>
 
-              <FormField label="Output Directory">
+              <FormField label="Output Directory" error={outputDirError}>
                 <div style={{ display: 'flex', gap: 8 }}>
                   <FormInput
                     type="text"
@@ -192,14 +194,6 @@ export default function BatchAnalysis() {
                     Browse
                   </Btn>
                 </div>
-                {wasConverted && (
-                  <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 4 }}>
-                    HPC path:{' '}
-                    <span style={{ fontFamily: 'var(--font-mono)', color: 'var(--navy)' }}>
-                      {outputDir}
-                    </span>
-                  </div>
-                )}
               </FormField>
             </div>
 
@@ -249,7 +243,7 @@ export default function BatchAnalysis() {
               <Btn
                 variant="primary"
                 onClick={handleSubmit}
-                disabled={isSubmitting || !selectedModelId || !outputDir}
+                disabled={isSubmitting || !selectedModelId || !outputDir || !!outputDirError}
               >
                 {isSubmitting ? 'Submitting...' : 'Submit Batch Job'}
               </Btn>
