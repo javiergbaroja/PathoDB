@@ -1,9 +1,24 @@
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useRef } from 'react'
 import { useQuery, useMutation } from '@tanstack/react-query'
 import Layout from '../components/Layout'
 import { Btn, SpinnerPage, ErrorMsg, FormField, FormInput, FormSelect, FormLabel, SectionHeader } from '../components/ui'
 import { api } from '../api'
 import SlideTargetManager from '../components/SlideTargetManager'
+
+// \\resstore.unibe.ch\X\Y  →  /storage/research/X/Y
+function convertToHPCPath(raw) {
+  if (!raw) return raw
+  const normalized = raw.trim().replace(/\\/g, '/')
+  const m = normalized.match(/^\/\/resstore\.unibe\.ch\/(.+)/i)
+  if (m) return '/storage/research/' + m[1].replace(/\/$/, '')
+  return normalized
+}
+
+const FolderIcon = () => (
+  <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor" style={{ display: 'block' }}>
+    <path d="M.54 3.87.5 3a2 2 0 0 1 2-2h3.19a2 2 0 0 1 1.345.51l.33.33A1 1 0 0 0 8.5 2H14a2 2 0 0 1 2 2v8.5a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2V3.87a2 2 0 0 1 .54-1.37zM2 14h12a1 1 0 0 0 1-1V6H1v7a1 1 0 0 0 1 1z"/>
+  </svg>
+)
 
 // ── Param row ────────────────────────────────────────────────────────────────
 function ParamRow({ param, value, onChange }) {
@@ -53,10 +68,22 @@ function ParamRow({ param, value, onChange }) {
 export default function BatchAnalysis() {
   const [selectedModelId, setSelectedModelId] = useState('')
   const [modelParams, setModelParams]         = useState({})
-  const [outputDir, setOutputDir]             = useState('')
+  const [rawOutputDir, setRawOutputDir]       = useState('')
   const [filteredTargets, setFilteredTargets] = useState([])
   const [errorMsg, setErrorMsg]               = useState('')
   const [successMsg, setSuccessMsg]           = useState('')
+  const dirPickerRef                          = useRef(null)
+
+  const outputDir    = convertToHPCPath(rawOutputDir)
+  const wasConverted = rawOutputDir.trim() !== '' && rawOutputDir.trim() !== outputDir
+
+  const handleDirPicked = (e) => {
+    const files = Array.from(e.target.files || [])
+    if (!files.length) return
+    const topDir = files[0].webkitRelativePath?.split('/')[0] || ''
+    if (topDir) setRawOutputDir(prev => prev || topDir)
+    e.target.value = ''
+  }
 
   const { data: catalog, isLoading: modelsLoading } = useQuery({
     queryKey: ['models'],
@@ -99,7 +126,7 @@ export default function BatchAnalysis() {
     if (!filteredTargets.length) return
     const payload = {
       model_id:         selectedModelId,
-      output_directory: outputDir,
+      output_directory: outputDir,   // always the resolved HPC path
       scan_ids:         filteredTargets.map(m => m.scan_id),
       params:           modelParams,
     }
@@ -139,13 +166,40 @@ export default function BatchAnalysis() {
                 )}
               </FormField>
 
-              <FormField label="Output Directory (Absolute Path)">
-                <FormInput
-                  type="text"
-                  placeholder="/storage/research/results/..."
-                  value={outputDir}
-                  onChange={e => setOutputDir(e.target.value)}
-                />
+              <FormField label="Output Directory">
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <FormInput
+                    type="text"
+                    placeholder="/storage/research/… or \\resstore.unibe.ch\…"
+                    value={rawOutputDir}
+                    onChange={e => setRawOutputDir(e.target.value)}
+                    style={{ flex: 1 }}
+                  />
+                  <input
+                    ref={dirPickerRef}
+                    type="file"
+                    webkitdirectory=""
+                    style={{ display: 'none' }}
+                    onChange={handleDirPicked}
+                  />
+                  <Btn
+                    variant="ghost"
+                    small
+                    onClick={() => dirPickerRef.current?.click()}
+                    icon={<FolderIcon />}
+                    title="Select output directory"
+                  >
+                    Browse
+                  </Btn>
+                </div>
+                {wasConverted && (
+                  <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 4 }}>
+                    HPC path:{' '}
+                    <span style={{ fontFamily: 'var(--font-mono)', color: 'var(--navy)' }}>
+                      {outputDir}
+                    </span>
+                  </div>
+                )}
               </FormField>
             </div>
 
