@@ -72,6 +72,13 @@ export const EMPTY_LIST_STATE = {
   },
 }
 
+const CONSENT_OPTS = [
+  { value: 'consented', label: 'Consented' },
+  { value: 'informed',  label: 'Informed' },
+  { value: 'refused',   label: 'Refused' },
+  { value: 'unknown',   label: 'Unknown / empty' },
+]
+
 // ─── Utilities ────────────────────────────────────────────────────────────────
 
 export function cleanFilter(f) {
@@ -128,12 +135,6 @@ function FilterModeForm({ filter, onFilterChange, lockReturnLevel }) {
     .map(v => [v, v.charAt(0).toUpperCase() + v.slice(1)])
   const HAS_SCAN_OPTS    = [['', 'Any'], ['true', 'Has scan'], ['false', 'No scan']]
   const MALIGNANCY_OPTS  = [['', 'Any'], ['true', 'Positive'], ['false', 'Negative']]
-  const CONSENT_OPTS = [
-    { value: 'consented', label: 'Consented' },
-    { value: 'informed',  label: 'Informed' },
-    { value: 'refused',   label: 'Refused' },
-    { value: 'unknown',   label: 'Unknown / empty' },
-  ]
 
   return (
     <>
