@@ -134,12 +134,16 @@ async def _run_stream(graph, graph_input, config, db, session_id, user):
             if mode == "messages":
                 msg, meta = chunk
                 content = getattr(msg, "content", "") or ""
-                if content and meta.get("langgraph_node") == "agent":
+                if content and meta.get("langgraph_node") == "synthesizer":   # <-- CHANGE 1
                     parts.append(content)
                     yield sse({"token": content})
             elif mode == "updates":
                 for node, update in (chunk or {}).items():
-                    if node == "__interrupt__":
+                    if node == "planner":                                      # <-- CHANGE 2a
+                        yield sse({"stage": "planning"})
+                    elif node == "synthesizer":                                # <-- CHANGE 2b
+                        yield sse({"stage": "synthesizing"})
+                    elif node == "__interrupt__":
                         intr = update[0] if isinstance(update, (list, tuple)) else update
                         pending = getattr(intr, "value", intr)
                         interrupted = True
