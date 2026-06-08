@@ -71,8 +71,11 @@ def browse_directory(
     for entry in entries:
         if entry.name.startswith(_HIDDEN_PREFIXES):
             continue
-        if entry.is_dir():
-            dirs.append(DirectoryEntry(name=entry.name, path=str(entry)))
+        try:
+            if entry.is_dir():
+                dirs.append(DirectoryEntry(name=entry.name, path=str(entry)))
+        except (PermissionError, OSError):
+            continue
 
     parent = str(resolved.parent) if resolved != BROWSABLE_ROOT.resolve() else None
 

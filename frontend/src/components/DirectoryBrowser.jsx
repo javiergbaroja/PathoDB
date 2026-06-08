@@ -4,6 +4,12 @@ import { api } from '../api'
 
 const BROWSABLE_ROOT = '/storage/research'
 
+function toWindowsUNC(hpcPath) {
+  const relative = hpcPath.replace(BROWSABLE_ROOT, '').replace(/^\//, '')
+  const winRelative = relative.replace(/\//g, '\\')
+  return '\\\\resstore.unibe.ch\\' + (winRelative || '')
+}
+
 const FolderIcon = ({ size = 14, color = 'var(--navy)' }) => (
   <svg width={size} height={size} viewBox="0 0 16 16" fill={color} style={{ display: 'block', flexShrink: 0 }}>
     <path d="M.54 3.87.5 3a2 2 0 0 1 2-2h3.19a2 2 0 0 1 1.345.51l.33.33A1 1 0 0 0 8.5 2H14a2 2 0 0 1 2 2v8.5a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2V3.87a2 2 0 0 1 .54-1.37zM2 14h12a1 1 0 0 0 1-1V6H1v7a1 1 0 0 0 1 1z"/>
@@ -225,10 +231,7 @@ export default function DirectoryBrowser({ isOpen, onClose, onSelect }) {
           </div>
         )}
 
-        <div style={{
-          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-          padding: '6px 0 0',
-        }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '6px 0 0' }}>
           <Btn
             variant="ghost"
             small
@@ -238,12 +241,20 @@ export default function DirectoryBrowser({ isOpen, onClose, onSelect }) {
           >
             New Folder
           </Btn>
-          <div style={{
-            fontSize: 11, fontFamily: 'var(--font-mono)', color: 'var(--text-3)',
-            overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-            maxWidth: 320, textAlign: 'right',
-          }}>
-            {currentPath}
+        </div>
+
+        <div style={{
+          padding: '8px 10px', background: 'var(--navy-05)', borderRadius: 'var(--radius-md)',
+          border: '1px solid var(--border-l)', fontSize: 11, fontFamily: 'var(--font-mono)',
+          display: 'flex', flexDirection: 'column', gap: 3,
+        }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <span style={{ color: 'var(--text-3)', fontFamily: 'var(--font-sans)', fontWeight: 600, fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.04em', flexShrink: 0 }}>Linux</span>
+            <span style={{ color: 'var(--text-2)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{currentPath}</span>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <span style={{ color: 'var(--text-3)', fontFamily: 'var(--font-sans)', fontWeight: 600, fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.04em', flexShrink: 0 }}>Win</span>
+            <span style={{ color: 'var(--text-3)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{toWindowsUNC(currentPath)}</span>
           </div>
         </div>
 
