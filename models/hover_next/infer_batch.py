@@ -132,6 +132,52 @@ def _find_latest_class_inst(output_dir: str, slide_path: str) -> str | None:
 def main() -> None:
     total = len(TARGETS)
 
+    # ── Resume: load any results from a previous interrupted run ──────────────
+    completed_scan_ids: set = set()
+    prev_results: dict = {}
+
+    prev_result_file = os.path.join(RESULT_DIR, "result.json")
+    if os.path.exists(prev_result_file):
+        try:
+            with open(prev_result_file, "r") as f:
+                prev_data = json.load(f)
+            for scan_result in prev_data.get("scans", []):
+                if scan_result.get("status") == "success":
+                    sid = str(scan_result["scan_id"])
+                    completed_scan_ids.add(sid)
+                    prev_results[sid] = scan_result
+            if completed_scan_ids:
+                print(
+                    f"[resume] {len(completed_scan_ids)} slide(s) already completed "
+                    f"in a previous run — skipping them.",
+                    flush=True,
+                )
+        except Exception as e:
+            print(f"[resume] Could not load previous result.json: {e}", flush=True)
+
+    # Additionally, check for slides whose class_inst.json already exists on disk
+    # (handles the case where HoVer-NeXt wrote outputs but the job was killed before
+    # this wrapper could update result.json).
+    for t in TARGETS:
+        sid = str(t.get("scan_id"))
+        if sid in completed_scan_ids:
+            continue
+        slide_path = t.get("file_path")
+        if slide_path:
+            class_inst = _find_latest_class_inst(OUTPUT_DIR, slide_path)
+            if class_inst and os.path.exists(class_inst):
+                completed_scan_ids.add(sid)
+                prev_results[sid] = {
+                    "scan_id":  t.get("scan_id"),
+                    "scan_path": slide_path,
+                    "status":   "success",
+                    "timing_s": None,
+                    "files":    {"class_inst": class_inst},
+                    "outcome":  None,
+                    "overlays": None,
+                }
+                print(f"[resume] Found existing output for scan {sid} — skipping.", flush=True)
+
     # Live state for progress.json (matches CRC tissue batch structure)
     state = {
         "pct": 0,
@@ -139,9 +185,9 @@ def main() -> None:
         "slides": {
             str(t.get("scan_id")): {
                 "scan_path": t.get("file_path"),
-                "status": "pending",
-                "progress": 0,
-                "message": "Queued",
+                "status":   "success" if str(t.get("scan_id")) in completed_scan_ids else "pending",
+                "progress": 100       if str(t.get("scan_id")) in completed_scan_ids else 0,
+                "message":  "Completed in previous run" if str(t.get("scan_id")) in completed_scan_ids else "Queued",
             }
             for t in TARGETS
         },
@@ -158,12 +204,16 @@ def main() -> None:
         "overlays": None,
     }
 
-    scans: list[dict] = [
-        {**empty_scan_result, "scan_id": t.get("scan_id"), "scan_path": t.get("file_path")}
-        for t in TARGETS
-    ]
+    # Pre-populate: carry forward any previously-successful slides
+    scans: list[dict] = []
+    for t in TARGETS:
+        sid = str(t.get("scan_id"))
+        if sid in completed_scan_ids:
+            scans.append(prev_results[sid])
+        else:
+            scans.append({**empty_scan_result, "scan_id": t.get("scan_id"), "scan_path": t.get("file_path")})
 
-    successful = 0
+    successful = len(completed_scan_ids)
     failed = 0
 
     if total == 0:
@@ -177,6 +227,22 @@ def main() -> None:
                 "params": PARAMS,
                 "batch_summary": {"total_slides": 0, "successful": 0, "failed": 0},
                 "scans": [],
+            }
+        )
+        return
+
+    # Early exit if all slides were already completed in a previous run
+    if len(completed_scan_ids) == total:
+        update_progress(state, 100, f"All {total} slide(s) already completed. Nothing to do.")
+        write_result_json(
+            {
+                "model_id": MODEL_ID,
+                "scope": "batch",
+                "job_id": JOB_ID,
+                "job_status": "complete",
+                "params": PARAMS,
+                "batch_summary": {"total_slides": total, "successful": successful, "failed": failed},
+                "scans": scans,
             }
         )
         return
@@ -199,10 +265,13 @@ def main() -> None:
     print(f"Output dir : {OUTPUT_DIR}", flush=True)
     print(f"Targets    : {total} slides", flush=True)
 
-    # Validate inputs and build slide list
+    # Validate inputs and build slide list (skip already-completed slides)
     slide_paths: list[str] = []
     bad_idxs: list[int] = []
     for i, t in enumerate(TARGETS):
+        sid = str(t.get("scan_id"))
+        if sid in completed_scan_ids:
+            continue  # already done in a previous run
         p = t.get("file_path")
         if not p or not os.path.isfile(p):
             bad_idxs.append(i)
@@ -290,7 +359,8 @@ def main() -> None:
 
     # Poll for output files to drive progress.
     # We treat a slide as complete when we see its class_inst.json.
-    done: set[str] = set()
+    # Pre-seed with slides that were already done before this run started.
+    done: set[str] = set(completed_scan_ids)
     last_update_t = 0.0
 
     try:

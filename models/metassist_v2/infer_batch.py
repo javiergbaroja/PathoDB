@@ -412,6 +412,29 @@ def main():
 
     total_slides = len(TARGETS)
 
+    # ── Resume: load any results from a previous interrupted run ──────────────
+    completed_scan_ids: set = set()
+    prev_results: dict = {}
+
+    prev_result_file = os.path.join(RESULT_DIR, "result.json")
+    if os.path.exists(prev_result_file):
+        try:
+            with open(prev_result_file, "r") as f:
+                prev_data = json.load(f)
+            for scan_result in prev_data.get("scans", []):
+                if scan_result.get("status") == "success":
+                    sid = str(scan_result["scan_id"])
+                    completed_scan_ids.add(sid)
+                    prev_results[sid] = scan_result
+            if completed_scan_ids:
+                print(
+                    f"[resume] {len(completed_scan_ids)} slide(s) already completed "
+                    f"in a previous run — skipping them.",
+                    flush=True,
+                )
+        except Exception as e:
+            print(f"[resume] Could not load previous result.json: {e}", flush=True)
+
     # ── Live state dict — written to progress.json after every update ──────────
     state = {
         "pct": 0,
@@ -419,9 +442,9 @@ def main():
         "slides": {
             str(t["scan_id"]): {
                 "scan_path": t.get("file_path"),
-                "status":   "pending",
-                "progress": 0,
-                "message":  "Queued",
+                "status":   "success" if str(t["scan_id"]) in completed_scan_ids else "pending",
+                "progress": 100       if str(t["scan_id"]) in completed_scan_ids else 0,
+                "message":  "Completed in previous run" if str(t["scan_id"]) in completed_scan_ids else "Queued",
             }
             for t in TARGETS
         },
@@ -459,17 +482,22 @@ def main():
         MET_CHECKPOINT, MET_LABEL2ID, ENCODER_MODEL, DECODER_MODEL, MET_FEATURE_LAYERS
     )
 
-    # Pre-populate so the API always reads a valid result.json
-    batch_results = [
-        {
-            "scan_id": t["scan_id"], "scan_path": t["file_path"],
-            "status": "pending", "error": None,
-            "timing_s": None, "outcome": None, "files": {}, "overlays": None,
-        }
-        for t in TARGETS
-    ]
+    # Pre-populate: carry forward any previously-successful slides
+    batch_results = []
     successful = 0
     failed     = 0
+
+    for t in TARGETS:
+        sid = str(t["scan_id"])
+        if sid in completed_scan_ids:
+            batch_results.append(prev_results[sid])
+            successful += 1
+        else:
+            batch_results.append({
+                "scan_id": t["scan_id"], "scan_path": t["file_path"],
+                "status": "pending", "error": None,
+                "timing_s": None, "outcome": None, "files": {}, "overlays": None,
+            })
 
     def write_result(job_status="running"):
         tmp = os.path.join(RESULT_DIR, "result.tmp")
@@ -517,6 +545,10 @@ def main():
         scan_id_str = str(scan_id)
         scan_path   = target.get("file_path")
         wsi_name    = os.path.splitext(os.path.basename(scan_path))[0]
+
+        if scan_id_str in completed_scan_ids:
+            print(f"[{idx+1}/{total_slides}] {wsi_name}: skipping (already completed).", flush=True)
+            continue
 
         # Progress budget: 5% model load | 93% slide body | 2% final write
         base_pct = 5 + (idx / total_slides) * 93
