@@ -26,6 +26,7 @@ Aggregated outputs (written to result_dir):
   error.txt      -- stack trace on catastrophic (pre-loop) failure
 """
 
+import csv
 import json
 import os
 import sys
@@ -489,6 +490,25 @@ def main():
             }, f, indent=2)
         os.replace(tmp, dst)
 
+    CSV_PATH = os.path.join(OUTPUT_DIR, "result_slide_level.csv")
+    CSV_HEADER = ["scan_path", "label", "status", "measurement_um"]
+
+    def write_csv():
+        """Rewrite result_slide_level.csv atomically with all slides processed so far."""
+        tmp = CSV_PATH + ".tmp"
+        with open(tmp, "w", newline="") as fh:
+            writer = csv.writer(fh)
+            writer.writerow(CSV_HEADER)
+            for r in batch_results:
+                outcome = r.get("outcome") or {}
+                writer.writerow([
+                    r.get("scan_path", ""),
+                    outcome.get("label", ""),
+                    outcome.get("status", r.get("status", "")),
+                    outcome.get("measurement_um", ""),
+                ])
+        os.replace(tmp, CSV_PATH)
+
     write_result()   # empty skeleton so the API never reads a missing file
 
     # ── Per-slide loop ─────────────────────────────────────────────────────────
@@ -550,8 +570,10 @@ def main():
             torch.cuda.empty_cache()
 
         write_result()   # intermediate write — survives premature job termination
+        write_csv()
 
     write_result("complete")
+    write_csv()
     update_progress(100, f"Batch complete. {successful}/{total_slides} successful.")
     print(f"\n=== Batch Complete ===")
     print(f"Success: {successful} | Failed: {failed}")
