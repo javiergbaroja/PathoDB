@@ -105,17 +105,41 @@ def main() -> None:
 
     total_slides = len(TARGETS)
 
+    # ── Resume: load any results from a previous interrupted run ──────────────
+    completed_scan_ids: set = set()
+    prev_results: dict = {}
+
+    prev_result_file = os.path.join(RESULT_DIR, "result.json")
+    if os.path.exists(prev_result_file):
+        try:
+            with open(prev_result_file, "r") as f:
+                prev_data = json.load(f)
+            for scan_result in prev_data.get("scans", []):
+                if scan_result.get("status") == "success":
+                    sid = str(scan_result["scan_id"])
+                    completed_scan_ids.add(sid)
+                    prev_results[sid] = scan_result
+            if completed_scan_ids:
+                print(
+                    f"[resume] {len(completed_scan_ids)} slide(s) already completed "
+                    f"in a previous run — skipping them.",
+                    flush=True,
+                )
+        except Exception as e:
+            print(f"[resume] Could not load previous result.json: {e}", flush=True)
+
     # 1. Initialize the Live State Dictionary for progress.json
     state = {
         "pct": 0,
         "message": "Initializing batch...",
-        "slides": { 
+        "slides": {
             str(t["scan_id"]): {
-                "scan_path": t.get("file_path"), # <--- ADD THIS EXACT LINE
-                "status": "pending", 
-                "progress": 0, 
-                "message": "Queued"
-            } for t in TARGETS 
+                "scan_path": t.get("file_path"),
+                "status":   "success" if str(t["scan_id"]) in completed_scan_ids else "pending",
+                "progress": 100       if str(t["scan_id"]) in completed_scan_ids else 0,
+                "message":  "Completed in previous run" if str(t["scan_id"]) in completed_scan_ids else "Queued",
+            }
+            for t in TARGETS
         }
     }
 
@@ -145,10 +169,10 @@ def main() -> None:
     # ── 1. Load model once for the entire batch ────────────────────────────────
     update_progress(2, f"Loading model into memory [{GPU_TYPE}]...")
     model = create_mask2former_from_checkpoint(
-        checkpoint_path=CHECKPOINT_PATH, 
-        label2id=LABEL2ID, 
-        encoder_name=ENCODER_MODEL, 
-        decoder_model=DECODER_MODEL, 
+        checkpoint_path=CHECKPOINT_PATH,
+        label2id=LABEL2ID,
+        encoder_name=ENCODER_MODEL,
+        decoder_model=DECODER_MODEL,
         out_indices=FEATURE_LAYERS
     )
 
@@ -167,9 +191,14 @@ def main() -> None:
     successful = 0
     failed = 0
 
-    # create empty result.json early to ensure API can read it even if all slides fail
+    # Pre-populate batch_results: carry forward any previously-successful slides
     for idx, target in enumerate(TARGETS):
-        batch_results[idx] = {**empty_result, "scan_id": target.get("scan_id"), "scan_path": target.get("file_path")}
+        sid = str(target.get("scan_id"))
+        if sid in completed_scan_ids:
+            batch_results[idx] = prev_results[sid]
+            successful += 1
+        else:
+            batch_results[idx] = {**empty_result, "scan_id": target.get("scan_id"), "scan_path": target.get("file_path")}
 
     with open(os.path.join(RESULT_DIR, "result.json"), "w") as f:
         json.dump({
@@ -192,7 +221,11 @@ def main() -> None:
         scan_id_str = str(scan_id)
         scan_path = target.get("file_path")
         wsi_name = os.path.splitext(os.path.basename(scan_path))[0]
-        
+
+        if scan_id_str in completed_scan_ids:
+            print(f"[{idx+1}/{total_slides}] {wsi_name}: skipping (already completed).", flush=True)
+            continue
+
         # Calculate base progress for this slide (leaves 2% for model load, 2% for final JSON)
         base_pct = 2 + (idx / total_slides) * 96
         

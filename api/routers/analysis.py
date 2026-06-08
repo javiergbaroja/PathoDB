@@ -475,6 +475,78 @@ def _read_progress(job_id: int) -> tuple[int, Optional[str]]:
         return 0, None
 
 
+def _try_resubmit_batch(job: AnalysisJob, db: Session, reason: str) -> bool:
+    """
+    Attempt to auto-resubmit a batch job that ended before completion (e.g. TIMEOUT).
+
+    Increments retry_count in batch_context.json, calls sbatch, and updates the
+    DB record in-place.  Returns True if the job was successfully resubmitted so
+    that the caller can return early without marking it failed.
+    """
+    context_file = _job_result_dir(job.id) / "batch_context.json"
+    if not context_file.exists():
+        log.warning(f"Cannot auto-resubmit job {job.id}: batch_context.json missing")
+        return False
+
+    try:
+        ctx = json.loads(context_file.read_text(encoding="utf-8"))
+        retry_count = ctx.get("retry_count", 0)
+        max_retries = ctx.get("max_retries", 3)
+
+        if retry_count >= max_retries:
+            log.info(f"Job {job.id}: max retries ({max_retries}) reached after {reason}")
+            return False
+
+        ctx["retry_count"] = retry_count + 1
+        context_file.write_text(json.dumps(ctx), encoding="utf-8")
+
+        model_script = _models_dir() / job.model_id / "run_batch.sh"
+        if not model_script.exists():
+            log.error(f"Cannot resubmit job {job.id}: {model_script} not found")
+            return False
+
+        log_file = _job_result_dir(job.id) / "slurm_%j.out"
+        sbatch_cmd = [
+            "sbatch", "--parsable",
+            f"--job-name=pathodb_batch_{job.model_id}_{job.id}",
+            f"--output={log_file}",
+            "--export=NONE",
+            str(model_script),
+            str(context_file),
+        ]
+
+        result = subprocess.run(sbatch_cmd, capture_output=True, text=True, timeout=15)
+        if result.returncode != 0:
+            log.error(
+                f"sbatch resubmit failed for job {job.id}: {result.stderr.strip()}"
+            )
+            return False
+
+        new_slurm_id = int(result.stdout.strip().split(";")[0])
+        job.slurm_job_id  = new_slurm_id
+        job.status        = "running"
+        job.error_message = (
+            f"Auto-resubmitted after {reason} "
+            f"(attempt {retry_count + 1}/{max_retries}, SLURM {new_slurm_id})"
+        )
+        job.updated_at = datetime.now(timezone.utc)
+        db.commit()
+        db.refresh(job)
+
+        log.info(
+            f"Auto-resubmitted job {job.id} after {reason}: "
+            f"new SLURM {new_slurm_id} (retry {retry_count + 1}/{max_retries})"
+        )
+        return True
+
+    except FileNotFoundError:
+        log.warning("sbatch not found — cannot auto-resubmit (dev mode)")
+        return False
+    except Exception as e:
+        log.error(f"Failed to auto-resubmit job {job.id}: {e}")
+        return False
+
+
 def _sync_job_status(job: AnalysisJob, db: Session, slurm_state=_FETCH_STATE) -> AnalysisJob:
     """
     Sync a job's status from SLURM and the progress file.
@@ -520,13 +592,22 @@ def _sync_job_status(job: AnalysisJob, db: Session, slurm_state=_FETCH_STATE) ->
                 if result_file.exists():
                     try:
                         res_data = json.loads(result_file.read_text(encoding="utf-8"))
-                        job_status = res_data.get("job_status")
-                        if job_status == "complete":
+                        job_status_field = res_data.get("job_status")
+                        if job_status_field == "complete":
                             file_ready = True
-                        elif job_status == "failed":
+                        elif job_status_field == "failed":
                             result_error = res_data.get("error", "Batch job reported failure.")
+                        elif slurm_state is None:
+                            # Job vanished from SLURM but result is still "running" —
+                            # most likely a timeout that was purged before we polled.
+                            if _try_resubmit_batch(job, db, "TIMEOUT"):
+                                return job
+                            result_error = "Job ended before completion (possible timeout)."
                     except Exception:
                         result_error = "Failed to parse result.json."
+                elif slurm_state is None:
+                    # No result file at all and job gone — treat as lost
+                    result_error = "Job is no longer tracked by SLURM and produced no result."
             else:
                 file_ready = result_file.exists()
 
@@ -548,7 +629,15 @@ def _sync_job_status(job: AnalysisJob, db: Session, slurm_state=_FETCH_STATE) ->
                 job.error_message = "Job is no longer tracked by SLURM and no valid result was produced."
                 changed = True
 
-        elif slurm_state in ("FAILED", "TIMEOUT", "NODE_FAIL", "OUT_OF_MEMORY"):
+        elif slurm_state in ("TIMEOUT", "NODE_FAIL"):
+            # For batch jobs try to resume; for single-slide jobs, mark failed.
+            if bool(job.params_json.get("is_batch")) and _try_resubmit_batch(job, db, slurm_state):
+                return job
+            job.status        = "failed"
+            job.error_message = f"SLURM job ended with state: {slurm_state}"
+            changed = True
+
+        elif slurm_state in ("FAILED", "OUT_OF_MEMORY"):
             job.status        = "failed"
             job.error_message = f"SLURM job ended with state: {slurm_state}"
             changed = True
@@ -1238,11 +1327,13 @@ def submit_batch_job(
     context_file = result_dir / "batch_context.json"
     context_data = {
         "job_id": job.id,
-        "result_dir": str(result_dir),         
-        "output_dir": str(custom_out_dir),     
-        "params": req.params,                  
+        "result_dir": str(result_dir),
+        "output_dir": str(custom_out_dir),
+        "params": req.params,
         "targets": target_files,
         "db_host": socket.gethostname(),
+        "retry_count": 0,
+        "max_retries": 3,
     }
     context_file.write_text(json.dumps(context_data), encoding="utf-8")
 
