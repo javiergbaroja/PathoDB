@@ -26,3 +26,6 @@ api/static
 api/routers/summarize copy.py
 api/static/index.html
 pathodb_conda_data
+server_address.txt
+scripts/*
+slurm_api_old.sh
