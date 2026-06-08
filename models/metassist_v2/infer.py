@@ -7,11 +7,13 @@ Two-stage Mask2Former pipeline:
 
 All inputs arrive as environment variables exported by the PathoDB API
 (via sbatch --export). Outputs written to PATHODB_RESULT_DIR:
-  progress.json  — polled every 5s by the API for the progress bar
-  result.json    — served to the browser when the job is done
+  progress.json             — polled every 5s by the API for the progress bar
+  result.json               — served to the browser when the job is done
   <wsi>_ln.geojson          — LN boundary overlay (QuPath-compatible)
   <wsi>_metastasis.geojson  — metastasis/deposit overlay
-  error.txt      — stack trace on failure (for cluster debugging)
+  <wsi>_ln_overlay.ome.tif  — pyramidal RGBA overlay: all Stage 1 tissue classes
+  <wsi>_met_overlay.ome.tif — pyramidal RGBA overlay: metastasis deposits only
+  error.txt                 — stack trace on failure (for cluster debugging)
 """
 
 import json
@@ -30,7 +32,6 @@ from scipy.ndimage import binary_fill_holes
 SCAN_PATH  = os.environ["PATHODB_SCAN_PATH"]
 RESULT_DIR = os.environ["PATHODB_RESULT_DIR"]
 SCOPE      = os.environ.get("PATHODB_SCOPE", "whole_slide")
-print(os.environ.get("PATHODB_PARAMS", "{}"), flush=True)
 PARAMS     = json.loads(os.environ.get("PATHODB_PARAMS", "{}"))
 ROI        = json.loads(os.environ.get("PATHODB_ROI",    "null"))
 MODEL_ID   = "metassist_v2"
@@ -46,7 +47,7 @@ sys.path.insert(0, PACKAGE_DIR)
 from models.model_io import create_mask2former_from_checkpoint
 from engine.inference import infer_wsi
 from utils.wsi import prepare_read_from_slide, detect_colors
-from utils.geometry import save_geojson_annotation, save_sparse_annotation
+from utils.geometry import save_geojson_annotation
 from utils.evaluation import get_slide_level_result
 from utils.postprocessing import post_process
 
@@ -376,11 +377,10 @@ def main() -> None:
     n_ln_labels, ln_label_map = cv2.connectedComponents(ln_binary, connectivity=8)
     ln_count = max(0, n_ln_labels - 1)
 
-    h_ln, w_ln  = ln_seg_all.shape[:2]
-    h_met, w_met = met_pred_mask.shape[:2]
-    met_binary  = (met_pred_mask == MET_LABEL2ID.get("Metastasis", 2)).astype(np.uint8)
+    h_ln, w_ln = ln_seg_all.shape[:2]
+    met_binary = (met_pred_mask == MET_LABEL2ID.get("Metastasis", 2)).astype(np.uint8)
     # Downscale met mask to LN resolution for per-node overlap check
-    met_for_ln  = cv2.resize(met_binary, (w_ln, h_ln), interpolation=cv2.INTER_NEAREST)
+    met_for_ln = cv2.resize(met_binary, (w_ln, h_ln), interpolation=cv2.INTER_NEAREST)
 
     positive_ln_count = 0
     for i in range(1, n_ln_labels):
