@@ -183,13 +183,15 @@ function ModelRunArea({ latest, model, submitting, scanInfo, scanId, onRun, onCa
   const stainOk = !model.stain_compatibility?.length ||
     model.stain_compatibility.includes(scanInfo?.stain_category)
 
-  const isBatchViz = latest?.params_json?.is_batch && latest?.params_json?.save_visualization
+  const isBatch    = !!latest?.params_json?.is_batch
+  const isBatchViz = isBatch && !!latest?.params_json?.save_visualization
 
-  // For running batch+viz jobs: poll live state to get THIS scan's status
+  // For any running batch job: poll live state to get THIS scan's per-slide status.
+  // Viz-only batches also use this for the "this slide complete" overlay state.
   const { data: liveState } = useQuery({
     queryKey: ['job-live-viewer', latest?.id],
     queryFn:  () => api.getLiveJobState(latest?.id),
-    enabled:  !!latest?.id && !!isBatchViz && latest?.status === 'running',
+    enabled:  !!latest?.id && isBatch && latest?.status === 'running',
     refetchInterval: 3000,
     staleTime: 0,
   })
@@ -233,6 +235,9 @@ function ModelRunArea({ latest, model, submitting, scanInfo, scanId, onRun, onCa
               <DownloadIcon />
             </button>
           </div>
+          <ErrorBoundary fallback={null}>
+            <JobOutcomeDispatcher jobId={latest.id} model={model} scanId={scanId} />
+          </ErrorBoundary>
           <button
             onClick={onCancel}
             style={{
@@ -438,7 +443,7 @@ function PastJobsList({ jobs, catalog, activeOverlays, onToggleOverlay, onDelete
               </div>
             </div>
 
-            {job.status === 'done' && !isBatchAnnotation && (
+            {job.status === 'done' && (
               <ErrorBoundary
                 fallback={
                   <div style={{ padding: 8, border: '1px dashed rgba(230,0,46,0.3)', borderRadius: 4, color: 'var(--viewer-red)', fontSize: 10, background: 'rgba(230,0,46,0.05)', marginTop: 6 }}>
@@ -446,7 +451,7 @@ function PastJobsList({ jobs, catalog, activeOverlays, onToggleOverlay, onDelete
                   </div>
                 }
               >
-                <JobOutcomeDispatcher jobId={job.id} model={model} />
+                <JobOutcomeDispatcher jobId={job.id} model={model} scanId={isBatchViz || isBatchAnnotation ? scanId : null} />
               </ErrorBoundary>
             )}
           </div>

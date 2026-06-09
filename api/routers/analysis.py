@@ -1077,18 +1077,25 @@ def list_jobs(
 
     jobs = q.order_by(AnalysisJob.created_at.desc()).all()
 
-    # Also include batch+viz jobs where this scan_id appears in params_json["scan_ids"]
-    # (batch jobs only store scan_id = first scan, so slides 2+ would otherwise be invisible)
+    # Also include batch jobs where this scan_id appears in params_json["scan_ids"].
+    # Batch jobs store only the first scan's scan_id in the DB column; slides 2+
+    # would otherwise be invisible.  We filter on is_batch at the DB level to avoid
+    # loading every job in the table, then check scan_id membership in Python.
     if scan_id is not None:
         existing_ids = {j.id for j in jobs}
-        extra_q = db.query(AnalysisJob).filter(AnalysisJob.scan_id != scan_id)
+        extra_q = (
+            db.query(AnalysisJob)
+            .filter(
+                AnalysisJob.scan_id != scan_id,
+                AnalysisJob.params_json["is_batch"].astext == "true",
+            )
+        )
         if user.role != "admin":
             extra_q = extra_q.filter(AnalysisJob.submitted_by == user.id)
         for j in extra_q.all():
             if j.id not in existing_ids:
-                params = j.params_json or {}
-                if (params.get("is_batch") and params.get("save_visualization")
-                        and scan_id in (params.get("scan_ids") or [])):
+                scan_ids = (j.params_json or {}).get("scan_ids") or []
+                if scan_id in scan_ids:
                     jobs.append(j)
         jobs.sort(key=lambda j: j.created_at, reverse=True)
 

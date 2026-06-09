@@ -34,11 +34,10 @@ export function useAnalysisJobs(scanId) {
   })
 
   // 2. Determine if we need to poll
-  // Exclude batch-only (download-only) jobs from the viewer — they are never visualisable.
+  // Include all batch jobs regardless of save_visualization: non-viz batches still
+  // show tracking status and outcome summaries; only overlay display is restricted.
   const allJobs = query.data || []
-  const jobs = allJobs.filter(
-    j => !j.params_json?.is_batch || j.params_json?.save_visualization === true
-  )
+  const jobs = allJobs
   const hasActiveJobs = jobs.some(j => j.status === 'queued' || j.status === 'running')
 
   // 3. Polling query (runs seamlessly in the background)
