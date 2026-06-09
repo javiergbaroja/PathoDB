@@ -291,7 +291,7 @@ function ModelRunArea({ latest, model, submitting, scanInfo, scanId, onRun, onCa
             color: 'var(--text-dark-2)', fontSize: 11, cursor: 'pointer',
           }}
         >
-          Cancel job
+          {isBatch ? 'Cancel batch' : 'Cancel job'}
         </button>
       </div>
     )
@@ -507,8 +507,8 @@ export default function ModelsPanel({
         if (!roi_json) throw new Error('Could not read viewport bounds — try again')
       }
 
-      const job = await api.submitAnalysis(scanId, { model_id: model.id, scope, params, roi_json })
-      onJobsChange(prev => [job, ...prev])
+      await api.submitAnalysis(scanId, { model_id: model.id, scope, params, roi_json })
+      onJobsChange()
 
       if (scope === 'roi') { clearPolygons(); setIsPolygonActive(false) }
     } catch (e) {
@@ -521,16 +521,16 @@ export default function ModelsPanel({
   async function handleCancel(job) {
     try {
       await api.cancelAnalysis(job.id)
-      onJobsChange(prev => prev.map(j => j.id === job.id ? { ...j, status: 'cancelled' } : j))
+      onJobsChange()
     } catch {}
   }
 
   async function handleDelete(job) {
     if (!window.confirm('Permanently delete this run and all its files?')) return
     try {
-      if (activeOverlays[job.id]) onToggleOverlay(job.id, job.model_id)
+      if (activeOverlays[job.id]) onToggleOverlay(job.id)
       await api.deleteAnalysis(job.id)
-      onJobsChange(prev => prev.filter(j => j.id !== job.id))
+      onJobsChange()
     } catch (e) { alert(`Failed to delete job: ${e.message}`) }
   }
 
