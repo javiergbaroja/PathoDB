@@ -11,8 +11,8 @@ All inputs arrive as environment variables exported by the PathoDB API
   result.json               — served to the browser when the job is done
   <wsi>_ln.geojson          — LN boundary overlay (QuPath-compatible)
   <wsi>_metastasis.geojson  — metastasis/deposit overlay
-  <wsi>_ln_overlay.ome.tif  — pyramidal RGBA overlay: all Stage 1 tissue classes
-  <wsi>_met_overlay.ome.tif — pyramidal RGBA overlay: metastasis deposits only
+  <wsi>_ln_overlay.ome.tif  — pyramidal RGBA overlay: LN mask + tumor deposits (if positive)
+  <wsi>_met_overlay.ome.tif — pyramidal RGBA overlay: metastasis mask
   error.txt                 — stack trace on failure (for cluster debugging)
 """
 
@@ -50,6 +50,7 @@ from utils.wsi import prepare_read_from_slide, detect_colors
 from utils.geometry import save_geojson_annotation
 from utils.evaluation import get_slide_level_result
 from utils.postprocessing import post_process
+from utils.constants import COLORMAP
 
 # ── Model constants (not user-tunable) ────────────────────────────────────────
 
@@ -63,28 +64,6 @@ MET_FEATURE_LAYERS = [16,20,24,31]
 LN_LABEL2ID  = {"Background": 0, "Fat tissue":4, "Vessels":5, "Lymph node":1, "Tumor deposits":2, "Primary tumor":2, "Primary tissue":3, "Mucin":6}
 MET_LABEL2ID = {"Background": 0, "Metastasis": 2, "Training region": 1}
 
-# ── Overlay colour maps ────────────────────────────────────────────────────────
-# (R, G, B) tuples; alpha is set per-class below
-LN_COLORMAP = {
-    "Lymph node":     ( 65, 105, 225),   # cornflower blue
-    "Tumor deposits": (255, 140,   0),   # dark orange
-    "Primary tissue": (144, 238, 144),   # light green
-    "Fat tissue":     (255, 255, 153),   # light yellow
-    "Vessels":        (139,   0,   0),   # dark red
-    "Mucin":          (186,  85, 211),   # medium orchid
-    "Primary tumor":  (255, 140,   0),   # same as Tumor deposits
-}
-LN_ALPHA = {
-    "Lymph node":     100,
-    "Tumor deposits": 160,
-    "Primary tissue":  90,
-    "Fat tissue":      80,
-    "Vessels":        130,
-    "Mucin":          100,
-    "Primary tumor":  160,
-}
-MET_COLORMAP = {"Metastasis": (220, 20, 60)}   # crimson
-MET_ALPHA     = {"Metastasis": 200}
 
 # ── User-tunable parameters (exposed in catalog.json params[]) ─────────────────
 LN_RESOLUTION            = 8.0
@@ -318,13 +297,29 @@ def main() -> None:
     if "Metastasis" in MET_LABEL2ID:
         met_pred_mask = close_metastasis(met_pred_mask, MET_LABEL2ID["Metastasis"])
 
+    # ── Slide-level clinical result (needed for conditional overlay logic) ───
+    write_progress(82, "Computing slide-level result…")
+
+    ds_met = level_downsampling * tiling_downsample_factor
+
+    status, label, measurement = get_slide_level_result(
+        mask             = met_pred_mask,
+        ln_seg_mask      = ln_seg_all,
+        metastasis_class = MET_LABEL2ID.get("Metastasis", 1),
+        ln_class         = LN_LABEL2ID["Lymph node"],
+        deposit_class    = LN_LABEL2ID.get("Tumor deposits", 2),
+        fat_class        = LN_LABEL2ID.get("Fat tissue", 4),
+        mucin_class      = LN_LABEL2ID.get("Mucin",       6),
+        resolution       = exact_resolution * tiling_downsample_factor,
+    )
+
+    show_tumor_deposits = "deposit" in status.lower()
+
     # ── Outputs ───────────────────────────────────────────────────────────────
-    write_progress(82, "Saving GeoJSON overlays…")
+    write_progress(84, "Saving GeoJSON overlays…")
 
     geojson_met = os.path.join(RESULT_DIR, f"{wsi_name}_metastasis.geojson")
     geojson_ln  = os.path.join(RESULT_DIR, f"{wsi_name}_ln.geojson")
-
-    ds_met = level_downsampling * tiling_downsample_factor
 
     save_geojson_annotation(
         out_path     = geojson_met,
@@ -345,28 +340,29 @@ def main() -> None:
     )
 
     # ── Raster overlays ────────────────────────────────────────────────────────
-    write_progress(85, "Rasterizing overlays to pyramidal OME-TIFF…")
+    write_progress(87, "Rasterizing overlays to pyramidal OME-TIFF…")
 
     tiff_ln_path  = os.path.join(RESULT_DIR, f"{wsi_name}_ln_overlay.ome.tif")
     tiff_met_path = os.path.join(RESULT_DIR, f"{wsi_name}_met_overlay.ome.tif")
 
-    # LN overlay — all Stage 1 tissue classes (8 µm/px)
+    # LN overlay — Lymph node mask + Tumor deposits if positive due to deposits
+    ln_visible = {"Lymph node"}
+    if show_tumor_deposits:
+        ln_visible.update({"Tumor deposits", "Primary tumor"})
+
     lut_ln = np.zeros((256, 4), dtype=np.uint8)
     for class_name, class_id in LN_LABEL2ID.items():
-        if class_name == "Background":
-            continue
-        r, g, b = LN_COLORMAP.get(class_name, (128, 128, 128))
-        a        = LN_ALPHA.get(class_name, 100)
-        lut_ln[class_id] = [r, g, b, a]
+        if class_name in ln_visible:
+            r, g, b = COLORMAP.get(class_name, (0, 0, 0))
+            lut_ln[class_id] = [r, g, b, 150]
     rgba_ln = lut_ln[ln_seg_all]
     save_pyramidal_overlay_tiff(rgba_ln, tiff_ln_path)
 
-    # Metastasis overlay — only Metastasis class highlighted (1 µm/px)
+    # Metastasis overlay (1 µm/px)
     lut_met = np.zeros((256, 4), dtype=np.uint8)
-    for class_name, class_id in MET_LABEL2ID.items():
-        r, g, b = MET_COLORMAP.get(class_name, (0, 0, 0))
-        a        = MET_ALPHA.get(class_name, 0)
-        lut_met[class_id] = [r, g, b, a]
+    met_id = MET_LABEL2ID.get("Metastasis", 2)
+    r, g, b = COLORMAP.get("Metastasis", (0, 0, 0))
+    lut_met[met_id] = [r, g, b, 150]
     rgba_met = lut_met[met_pred_mask]
     save_pyramidal_overlay_tiff(rgba_met, tiff_met_path)
 
@@ -386,20 +382,6 @@ def main() -> None:
     for i in range(1, n_ln_labels):
         if np.any((ln_label_map == i) & (met_for_ln > 0)):
             positive_ln_count += 1
-
-    # ── Slide-level clinical result ────────────────────────────────────────────
-    write_progress(92, "Computing slide-level result…")
-
-    status, label, measurement = get_slide_level_result(
-        mask             = met_pred_mask,
-        ln_seg_mask      = ln_seg_all,
-        metastasis_class = MET_LABEL2ID.get("Metastasis", 1),
-        ln_class         = LN_LABEL2ID["Lymph node"],
-        deposit_class    = LN_LABEL2ID.get("Tumor deposits", 2),
-        fat_class        = LN_LABEL2ID.get("Fat tissue", 4),
-        mucin_class      = LN_LABEL2ID.get("Mucin",       6),
-        resolution       = exact_resolution * tiling_downsample_factor,
-    )
 
     # ── result.json — read by GET /analysis/jobs/{id}/result ─────────────────
     write_progress(96, "Writing result summary…")
@@ -450,9 +432,8 @@ def main() -> None:
                 "mask_width":  int(ln_seg_all.shape[1]),
                 "mask_height": int(ln_seg_all.shape[0]),
                 "legend": {
-                    k: "#{:02x}{:02x}{:02x}".format(*LN_COLORMAP[k])
-                    for k in LN_LABEL2ID
-                    if k != "Background" and k in LN_COLORMAP
+                    k: "#{:02x}{:02x}{:02x}".format(*COLORMAP.get(k, (0, 0, 0)))
+                    for k in ln_visible
                 },
             },
             {
@@ -462,9 +443,7 @@ def main() -> None:
                 "mask_width":  int(met_pred_mask.shape[1]),
                 "mask_height": int(met_pred_mask.shape[0]),
                 "legend": {
-                    k: "#{:02x}{:02x}{:02x}".format(*MET_COLORMAP[k])
-                    for k in MET_LABEL2ID
-                    if k in MET_COLORMAP
+                    "Metastasis": "#{:02x}{:02x}{:02x}".format(*COLORMAP.get("Metastasis", (0, 0, 0)))
                 },
             },
         ],

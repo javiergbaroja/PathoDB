@@ -17,8 +17,8 @@ Input: batch_context.json path passed as sys.argv[1]
 Outputs per slide (written to output_dir):
   <wsi>_ln.geojson          -- LN boundary overlay (QuPath-compatible)
   <wsi>_metastasis.geojson  -- metastasis/deposit overlay
-  <wsi>_ln_overlay.ome.tif  -- pyramidal RGBA overlay: Stage 1 tissue classes
-  <wsi>_met_overlay.ome.tif -- pyramidal RGBA overlay: metastasis deposits only
+  <wsi>_ln_overlay.ome.tif  -- pyramidal RGBA overlay: LN mask + tumor deposits (if positive)
+  <wsi>_met_overlay.ome.tif -- pyramidal RGBA overlay: metastasis mask
 
 Aggregated outputs (written to result_dir):
   progress.json  -- polled every 5s by the API for live per-slide tracking
@@ -72,6 +72,7 @@ from utils.wsi import prepare_read_from_slide, detect_colors
 from utils.geometry import save_geojson_annotation
 from utils.evaluation import get_slide_level_result
 from utils.postprocessing import post_process
+from utils.constants import COLORMAP
 
 # ── System ─────────────────────────────────────────────────────────────────────
 NR_GPUS  = torch.cuda.device_count()
@@ -89,21 +90,6 @@ LN_LABEL2ID  = {"Background": 0, "Fat tissue": 4, "Vessels": 5, "Lymph node": 1,
                 "Tumor deposits": 2, "Primary tumor": 2, "Primary tissue": 3, "Mucin": 6}
 MET_LABEL2ID = {"Background": 0, "Metastasis": 2, "Training region": 1}
 
-LN_COLORMAP = {
-    "Lymph node":     ( 65, 105, 225),
-    "Tumor deposits": (255, 140,   0),
-    "Primary tissue": (144, 238, 144),
-    "Fat tissue":     (255, 255, 153),
-    "Vessels":        (139,   0,   0),
-    "Mucin":          (186,  85, 211),
-    "Primary tumor":  (255, 140,   0),
-}
-LN_ALPHA = {
-    "Lymph node":     100, "Tumor deposits": 160, "Primary tissue":  90,
-    "Fat tissue":      80, "Vessels":        130, "Mucin":           100, "Primary tumor": 160,
-}
-MET_COLORMAP = {"Metastasis": (220, 20, 60)}
-MET_ALPHA     = {"Metastasis": 200}
 
 # ── User-tunable parameters ────────────────────────────────────────────────────
 LN_RESOLUTION         = 8.0
@@ -281,8 +267,23 @@ def process_slide(scan_id, scan_path, ln_model, met_model, output_dir, slide_pro
 
     ds_met = level_downsampling * tiling_downsample_factor
 
+    # ── Slide-level clinical result (needed for conditional overlay logic) ───
+    slide_prog(75, "Computing slide-level result…")
+    status, label, measurement = get_slide_level_result(
+        mask             = met_pred_mask,
+        ln_seg_mask      = ln_seg_all,
+        metastasis_class = MET_LABEL2ID.get("Metastasis", 1),
+        ln_class         = LN_LABEL2ID["Lymph node"],
+        deposit_class    = LN_LABEL2ID.get("Tumor deposits", 2),
+        fat_class        = LN_LABEL2ID.get("Fat tissue", 4),
+        mucin_class      = LN_LABEL2ID.get("Mucin", 6),
+        resolution       = exact_resolution * tiling_downsample_factor,
+    )
+
+    show_tumor_deposits = "deposit" in status.lower()
+
     # ── GeoJSON overlays ───────────────────────────────────────────────────────
-    slide_prog(75, "Saving GeoJSON overlays…")
+    slide_prog(78, "Saving GeoJSON overlays…")
     geojson_met = os.path.join(output_dir, f"{wsi_name}_metastasis.geojson")
     geojson_ln  = os.path.join(output_dir, f"{wsi_name}_ln.geojson")
     save_geojson_annotation(
@@ -302,6 +303,10 @@ def process_slide(scan_id, scan_path, ln_model, met_model, output_dir, slide_pro
     tiff_ln_path  = None
     tiff_met_path = None
 
+    ln_visible = {"Lymph node"}
+    if show_tumor_deposits:
+        ln_visible.update({"Tumor deposits", "Primary tumor"})
+
     if SAVE_VISUALIZATION:
         slide_prog(82, "Rasterizing OME-TIFF overlays…")
         tiff_ln_path  = os.path.join(output_dir, f"{wsi_name}_ln_overlay.ome.tif")
@@ -309,16 +314,15 @@ def process_slide(scan_id, scan_path, ln_model, met_model, output_dir, slide_pro
 
         lut_ln = np.zeros((256, 4), dtype=np.uint8)
         for class_name, class_id in LN_LABEL2ID.items():
-            if class_name == "Background":
-                continue
-            r, g, b = LN_COLORMAP.get(class_name, (128, 128, 128))
-            lut_ln[class_id] = [r, g, b, LN_ALPHA.get(class_name, 100)]
+            if class_name in ln_visible:
+                r, g, b = COLORMAP.get(class_name, (0, 0, 0))
+                lut_ln[class_id] = [r, g, b, 150]
         save_pyramidal_overlay_tiff(lut_ln[ln_seg_all], tiff_ln_path)
 
         lut_met = np.zeros((256, 4), dtype=np.uint8)
-        for class_name, class_id in MET_LABEL2ID.items():
-            r, g, b = MET_COLORMAP.get(class_name, (0, 0, 0))
-            lut_met[class_id] = [r, g, b, MET_ALPHA.get(class_name, 0)]
+        met_id = MET_LABEL2ID.get("Metastasis", 2)
+        r, g, b = COLORMAP.get("Metastasis", (0, 0, 0))
+        lut_met[met_id] = [r, g, b, 150]
         save_pyramidal_overlay_tiff(lut_met[met_pred_mask], tiff_met_path)
     else:
         slide_prog(82, "Skipping OME-TIFF overlays (visualization not requested)…")
@@ -336,19 +340,6 @@ def process_slide(scan_id, scan_path, ln_model, met_model, output_dir, slide_pro
     for i in range(1, n_ln_labels):
         if np.any((ln_label_map == i) & (met_for_ln > 0)):
             positive_ln_count += 1
-
-    # ── Slide-level clinical result ────────────────────────────────────────────
-    slide_prog(94, "Computing slide-level result…")
-    status, label, measurement = get_slide_level_result(
-        mask             = met_pred_mask,
-        ln_seg_mask      = ln_seg_all,
-        metastasis_class = MET_LABEL2ID.get("Metastasis", 1),
-        ln_class         = LN_LABEL2ID["Lymph node"],
-        deposit_class    = LN_LABEL2ID.get("Tumor deposits", 2),
-        fat_class        = LN_LABEL2ID.get("Fat tissue", 4),
-        mucin_class      = LN_LABEL2ID.get("Mucin", 6),
-        resolution       = exact_resolution * tiling_downsample_factor,
-    )
 
     total_s = time.time() - t_start
 
@@ -369,8 +360,8 @@ def process_slide(scan_id, scan_path, ln_model, met_model, output_dir, slide_pro
                 "mask_width":  ln_w,
                 "mask_height": ln_h,
                 "legend": {
-                    k: "#{:02x}{:02x}{:02x}".format(*LN_COLORMAP[k])
-                    for k in LN_LABEL2ID if k != "Background" and k in LN_COLORMAP
+                    k: "#{:02x}{:02x}{:02x}".format(*COLORMAP.get(k, (0, 0, 0)))
+                    for k in ln_visible
                 },
             },
             {
@@ -380,8 +371,7 @@ def process_slide(scan_id, scan_path, ln_model, met_model, output_dir, slide_pro
                 "mask_width":  met_w,
                 "mask_height": met_h,
                 "legend": {
-                    k: "#{:02x}{:02x}{:02x}".format(*MET_COLORMAP[k])
-                    for k in MET_LABEL2ID if k in MET_COLORMAP
+                    "Metastasis": "#{:02x}{:02x}{:02x}".format(*COLORMAP.get("Metastasis", (0, 0, 0)))
                 },
             },
         ]
