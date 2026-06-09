@@ -11,16 +11,17 @@ import MetastasisSummary from './MetastasisSummary'
 export default function JobOutcomeDispatcher({ jobId, model, scanId = null }) {
   const [outcome, setOutcome] = useState(null)
   const [loading, setLoading] = useState(true)
+  const [retryKey, setRetryKey] = useState(0)
 
   useEffect(() => {
+    setLoading(true)
+    setOutcome(null)
     api.getAnalysisResult(jobId)
       .then(data => {
         let resolved = null
         if (data?.outcome) {
-          // Single-slide result format
           resolved = data.outcome
         } else if (Array.isArray(data?.scans) && scanId != null) {
-          // Batch result format — find the entry for this specific slide
           const scanEntry = data.scans.find(s => s.scan_id === scanId)
           resolved = scanEntry?.outcome ?? null
         }
@@ -28,10 +29,21 @@ export default function JobOutcomeDispatcher({ jobId, model, scanId = null }) {
       })
       .catch(() => {})
       .finally(() => setLoading(false))
-  }, [jobId, scanId])
+  }, [jobId, scanId, retryKey])
 
-  // Don't render anything while fetching, or if the model didn't output an outcome
-  if (loading || !outcome) return null
+  if (loading) return null
+
+  if (!outcome) return (
+    <button
+      onClick={() => setRetryKey(k => k + 1)}
+      style={{
+        fontSize: 9, color: 'var(--text-dark-2)', background: 'none',
+        border: 'none', cursor: 'pointer', padding: '2px 0', textDecoration: 'underline',
+      }}
+    >
+      Reload summary
+    </button>
+  )
 
   // Route the data to the correct UI component based on the model's schema
   switch (model?.result_type) {
