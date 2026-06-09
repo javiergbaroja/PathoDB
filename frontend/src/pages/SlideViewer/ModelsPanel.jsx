@@ -167,84 +167,112 @@ function ScopeSelector({ modelId, scope, hasPolygons, polygonCount, onScopeChang
   )
 }
 
+// ── Download icon (shared) ─────────────────────────────────────────────────────
+
+const DownloadIcon = () => (
+  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+    <polyline points="7 10 12 15 17 10"/>
+    <line x1="12" y1="15" x2="12" y2="3"/>
+  </svg>
+)
+
 // ── Model run area ─────────────────────────────────────────────────────────────
 
-function BatchLiveProgress({ jobId, scanId }) {
-  const isActive = true // only rendered when running/queued
-  const { data: liveState } = useQuery({
-    queryKey: ['job-live-viewer', jobId],
-    queryFn:  () => api.getLiveJobState(jobId),
-    refetchInterval: 3000,
-    staleTime: 0,
-  })
-
-  if (!liveState) return null
-
-  const slides = liveState.slides || {}
-  const slideKeys = Object.keys(slides)
-  if (!slideKeys.length) return null
-
-  const thisScan = scanId ? slides[String(scanId)] : null
-
-  return (
-    <div style={{ marginTop: 6, fontSize: 10, color: 'var(--text-dark-2)' }}>
-      {/* Global pct message */}
-      <div style={{ marginBottom: 4, color: 'rgba(255,255,255,0.4)' }}>{liveState.message}</div>
-
-      {/* Per-slide mini rows — show current scan prominently if present */}
-      {slideKeys.map(sid => {
-        const s       = slides[sid]
-        const isCurrent = scanId && sid === String(scanId)
-        const statusColor = s.status === 'success' ? 'var(--viewer-teal-light)'
-                          : s.status === 'failed'  ? 'var(--viewer-red)'
-                          : s.status === 'running' ? 'var(--viewer-amber)'
-                          : 'rgba(255,255,255,0.3)'
-        return (
-          <div key={sid} style={{
-            display: 'flex', alignItems: 'center', gap: 6, marginBottom: 3,
-            opacity: isCurrent ? 1 : 0.55,
-          }}>
-            <div style={{ width: 5, height: 5, borderRadius: '50%', background: statusColor, flexShrink: 0 }} />
-            <div style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-              {isCurrent ? <strong style={{ color: 'rgba(255,255,255,0.7)' }}>This slide</strong>
-                         : `Slide ${sid}`}
-              {s.status === 'running' && ` — ${s.progress || 0}%`}
-            </div>
-            {s.status === 'running' && (
-              <div style={{ width: 40, height: 2, background: 'rgba(255,255,255,0.1)', borderRadius: 1, flexShrink: 0 }}>
-                <div style={{ width: `${s.progress || 0}%`, height: '100%', background: 'var(--viewer-teal-light)', borderRadius: 1 }} />
-              </div>
-            )}
-          </div>
-        )
-      })}
-    </div>
-  )
-}
-
-function ModelRunArea({ latest, model, submitting, scanInfo, scanId, onRun, onCancel }) {
+function ModelRunArea({ latest, model, submitting, scanInfo, scanId, onRun, onCancel, onToggleOverlay, activeOverlays }) {
   const stainOk = !model.stain_compatibility?.length ||
     model.stain_compatibility.includes(scanInfo?.stain_category)
 
   const isBatchViz = latest?.params_json?.is_batch && latest?.params_json?.save_visualization
 
+  // For running batch+viz jobs: poll live state to get THIS scan's status
+  const { data: liveState } = useQuery({
+    queryKey: ['job-live-viewer', latest?.id],
+    queryFn:  () => api.getLiveJobState(latest?.id),
+    enabled:  !!latest?.id && !!isBatchViz && latest?.status === 'running',
+    refetchInterval: 3000,
+    staleTime: 0,
+  })
+
+  const thisScan    = liveState?.slides?.[String(scanId)]
+  const thisScanDone = thisScan?.status === 'success'
+
   if (latest && (latest.status === 'queued' || latest.status === 'running')) {
+
+    // ── Batch + viz: this scan already processed ──────────────────────────────
+    if (isBatchViz && thisScanDone) {
+      const isActive = !!activeOverlays?.[latest.id]
+      return (
+        <div>
+          <div style={{ fontSize: 10, color: 'var(--viewer-teal-light)', marginBottom: 2 }}>✓ This slide complete</div>
+          <div style={{ fontSize: 9, color: 'rgba(255,255,255,0.3)', marginBottom: 8 }}>
+            Batch still running…
+          </div>
+          <div style={{ display: 'flex', gap: 6, marginBottom: 8 }}>
+            <button
+              onClick={() => onToggleOverlay(latest.id)}
+              style={{
+                flex: 1, fontSize: 10, padding: '5px 0', borderRadius: 4, cursor: 'pointer',
+                border: `1px solid ${isActive ? 'rgba(230,0,46,0.25)' : 'rgba(27,153,139,0.25)'}`,
+                background: isActive ? 'rgba(230,0,46,0.1)' : 'rgba(27,153,139,0.1)',
+                color: isActive ? 'var(--viewer-red)' : 'var(--viewer-teal-light)',
+              }}
+            >
+              {isActive ? 'Hide' : 'View'}
+            </button>
+            <button
+              onClick={() => api.downloadAnalysisFile(latest.id, 'download_file', scanId).catch(e => alert(e.message))}
+              title="Download result for this slide"
+              style={{
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                width: 28, height: 28, borderRadius: 4,
+                background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.1)',
+                color: 'var(--viewer-teal-light)', cursor: 'pointer', flexShrink: 0,
+              }}
+            >
+              <DownloadIcon />
+            </button>
+          </div>
+          <button
+            onClick={onCancel}
+            style={{
+              width: '100%', padding: '5px 0', borderRadius: 5,
+              border: '1px solid rgba(255,255,255,0.12)',
+              background: 'rgba(255,255,255,0.04)',
+              color: 'var(--text-dark-2)', fontSize: 10, cursor: 'pointer',
+            }}
+          >
+            Cancel batch
+          </button>
+        </div>
+      )
+    }
+
+    // ── Normal queued / running ────────────────────────────────────────────────
     return (
       <div>
         <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10, color: 'var(--text-dark-2)', marginBottom: 4 }}>
           <span>SLURM #{latest.slurm_job_id || '—'}</span>
           <ElapsedTimer since={latest.created_at} status={latest.status} />
         </div>
-        <ProgressBar value={latest.progress || 0} height={2} style={{ marginBottom: 5 }} />
-        <div style={{ fontSize: 10, color: 'var(--text-dark-2)', marginBottom: isBatchViz ? 0 : 8 }}>
-          {latest.status === 'queued' ? 'Waiting in queue…' : `Processing… ${latest.progress || 0}%`}
-        </div>
 
-        {/* For batch+visualization jobs: live per-slide breakdown */}
-        {isBatchViz && latest.status === 'running' && (
-          <div style={{ marginBottom: 8 }}>
-            <BatchLiveProgress jobId={latest.id} scanId={scanId} />
-          </div>
+        {/* Progress: for batch+viz show THIS slide's bar; otherwise the global one */}
+        {isBatchViz && thisScan ? (
+          <>
+            <ProgressBar value={thisScan.progress || 0} height={2} style={{ marginBottom: 4 }} />
+            <div style={{ fontSize: 10, color: 'var(--text-dark-2)', marginBottom: 8 }}>
+              {thisScan.status === 'pending'
+                ? 'Waiting to process this slide…'
+                : `${thisScan.progress || 0}% — ${thisScan.message || 'Processing…'}`}
+            </div>
+          </>
+        ) : (
+          <>
+            <ProgressBar value={latest.progress || 0} height={2} style={{ marginBottom: 5 }} />
+            <div style={{ fontSize: 10, color: 'var(--text-dark-2)', marginBottom: 8 }}>
+              {latest.status === 'queued' ? 'Waiting in queue…' : `Processing… ${latest.progress || 0}%`}
+            </div>
+          </>
         )}
 
         <button
@@ -306,12 +334,12 @@ function ModelRunArea({ latest, model, submitting, scanInfo, scanId, onRun, onCa
 
 // ── Past jobs list ─────────────────────────────────────────────────────────────
 
-function PastJobsList({ jobs, catalog, activeOverlays, onToggleOverlay, onDeleteJob }) {
+function PastJobsList({ jobs, catalog, activeOverlays, onToggleOverlay, onDeleteJob, scanId }) {
   const past = jobs.filter(j => ['done', 'failed', 'cancelled'].includes(j.status))
   if (!past.length) return null
 
-  const handleDownload = async jobId => {
-    try { await api.downloadAnalysisFile(jobId, 'download_file') }
+  const handleDownload = async (jobId, isBatchViz) => {
+    try { await api.downloadAnalysisFile(jobId, 'download_file', isBatchViz ? scanId : null) }
     catch (e) { alert(`Download failed: ${e.message}`) }
   }
 
@@ -329,6 +357,7 @@ function PastJobsList({ jobs, catalog, activeOverlays, onToggleOverlay, onDelete
         // Batch jobs without visualization: annotation-only, no overlay in the viewer.
         // Batch jobs WITH visualization: treat like single-slide (overlay is viewable).
         const isBatchAnnotation = !!job.params_json?.is_batch && !job.params_json?.save_visualization
+        const isBatchViz        = !!job.params_json?.is_batch && !!job.params_json?.save_visualization
 
         return (
           <div key={job.id} style={{ marginBottom: 12 }}>
@@ -370,9 +399,9 @@ function PastJobsList({ jobs, catalog, activeOverlays, onToggleOverlay, onDelete
                       </button>
                     )}
 
-                    {/* Download is available for all completed jobs */}
+                    {/* Download — use scan_id for batch+viz so we get the per-scan file */}
                     <button
-                      onClick={() => handleDownload(job.id)}
+                      onClick={() => handleDownload(job.id, isBatchViz)}
                       title="Download model output"
                       style={{
                         display: 'flex', alignItems: 'center', justifyContent: 'center',
@@ -615,6 +644,8 @@ export default function ModelsPanel({
                     scanId={scanId}
                     onRun={() => handleRun(model)}
                     onCancel={() => handleCancel(latest)}
+                    onToggleOverlay={onToggleOverlay}
+                    activeOverlays={activeOverlays}
                   />
 
                   <PastJobsList
@@ -623,6 +654,7 @@ export default function ModelsPanel({
                     activeOverlays={activeOverlays}
                     onToggleOverlay={onToggleOverlay}
                     onDeleteJob={handleDelete}
+                    scanId={scanId}
                   />
                 </div>
               )}

@@ -12,24 +12,33 @@ import { api } from '../api'
 
 function BatchDrillDown({ job }) {
   const queryClient = useQueryClient()
-  const [retryMsg,  setRetryMsg]  = useState('')
-  const [limit, setLimit]         = useState(20)
-  const isRunning                 = job.status === 'running'
+  const [retryMsg, setRetryMsg] = useState('')
+  const [limit,    setLimit]    = useState(20)
+  const isRunning = job.status === 'running'
 
-  // 1. Poll the lightweight live state ONLY while running
+  // 1. Poll the lightweight live state ONLY while running (fast — for statuses/progress)
   const { data: liveState, isLoading: isLiveLoading, error: liveError } = useQuery({
-    queryKey:      ['job-live', job.id],
-    queryFn:       () => api.getLiveJobState(job.id),
-    enabled:       isRunning,
+    queryKey:        ['job-live', job.id],
+    queryFn:         () => api.getLiveJobState(job.id),
+    enabled:         isRunning,
     refetchInterval: 3000,
   })
 
-  // 2. Fetch the final heavy result ONLY when done
+  // 2. Also fetch result.json while running (slower — for per-scan file paths)
+  const { data: liveResult } = useQuery({
+    queryKey:        ['job-result-running', job.id],
+    queryFn:         () => api.getAnalysisResult(job.id),
+    enabled:         isRunning,
+    refetchInterval: 8000,
+    staleTime:       4000,
+  })
+
+  // 3. Final result when done/failed
   const { data: finalResult, isLoading: isResultLoading, error: resultError } = useQuery({
-    queryKey:      ['job-result', job.id],
-    queryFn:       () => api.getAnalysisResult(job.id),
-    enabled:       job.status === 'done' || job.status === 'failed',
-    staleTime:     Infinity, 
+    queryKey:  ['job-result', job.id],
+    queryFn:   () => api.getAnalysisResult(job.id),
+    enabled:   job.status === 'done' || job.status === 'failed',
+    staleTime: Infinity,
   })
 
   const retryMutation = useMutation({
@@ -42,7 +51,7 @@ function BatchDrillDown({ job }) {
   })
 
   const isLoading = isRunning ? isLiveLoading : isResultLoading
-  const error = isRunning ? liveError : resultError
+  const error     = isRunning ? liveError     : resultError
 
   if (job.status === 'queued') {
     return (
@@ -68,8 +77,12 @@ function BatchDrillDown({ job }) {
     )
   }
 
+  // Merge live state (statuses) with result.json (file paths) for running jobs
   const slides = isRunning
-    ? Object.entries(liveState?.slides || {}).map(([id, sData]) => ({ scan_id: parseInt(id), ...sData }))
+    ? Object.entries(liveState?.slides || {}).map(([id, sData]) => {
+        const resultScan = liveResult?.scans?.find(s => String(s.scan_id) === id)
+        return { scan_id: parseInt(id), ...sData, files: resultScan?.files || {} }
+      })
     : (finalResult?.scans || [])
 
   const failedSlides = slides.filter(s => s.status === 'failed')
@@ -89,6 +102,11 @@ function BatchDrillDown({ job }) {
       scan_ids:         failedSlides.map(s => s.scan_id),
       params:           job.params_json,
     })
+  }
+
+  const handleSlideDownload = async (scanId) => {
+    try { await api.downloadAnalysisFile(job.id, 'download_file', scanId) }
+    catch (err) { alert(`Download failed: ${err.message}`) }
   }
 
   return (
@@ -125,7 +143,8 @@ function BatchDrillDown({ job }) {
           <tr>
             <Th>Slide</Th>
             <Th>Status</Th>
-            <Th style={{ width: '60%' }}>Details</Th>
+            <Th>Details</Th>
+            <Th style={{ textAlign: 'right' }}>Actions</Th>
           </tr>
         </thead>
         <tbody>
@@ -135,11 +154,12 @@ function BatchDrillDown({ job }) {
             const slideName = s.scan_path
               ? s.scan_path.split('/').pop()
               : s.scan_id ? `Scan #${s.scan_id}` : 'Unknown'
+            const hasFile   = !!(s.files?.download_file)
 
             return (
               <tr key={s.scan_id || idx} style={{ borderBottom: '1px solid var(--border-l)' }}>
-                <Td mono style={{ maxWidth: 200, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                  <span title={s.file_path}>{slideName}</span>
+                <Td mono style={{ maxWidth: 180, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                  <span title={s.scan_path}>{slideName}</span>
                 </Td>
                 <Td>
                   {s.status === 'running' ? (
@@ -151,7 +171,7 @@ function BatchDrillDown({ job }) {
                     </div>
                   ) : (
                     <Badge variant={isFailed ? 'red' : isSuccess ? 'green' : 'muted'}>
-                      {isFailed ? 'Failed' : isSuccess ? 'Success' : 'Pending'}
+                      {isFailed ? 'Failed' : isSuccess ? 'Done' : 'Pending'}
                     </Badge>
                   )}
                 </Td>
@@ -161,8 +181,24 @@ function BatchDrillDown({ job }) {
                     : isSuccess
                     ? 'Processed successfully.'
                     : s.status === 'running'
-                    ? (s.message || 'Processing slide...') 
+                    ? (s.message || 'Processing slide…')
                     : 'Waiting to be processed…'}
+                </Td>
+                <Td style={{ textAlign: 'right' }}>
+                  {isSuccess && (
+                    <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end', alignItems: 'center' }}>
+                      {s.scan_id && (
+                        <Btn variant="primary" small onClick={() => window.open(`/viewer/${s.scan_id}`, '_blank')}>
+                          Open Viewer ↗
+                        </Btn>
+                      )}
+                      {hasFile && (
+                        <Btn variant="primary" small onClick={() => handleSlideDownload(s.scan_id)}>
+                          Download
+                        </Btn>
+                      )}
+                    </div>
+                  )}
                 </Td>
               </tr>
             )
