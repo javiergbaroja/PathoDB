@@ -201,8 +201,8 @@ function ModelRunArea({ latest, model, submitting, scanInfo, scanId, onRun, onCa
 
   if (latest && (latest.status === 'queued' || latest.status === 'running')) {
 
-    // ── Batch + viz: this scan already processed ──────────────────────────────
-    if (isBatchViz && thisScanDone) {
+    // ── Batch: this scan already processed (batch still running) ────────────
+    if (isBatch && thisScanDone) {
       const isActive = !!activeOverlays?.[latest.id]
       return (
         <div>
@@ -210,31 +210,33 @@ function ModelRunArea({ latest, model, submitting, scanInfo, scanId, onRun, onCa
           <div style={{ fontSize: 9, color: 'rgba(255,255,255,0.3)', marginBottom: 8 }}>
             Batch still running…
           </div>
-          <div style={{ display: 'flex', gap: 6, marginBottom: 8 }}>
-            <button
-              onClick={() => onToggleOverlay(latest.id)}
-              style={{
-                flex: 1, fontSize: 10, padding: '5px 0', borderRadius: 4, cursor: 'pointer',
-                border: `1px solid ${isActive ? 'rgba(230,0,46,0.25)' : 'rgba(27,153,139,0.25)'}`,
-                background: isActive ? 'rgba(230,0,46,0.1)' : 'rgba(27,153,139,0.1)',
-                color: isActive ? 'var(--viewer-red)' : 'var(--viewer-teal-light)',
-              }}
-            >
-              {isActive ? 'Hide' : 'View'}
-            </button>
-            <button
-              onClick={() => api.downloadAnalysisFile(latest.id, 'download_file', scanId).catch(e => alert(e.message))}
-              title="Download result for this slide"
-              style={{
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-                width: 28, height: 28, borderRadius: 4,
-                background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.1)',
-                color: 'var(--viewer-teal-light)', cursor: 'pointer', flexShrink: 0,
-              }}
-            >
-              <DownloadIcon />
-            </button>
-          </div>
+          {isBatchViz && (
+            <div style={{ display: 'flex', gap: 6, marginBottom: 8 }}>
+              <button
+                onClick={() => onToggleOverlay(latest.id)}
+                style={{
+                  flex: 1, fontSize: 10, padding: '5px 0', borderRadius: 4, cursor: 'pointer',
+                  border: `1px solid ${isActive ? 'rgba(230,0,46,0.25)' : 'rgba(27,153,139,0.25)'}`,
+                  background: isActive ? 'rgba(230,0,46,0.1)' : 'rgba(27,153,139,0.1)',
+                  color: isActive ? 'var(--viewer-red)' : 'var(--viewer-teal-light)',
+                }}
+              >
+                {isActive ? 'Hide' : 'View'}
+              </button>
+              <button
+                onClick={() => api.downloadAnalysisFile(latest.id, 'download_file', scanId).catch(e => alert(e.message))}
+                title="Download result for this slide"
+                style={{
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  width: 28, height: 28, borderRadius: 4,
+                  background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.1)',
+                  color: 'var(--viewer-teal-light)', cursor: 'pointer', flexShrink: 0,
+                }}
+              >
+                <DownloadIcon />
+              </button>
+            </div>
+          )}
           <ErrorBoundary fallback={null}>
             <JobOutcomeDispatcher jobId={latest.id} model={model} scanId={scanId} />
           </ErrorBoundary>
@@ -261,8 +263,8 @@ function ModelRunArea({ latest, model, submitting, scanInfo, scanId, onRun, onCa
           <ElapsedTimer since={latest.created_at} status={latest.status} />
         </div>
 
-        {/* Progress: for batch+viz show THIS slide's bar; otherwise the global one */}
-        {isBatchViz && thisScan ? (
+        {/* Progress: for batch jobs show THIS slide's bar; otherwise the global one */}
+        {isBatch && thisScan ? (
           <>
             <ProgressBar value={thisScan.progress || 0} height={2} style={{ marginBottom: 4 }} />
             <div style={{ fontSize: 10, color: 'var(--text-dark-2)', marginBottom: 8 }}>
@@ -343,8 +345,8 @@ function PastJobsList({ jobs, catalog, activeOverlays, onToggleOverlay, onDelete
   const past = jobs.filter(j => ['done', 'failed', 'cancelled'].includes(j.status))
   if (!past.length) return null
 
-  const handleDownload = async (jobId, isBatchViz) => {
-    try { await api.downloadAnalysisFile(jobId, 'download_file', isBatchViz ? scanId : null) }
+  const handleDownload = async (jobId, isBatch) => {
+    try { await api.downloadAnalysisFile(jobId, 'download_file', isBatch ? scanId : null) }
     catch (e) { alert(`Download failed: ${e.message}`) }
   }
 
@@ -404,9 +406,9 @@ function PastJobsList({ jobs, catalog, activeOverlays, onToggleOverlay, onDelete
                       </button>
                     )}
 
-                    {/* Download — use scan_id for batch+viz so we get the per-scan file */}
+                    {/* Download — use scan_id for batch jobs so we get the per-scan file */}
                     <button
-                      onClick={() => handleDownload(job.id, isBatchViz)}
+                      onClick={() => handleDownload(job.id, isBatchViz || isBatchAnnotation)}
                       title="Download model output"
                       style={{
                         display: 'flex', alignItems: 'center', justifyContent: 'center',
