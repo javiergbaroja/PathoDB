@@ -1,1 +1,1 @@
-from . import auth, patients, scans, stains, cohorts, stats, slides, search, assistant, analysis, summarize, projects
+from . import auth, patients, scans, stains, cohorts, stats, slides, search, assistant, analysis, summarize, projects, filesystem

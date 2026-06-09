@@ -4,6 +4,7 @@ import Layout from '../components/Layout'
 import { Btn, SpinnerPage, ErrorMsg, FormField, FormInput, FormSelect, FormLabel, SectionHeader } from '../components/ui'
 import { api } from '../api'
 import SlideTargetManager from '../components/SlideTargetManager'
+import DirectoryBrowser from '../components/DirectoryBrowser'
 
 // \\resstore.unibe.ch\X\Y  →  /storage/research/X/Y
 function convertToHPCPath(raw) {
@@ -78,14 +79,7 @@ export default function BatchAnalysis() {
     ? 'Path must point to the research storage (\\\\resstore.unibe.ch\\… or /storage/research/…)'
     : ''
 
-  const handleBrowse = async () => {
-    if (!window.showDirectoryPicker) return
-    try {
-      await window.showDirectoryPicker()
-    } catch (err) {
-      if (err.name !== 'AbortError') console.error('Directory picker error:', err)
-    }
-  }
+  const [browserOpen, setBrowserOpen] = useState(false)
 
   const { data: catalog, isLoading: modelsLoading } = useQuery({
     queryKey: ['models'],
@@ -180,14 +174,18 @@ export default function BatchAnalysis() {
                   <Btn
                     variant="ghost"
                     small
-                    onClick={handleBrowse}
+                    onClick={() => setBrowserOpen(true)}
                     icon={<FolderIcon />}
-                    title="Browse for directory"
-                    disabled={!window.showDirectoryPicker}
+                    title="Browse server storage"
                   >
                     Browse
                   </Btn>
                 </div>
+                <DirectoryBrowser
+                  isOpen={browserOpen}
+                  onClose={() => setBrowserOpen(false)}
+                  onSelect={(path) => setRawOutputDir(path)}
+                />
               </FormField>
 
               {/* Visualization toggle */}
