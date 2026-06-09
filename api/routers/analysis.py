@@ -699,7 +699,8 @@ def get_overlay_tile(
         raise HTTPException(status_code=401, detail="User not found")
 
     job = _get_job_or_404(job_id, db, user)
-    if job.status != "done":
+    is_batch_partial = bool(job.params_json.get("is_batch")) and scan_id is not None
+    if job.status != "done" and not is_batch_partial:
         raise HTTPException(status_code=409, detail=f"Job is not done yet (status: {job.status})")
 
     # Tile cache hit
@@ -709,8 +710,18 @@ def get_overlay_tile(
         return Response(content=cached, media_type="image/png",
                         headers={"Cache-Control": "public, max-age=3600", "X-Cache": "HIT"})
 
-    # Resolve TIFF path — supports both single-slide and batch result structures
-    result_data = _get_result_data(job_id)
+    # Resolve TIFF path — supports both single-slide and batch result structures.
+    # Bypass the LRU cache for running batch jobs: result.json updates as slides complete.
+    if is_batch_partial and job.status != "done":
+        result_file = _job_result_dir(job_id) / "result.json"
+        if not result_file.exists():
+            raise HTTPException(status_code=404, detail="result.json not found")
+        try:
+            result_data = json.loads(result_file.read_text(encoding="utf-8"))
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Failed to read result.json: {e}")
+    else:
+        result_data = _get_result_data(job_id)
     if scan_id is not None and "scans" in result_data:
         scan_entry = next((s for s in result_data["scans"] if s.get("scan_id") == scan_id), None)
         tiff_path = scan_entry.get("files", {}).get(file_key) if scan_entry else None
@@ -1057,14 +1068,29 @@ def list_jobs(
     Researchers see only their own jobs; admins see all.
     """
     q = db.query(AnalysisJob)
-    
+
     if scan_id is not None:
         q = q.filter(AnalysisJob.scan_id == scan_id)
-        
+
     if user.role != "admin":
         q = q.filter(AnalysisJob.submitted_by == user.id)
-        
+
     jobs = q.order_by(AnalysisJob.created_at.desc()).all()
+
+    # Also include batch+viz jobs where this scan_id appears in params_json["scan_ids"]
+    # (batch jobs only store scan_id = first scan, so slides 2+ would otherwise be invisible)
+    if scan_id is not None:
+        existing_ids = {j.id for j in jobs}
+        extra_q = db.query(AnalysisJob).filter(AnalysisJob.scan_id != scan_id)
+        if user.role != "admin":
+            extra_q = extra_q.filter(AnalysisJob.submitted_by == user.id)
+        for j in extra_q.all():
+            if j.id not in existing_ids:
+                params = j.params_json or {}
+                if (params.get("is_batch") and params.get("save_visualization")
+                        and scan_id in (params.get("scan_ids") or [])):
+                    jobs.append(j)
+        jobs.sort(key=lambda j: j.created_at, reverse=True)
 
     # Sync status for any non-terminal jobs. SLURM is queried ONCE for all jobs
     # rather than spawning a squeue subprocess per job.
@@ -1153,7 +1179,8 @@ def get_job_overlay(
     """
     job = _get_job_or_404(job_id, db, user)
 
-    if job.status != "done":
+    is_batch_partial = bool(job.params_json.get("is_batch")) and scan_id is not None
+    if job.status != "done" and not is_batch_partial:
         raise HTTPException(
             status_code=409,
             detail=f"Job is not done yet (status: {job.status})",
@@ -1294,6 +1321,7 @@ def submit_batch_job(
 
     # 2. CONTEXT & DIRECTORY ROUTING
     req.params["is_batch"] = True
+    req.params["scan_ids"] = req.scan_ids
 
     # Treat empty string "" (from UI) and None exactly the same
     is_auto_ingest = not bool(req.output_directory)
