@@ -8,20 +8,27 @@ import SegmentationSummary from './SegmentationSummary'
 import MultiClassDetectionSummary from './MultiClassDetectionSummary'
 import MetastasisSummary from './MetastasisSummary'
 
-export default function JobOutcomeDispatcher({ jobId, model }) {
-  // These are the state variables that were missing!
+export default function JobOutcomeDispatcher({ jobId, model, scanId = null }) {
   const [outcome, setOutcome] = useState(null)
   const [loading, setLoading] = useState(true)
 
-  // The fetch logic to get the result.json
   useEffect(() => {
     api.getAnalysisResult(jobId)
       .then(data => {
-        if (data && data.outcome) setOutcome(data.outcome)
+        let resolved = null
+        if (data?.outcome) {
+          // Single-slide result format
+          resolved = data.outcome
+        } else if (Array.isArray(data?.scans) && scanId != null) {
+          // Batch result format — find the entry for this specific slide
+          const scanEntry = data.scans.find(s => s.scan_id === scanId)
+          resolved = scanEntry?.outcome ?? null
+        }
+        setOutcome(resolved)
       })
-      .catch(() => {}) // Silently fail if the file isn't ready yet
+      .catch(() => {})
       .finally(() => setLoading(false))
-  }, [jobId])
+  }, [jobId, scanId])
 
   // Don't render anything while fetching, or if the model didn't output an outcome
   if (loading || !outcome) return null
