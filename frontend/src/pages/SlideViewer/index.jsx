@@ -440,11 +440,18 @@ export default function SlideViewer() {
       setActiveOverlays(o => ({ ...o, [jobId]: false }))
     } else {
       try {
-        const result   = await api.getAnalysisResult(jobId)
-        const overlays = result.overlays || []
+        const result = await api.getAnalysisResult(jobId)
+
+        // For batch results, find overlays for the currently-viewed scan.
+        let overlays = result.overlays || []
+        if (!overlays.length && result.scans?.length) {
+          const scanEntry = result.scans.find(s => s.scan_id === leftScanId)
+          overlays = scanEntry?.overlays || []
+        }
         if (!overlays.length) return
+
         for (const overlay of overlays) {
-          await fetchAndRenderOverlay(viewer, jobId, overlay, token, leftInfo)
+          await fetchAndRenderOverlay(viewer, jobId, overlay, token, leftInfo, leftScanId)
         }
         setActiveOverlays(o => ({ ...o, [jobId]: true }))
       } catch (e) { console.error('Failed to toggle overlay:', e) }

@@ -675,13 +675,14 @@ def get_overlay_tile(
     level:    int,
     x:        int,
     y:        int,
-    token:    str     = Query(...),
-    db:       Session = Depends(get_db),
-    payload:  dict    = Depends(_auth_token),
+    token:    str          = Query(...),
+    scan_id:  Optional[int] = Query(None, description="For batch results: scan_id to look up"),
+    db:       Session      = Depends(get_db),
+    payload:  dict         = Depends(_auth_token),
 ):
     """
     Serve a 256×256 PNG tile of an OME-TIFF segmentation overlay.
- 
+
     Memory guarantees
     -----------------
       • read_region is never called with dimensions > MAX_READ_DIM.
@@ -696,21 +697,25 @@ def get_overlay_tile(
     user    = db.get(User, user_id)
     if not user:
         raise HTTPException(status_code=401, detail="User not found")
- 
+
     job = _get_job_or_404(job_id, db, user)
     if job.status != "done":
         raise HTTPException(status_code=409, detail=f"Job is not done yet (status: {job.status})")
- 
+
     # Tile cache hit
     cache_key = _otile_key(job_id, file_key, level, x, y)
     cached    = _otile_get(cache_key)
     if cached:
         return Response(content=cached, media_type="image/png",
                         headers={"Cache-Control": "public, max-age=3600", "X-Cache": "HIT"})
- 
-    # Resolve TIFF path
+
+    # Resolve TIFF path — supports both single-slide and batch result structures
     result_data = _get_result_data(job_id)
-    tiff_path   = result_data.get("files", {}).get(file_key)
+    if scan_id is not None and "scans" in result_data:
+        scan_entry = next((s for s in result_data["scans"] if s.get("scan_id") == scan_id), None)
+        tiff_path = scan_entry.get("files", {}).get(file_key) if scan_entry else None
+    else:
+        tiff_path = result_data.get("files", {}).get(file_key)
     if not tiff_path or not os.path.exists(tiff_path):
         raise HTTPException(status_code=404, detail="Overlay TIFF not found on disk")
  
@@ -1134,15 +1139,17 @@ def get_job_result(
 
 @router.get("/jobs/{job_id}/overlay")
 def get_job_overlay(
-    job_id: int,
-    file:   str     = Query(..., description="'metastasis' or 'ln'"),
-    db:     Session = Depends(get_db),
-    user:   User    = Depends(get_current_active_user),
+    job_id:  int,
+    file:    str          = Query(..., description="file_key in result.json"),
+    scan_id: Optional[int] = Query(None, description="For batch results: scan_id to look up"),
+    db:      Session      = Depends(get_db),
+    user:    User         = Depends(get_current_active_user),
 ):
     """
     Serve a GeoJSON overlay file produced by the model.
     Reads the file path from result.json and streams the content.
     The browser cannot access NFS paths directly — this endpoint proxies it.
+    Supports both single-slide (top-level files{}) and batch (scans[].files{}) structures.
     """
     job = _get_job_or_404(job_id, db, user)
 
@@ -1161,14 +1168,19 @@ def get_job_overlay(
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to read result.json: {e}")
 
-    files = result_data.get("files", {})
-    key   = file
-    geojson_path = files.get(key)
+    # Resolve files dict — batch results use scans[].files, single-slide uses top-level files
+    if scan_id is not None and "scans" in result_data:
+        scan_entry = next((s for s in result_data["scans"] if s.get("scan_id") == scan_id), None)
+        files = scan_entry.get("files", {}) if scan_entry else {}
+    else:
+        files = result_data.get("files", {})
+
+    geojson_path = files.get(file)
 
     if not geojson_path:
         raise HTTPException(
             status_code=404,
-            detail=f"No entry for '{key}' in result.json. Available: {list(files.keys())}",
+            detail=f"No entry for '{file}' in result.json. Available: {list(files.keys())}",
         )
 
     geojson_file = Path(geojson_path)
