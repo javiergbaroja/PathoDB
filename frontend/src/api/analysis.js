@@ -14,12 +14,13 @@ export const getAnalysisResult  = (jobId)               => request('GET', `/anal
 export const getAnalysisOverlay = (jobId, file, scanId = null) =>
   request('GET', `/analysis/jobs/${jobId}/overlay?file=${file}${scanId != null ? `&scan_id=${scanId}` : ''}`)
 export const getLiveJobState    = (jobId)               => request('GET', `/analysis/jobs/${jobId}/live-state`)
-export const downloadAnalysisFile = async (jobId, fileKey = 'download_file') => {
+export const downloadAnalysisFile = async (jobId, fileKey = 'download_file', scanId = null) => {
   const token = getToken()
   const headers = {}
   if (token) headers['Authorization'] = `Bearer ${token}`
 
-  const res = await fetch(`${BASE}/analysis/jobs/${jobId}/download?file_key=${fileKey}`, {
+  const scanParam = scanId != null ? `&scan_id=${scanId}` : ''
+  const res = await fetch(`${BASE}/analysis/jobs/${jobId}/download?file_key=${fileKey}${scanParam}`, {
     method: 'GET',
     headers,
   })

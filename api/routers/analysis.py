@@ -1202,17 +1202,21 @@ def get_job_overlay(
 
 @router.get("/jobs/{job_id}/download")
 def download_job_file(
-    job_id: int,
-    file_key: str = Query("download_file", description="Key in the result.json files dict"),
-    db: Session = Depends(get_db),
-    user: User = Depends(get_current_active_user),
+    job_id:   int,
+    file_key: str          = Query("download_file", description="Key in the result.json files dict"),
+    scan_id:  Optional[int] = Query(None, description="For batch results: scan_id to look up"),
+    db:       Session      = Depends(get_db),
+    user:     User         = Depends(get_current_active_user),
 ):
     """
     Serve a downloadable file produced by the model inference.
+    Supports per-scan downloads from running batch jobs when scan_id is provided.
     """
     job = _get_job_or_404(job_id, db, user)
 
-    if job.status != "done":
+    # Allow per-scan download from a running batch job; otherwise require done.
+    is_batch_partial = bool(job.params_json.get("is_batch")) and scan_id is not None
+    if job.status != "done" and not is_batch_partial:
         raise HTTPException(
             status_code=409,
             detail=f"Job is not done yet (status: {job.status})",
@@ -1227,7 +1231,13 @@ def download_job_file(
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to read result.json: {e}")
 
-    files = result_data.get("files", {})
+    # Resolve files dict — batch results use scans[].files, single-slide uses top-level files
+    if scan_id is not None and "scans" in result_data:
+        scan_entry = next((s for s in result_data["scans"] if s.get("scan_id") == scan_id), None)
+        files = scan_entry.get("files", {}) if scan_entry else {}
+    else:
+        files = result_data.get("files", {})
+
     file_path = files.get(file_key)
 
     if not file_path or not os.path.exists(file_path):
@@ -1238,8 +1248,8 @@ def download_job_file(
 
     filename = os.path.basename(file_path)
     return FileResponse(
-        path=file_path, 
-        filename=filename, 
+        path=file_path,
+        filename=filename,
         media_type="application/octet-stream"
     )
 
