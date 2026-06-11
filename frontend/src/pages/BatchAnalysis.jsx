@@ -1,9 +1,19 @@
+// frontend/src/pages/BatchAnalysis.jsx
+// ─── Changes from original ───────────────────────────────────────────────────
+//  1. Import SlideSourceSelector instead of SlideTargetManager
+//  2. Added 3 new state vars: sourceOption, cohortResult, jobName
+//  3. Panel 2: <SlideTargetManager> replaced with <SlideSourceSelector>
+//  4. handleSubmit: cohort_inline path saves cohort first, then resolves scan IDs
+//  5. Everything else (panel 1, params, save_visualization, output dir,
+//     DirectoryBrowser, submit button, convertToHPCPath, ParamRow) is unchanged
+// ─────────────────────────────────────────────────────────────────────────────
+
 import { useState, useCallback } from 'react'
 import { useQuery, useMutation } from '@tanstack/react-query'
 import Layout from '../components/Layout'
 import { Btn, SpinnerPage, ErrorMsg, FormField, FormInput, FormSelect, FormLabel, SectionHeader } from '../components/ui'
 import { api } from '../api'
-import SlideTargetManager from '../components/SlideTargetManager'
+import SlideSourceSelector from '../components/SlideSourceSelector'
 import DirectoryBrowser from '../components/DirectoryBrowser'
 
 // \\resstore.unibe.ch\X\Y  →  /storage/research/X/Y
@@ -74,6 +84,12 @@ export default function BatchAnalysis() {
   const [filteredTargets,   setFilteredTargets]    = useState([])
   const [errorMsg,          setErrorMsg]           = useState('')
   const [successMsg,        setSuccessMsg]         = useState('')
+
+  // ── NEW: source selector state ─────────────────────────────────────────────
+  const [sourceOption,  setSourceOption]  = useState('cohort_inline')
+  const [cohortResult,  setCohortResult]  = useState(null)   // { scanCount, queryPayload }
+  const [jobName,       setJobName]       = useState('')      // used as cohort name when inline
+
   const outputDir      = convertToHPCPath(rawOutputDir)
   const outputDirError = rawOutputDir.trim() !== '' && !outputDir.startsWith('/storage/research/')
     ? 'Path must point to the research storage (\\\\resstore.unibe.ch\\… or /storage/research/…)'
@@ -114,24 +130,66 @@ export default function BatchAnalysis() {
     onSuccess: (data) => {
       setSuccessMsg(`Success! Batch job #${data.id} submitted to SLURM.`)
       setFilteredTargets([])
+      // Reset source selector state after a successful submit
+      setSourceOption('cohort_inline')
+      setCohortResult(null)
+      setJobName('')
     },
     onError: (err) => setErrorMsg(err.message || 'Failed to submit batch job.'),
   })
 
-  const handleSubmit = () => {
-    if (!filteredTargets.length) return
-    const payload = {
-      model_id:         selectedModelId,
-      output_directory: outputDir,
-      scan_ids:         filteredTargets.map(m => m.scan_id),
-      params:           { ...modelParams, save_visualization: saveVisualization },
+  const handleSubmit = async () => {
+    setErrorMsg('')
+    let scanIds = []
+
+    try {
+      if (sourceOption === 'cohort_inline') {
+        // Save the cohort first (named after the job, or a timestamp fallback)
+        const cohortName = jobName.trim() || `Batch job ${new Date().toISOString().slice(0, 16)}`
+        const { queryPayload } = cohortResult
+        const filter_json = { ...queryPayload, return_level: 'scan' }
+        const savedCohort = await api.saveCohort({ name: cohortName, filter_json })
+
+        // Resolve scan IDs from the saved cohort
+        const data = await api.queryCohort({ ...savedCohort.filter_json, return_level: 'scan' })
+        scanIds = data.results.map(r => r.scan_id)
+      } else {
+        // cohort_saved and manual both resolve via filteredTargets
+        scanIds = filteredTargets.map(m => m.scan_id)
+      }
+
+      if (!scanIds.length) {
+        setErrorMsg('No slides resolved. Please check your selection.')
+        return
+      }
+
+      const payload = {
+        model_id:         selectedModelId,
+        output_directory: outputDir,
+        scan_ids:         scanIds,
+        params:           { ...modelParams, save_visualization: saveVisualization },
+      }
+      submitMutation.mutate(payload)
+    } catch (err) {
+      setErrorMsg(err.message || 'Failed to prepare slide list.')
     }
-    submitMutation.mutate(payload)
   }
 
   if (modelsLoading) return <SpinnerPage />
 
   const isSubmitting = submitMutation.isLoading || submitMutation.isPending
+
+  // Slides are "ready" when there is something to submit
+  const slidesReady = sourceOption === 'cohort_inline'
+    ? cohortResult !== null
+    : filteredTargets.length > 0
+
+  // Cohort-inline ready label (mirrors CreateProjectModal wording)
+  const cohortReadyLabel = cohortResult
+    ? jobName.trim()
+      ? `✓ ${cohortResult.scanCount.toLocaleString()} scans ready — will be saved as cohort "${jobName.trim()}"`
+      : `✓ ${cohortResult.scanCount.toLocaleString()} scans ready — a cohort will be saved automatically`
+    : null
 
   return (
     <Layout title="Batch Analysis">
@@ -144,7 +202,7 @@ export default function BatchAnalysis() {
           </div>
         )}
 
-        {/* STEP 1: Configuration */}
+        {/* ── STEP 1: Configuration (UNCHANGED) ────────────────────────── */}
         <div style={{ background: 'var(--white)', borderRadius: 'var(--radius-xl)', padding: 24, border: '1px solid var(--border-l)', boxShadow: 'var(--shadow-s)' }}>
           <SectionHeader title="1. Configuration" />
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 24 }}>
@@ -188,7 +246,22 @@ export default function BatchAnalysis() {
                 />
               </FormField>
 
-              {/* Visualization toggle */}
+              {/* Job name — only shown when building inline cohort */}
+              {sourceOption === 'cohort_inline' && (
+                <FormField label="Job name (optional)">
+                  <FormInput
+                    type="text"
+                    placeholder="e.g. CRC HoVer-NeXt run"
+                    value={jobName}
+                    onChange={e => setJobName(e.target.value)}
+                  />
+                  <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 4 }}>
+                    Used as the name of the saved cohort.
+                  </div>
+                </FormField>
+              )}
+
+              {/* Visualization toggle (UNCHANGED) */}
               <button
                 type="button"
                 onClick={() => setSaveVisualization(v => !v)}
@@ -200,7 +273,6 @@ export default function BatchAnalysis() {
                   cursor: 'pointer', textAlign: 'left', transition: 'var(--transition-base)', width: '100%',
                 }}
               >
-                {/* Toggle pill */}
                 <div style={{
                   position: 'relative', width: 36, height: 20, borderRadius: 10, flexShrink: 0, marginTop: 1,
                   background: saveVisualization ? 'var(--teal)' : 'var(--border)',
@@ -225,6 +297,7 @@ export default function BatchAnalysis() {
               </button>
             </div>
 
+            {/* Model Parameters (UNCHANGED) */}
             <div style={{ background: 'var(--navy-05)', padding: 16, borderRadius: 'var(--radius-lg)', border: '1px solid var(--border-l)' }}>
               <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-2)', marginBottom: 16, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
                 Model Parameters
@@ -251,22 +324,40 @@ export default function BatchAnalysis() {
           </div>
         </div>
 
-        {/* STEP 2: Target Slides */}
+        {/* ── STEP 2: Target Slides (UPDATED — SlideSourceSelector) ──────── */}
         <div style={{ background: 'var(--white)', borderRadius: 'var(--radius-xl)', padding: 24, border: '1px solid var(--border-l)', boxShadow: 'var(--shadow-s)' }}>
           <SectionHeader title="2. Target Slides" />
-          <SlideTargetManager
+          <SlideSourceSelector
+            sourceOption={sourceOption}
+            onSourceOption={key => {
+              setSourceOption(key)
+              setFilteredTargets([])
+              setCohortResult(null)
+            }}
             cohorts={cohorts}
-            requiredStains={selectedModelDef?.stain_compatibility || []}
+            filteredTargets={filteredTargets}
             onTargetsResolved={setFilteredTargets}
+            cohortResult={cohortResult}
+            onCohortResult={setCohortResult}
+            requiredStains={selectedModelDef?.stain_compatibility || []}
+            descriptions={{
+              cohort_inline: 'Filter or query the database on the spot. The cohort is saved automatically.',
+              cohort_saved:  'Load an existing saved cohort.',
+              manual:        'Provide file paths or filenames manually.',
+            }}
+            cohortReadyLabel={cohortReadyLabel}
           />
         </div>
 
-        {/* STEP 3: Submit */}
-        {filteredTargets.length > 0 && (
+        {/* ── STEP 3: Submit (UNCHANGED logic, guard updated for new modes) */}
+        {slidesReady && (
           <div style={{ background: 'var(--white)', borderRadius: 'var(--radius-xl)', padding: 24, border: '1px solid var(--border-l)', boxShadow: 'var(--shadow-s)' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <span style={{ fontSize: 13, color: 'var(--text-3)' }}>
-                Ready to submit <strong>{filteredTargets.length}</strong> slides to SLURM.
+                {sourceOption === 'cohort_inline'
+                  ? <>Ready to submit <strong>{cohortResult.scanCount}</strong> scans to SLURM.</>
+                  : <>Ready to submit <strong>{filteredTargets.length}</strong> slides to SLURM.</>
+                }
               </span>
               <Btn
                 variant="primary"
