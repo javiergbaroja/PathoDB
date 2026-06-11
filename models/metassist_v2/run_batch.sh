@@ -7,15 +7,15 @@
 # =============================================================================
 #SBATCH --mail-type=fail
 #SBATCH --mail-user=javier.garcia@unibe.ch
-#SBATCH --time=23:59:59
-#SBATCH --account=invest
+#SBATCH --time=5:59:59
+#SBATCH --account=gratis
 #SBATCH --mem=80G
 #SBATCH --nodes=1
 #SBATCH --cpus-per-task=7
 #SBATCH --partition=gpu-invest
-#SBATCH --gres=gpu:a100:1
+#SBATCH --gres=gpu:rtx4090:1
 #SBATCH --job-name=metassist2_batch
-#SBATCH --qos=job_gpu_igmp-tru
+#SBATCH --qos=job_gpu_preemptable
 
 set -euo pipefail
 
@@ -31,6 +31,7 @@ echo ""
 # Clean environment — use Apptainer container (same env as single-slide run.sh)
 module purge
 export APPTAINER_BIND="/storage:/storage"
+export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 module load CUDA/11.8.0
 module load GCCcore/10.3.0
 

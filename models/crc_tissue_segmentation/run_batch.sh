@@ -33,6 +33,7 @@ module load CUDA/11.8.0
 module load GCCcore/10.3.0
 
 export APPTAINER_BIND="/storage:/storage"
+export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 
 # ── Run batch inference ───────────────────────────────────────────────────────
 SING_CONTAINER="/storage/research/igmp_slide_workspace/GRP Zlobec/Amjad/qupath/metassist-v1/MetAssist_expansion/crc-ugi/code/package_refactored/singularity/metassist_env.sif"

@@ -37,6 +37,8 @@ ENV_FILE="$PROJECT_DIR/.env"
 API_PORT=8000
 ADDR_FILE="$PROJECT_DIR/server_address.txt"
 SUPPRESS_FILE="$PROJECT_DIR/.suppress_resubmit"
+PG_ENV="/storage/research/igmp_dp_workspace/garciabaroja_javier/conda_envs/pathodb-pg"
+PG_BIN="$PG_ENV/bin"
 
 # ── Cleanup + optional self-resubmit on any exit ─────────────────────────────
 _shutdown() {
@@ -47,7 +49,7 @@ _shutdown() {
     rm -f "$ADDR_FILE"
 
     kill "${OLLAMA_PID:-}" 2>/dev/null || true
-    pg_ctl -D "$PGDATA" stop 2>/dev/null || true
+    "$PG_BIN/pg_ctl" -D "$PGDATA" stop 2>/dev/null || true
 
     # Self-resubmit unless explicitly suppressed (e.g. by start_api.sh)
     if [ -f "$SUPPRESS_FILE" ]; then
@@ -102,18 +104,18 @@ if [ -f "$PIDFILE" ]; then
     fi
 fi
 
-if pg_ctl -D "$PGDATA" status | grep -q "server is running"; then
+if "$PG_BIN/pg_ctl" -D "$PGDATA" status | grep -q "server is running"; then
     echo "PostgreSQL already running."
 else
     echo "Starting PostgreSQL..."
-    pg_ctl -D "$PGDATA" -l "$PGDATA/logs/startup.log" start
+    "$PG_BIN/pg_ctl" -D "$PGDATA" -l "$PGDATA/logs/startup.log" start
     for i in $(seq 1 30); do
-        pg_isready -p "$PGPORT" -q && echo "PostgreSQL ready after ${i}s." && break
+        "$PG_BIN/pg_isready" -p "$PGPORT" -q && echo "PostgreSQL ready after ${i}s." && break
         sleep 1
     done
 fi
 
-psql -p "$PGPORT" -d postgres -c "ALTER USER ${POSTGRES_USER} WITH PASSWORD '${POSTGRES_PASSWORD}';" > /dev/null
+"$PG_BIN/psql" -p "$PGPORT" -d postgres -c "ALTER USER ${POSTGRES_USER} WITH PASSWORD '${POSTGRES_PASSWORD}';" > /dev/null
 
 # Configure PostgreSQL to accept intra-cluster connections (idempotent)
 NODE_IP=$(hostname -I | awk '{print $1}')
@@ -128,9 +130,9 @@ if ! grep -qF "$CLUSTER_SUBNET" "$PGDATA/pg_hba.conf"; then
     echo "$PG_HBA_RULE" >> "$PGDATA/pg_hba.conf"
 fi
 # listen_addresses requires a full restart, not just reload
-pg_ctl -D "$PGDATA" restart -l "$PGDATA/logs/startup.log" > /dev/null
+"$PG_BIN/pg_ctl" -D "$PGDATA" restart -l "$PGDATA/logs/startup.log" > /dev/null
 for i in $(seq 1 15); do
-    pg_isready -p "$PGPORT" -q && break
+    "$PG_BIN/pg_isready" -p "$PGPORT" -q && break
     sleep 1
 done
 
@@ -162,7 +164,8 @@ echo ""
 
 # ── Start API server ──────────────────────────────────────────────────────────
 echo "Starting FastAPI server..."
-python3 -m uvicorn api.main:app \
+# python3 -m uvicorn api.main:app \
+"/storage/research/igmp_slide_workspace/GRP Zlobec/Javier/conda_envs/langchain/bin/python3" -m uvicorn api.main:app \
     --host 0.0.0.0 \
     --port "$API_PORT" \
     --log-level info

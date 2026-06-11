@@ -32,6 +32,7 @@ import os
 import sys
 import time
 import traceback
+import gc
 
 import cv2
 import numpy as np
@@ -375,6 +376,9 @@ def process_slide(scan_id, scan_path, ln_model, met_model, output_dir, slide_pro
                 },
             },
         ]
+    
+    torch.cuda.empty_cache()
+    gc.collect()
 
     return {
         "scan_id":   scan_id,

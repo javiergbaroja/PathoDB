@@ -28,7 +28,7 @@ echo ""
 
 module purge
 export APPTAINER_BINDPATH="/storage,/scratch"
-
+export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 module load Anaconda3
 module load CUDA/11.8.0
 module load GCCcore/10.3.0
