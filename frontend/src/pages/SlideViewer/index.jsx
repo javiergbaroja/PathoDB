@@ -133,6 +133,11 @@ export default function SlideViewer() {
     }
   }, [])
 
+  useEffect(() => {
+    if (osdLeftRef.current) clearAllOverlays(osdLeftRef.current)
+    setActiveOverlays({})
+  }, [leftScanId])
+
   // ── OSD viewers (left + optional right for compare mode) ────────────────────
   // Both share the same setup, scalebar, and script-loading via the hook.
   useOSDViewer({

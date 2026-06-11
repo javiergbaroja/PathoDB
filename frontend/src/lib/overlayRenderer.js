@@ -10,6 +10,7 @@ import { api } from '../api'
 // ─────────────────────────────────────────────────────────────────────────────
 const activeOverlays = new Map()
 const loadingJobs    = new Set()
+const viewerGeneration = new WeakMap()
 
 // SVG circles are acceptable for sparse point overlays, but if a vector result
 // contains more Point features than this we switch to the canvas path instead
@@ -42,6 +43,7 @@ export async function fetchAndRenderOverlay(viewer, jobId, overlayDef, token, sl
       const maskWidth  = overlayDef.mask_width  || parseFloat(slideInfo?.width  || 100000)
       const maskHeight = overlayDef.mask_height || parseFloat(slideInfo?.height || 100000)
       const maxLevel   = Math.ceil(Math.log2(Math.max(maskWidth, maskHeight)))
+      const myGen = (viewerGeneration.get(viewer) ?? 0)
 
       viewer.addTiledImage({
         tileSource: {
@@ -51,7 +53,14 @@ export async function fetchAndRenderOverlay(viewer, jobId, overlayDef, token, sl
             `/api/analysis/jobs/${jobId}/tiles/${fileKey}?level=${level}&x=${x}&y=${y}&token=${token}${scanParam}`,
         },
         opacity: 0.7, x: 0, y: 0, width: 1.0,
-        success: e => jobRefs.push({ tiledImage: e.item }),
+        success: e => {
+          // If the viewer was reset since we started loading, discard this item
+          if ((viewerGeneration.get(viewer) ?? 0) !== myGen) {
+            try { viewer.world.removeItem(e.item) } catch (_) {}
+            return
+          }
+          jobRefs.push({ tiledImage: e.item })
+        },
       })
       return
     }
@@ -63,7 +72,14 @@ export async function fetchAndRenderOverlay(viewer, jobId, overlayDef, token, sl
       viewer.addTiledImage({
         tileSource: { type: 'image', url: `/api/analysis/jobs/${jobId}/overlay?file=${fileKey}${scanParam}` },
         opacity: 0.65, x: 0, y: 0, width: 1,
-        success: e => jobRefs.push({ tiledImage: e.item }),
+        success: e => {
+          // If the viewer was reset since we started loading, discard this item
+          if ((viewerGeneration.get(viewer) ?? 0) !== myGen) {
+            try { viewer.world.removeItem(e.item) } catch (_) {}
+            return
+          }
+          jobRefs.push({ tiledImage: e.item })
+        },
       })
       return
     }
@@ -380,4 +396,6 @@ export function clearAllOverlays(viewer) {
   for (const jobId of [...activeOverlays.keys()]) {
     clearOverlay(viewer, jobId)
   }
+  // Invalidate any in-flight addTiledImage success callbacks for this viewer
+  viewerGeneration.set(viewer, (viewerGeneration.get(viewer) ?? 0) + 1)
 }
