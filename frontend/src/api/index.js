@@ -2,11 +2,16 @@
 import { request } from './client'
 
 import { login, register, logout, getMe, getUsers, createUser, deactivateUser } from './auth'
-import { getPatients, getPatient, getHierarchy } from './patients'
+import {
+  getPatients, getPatient, getHierarchy,
+  updatePatient, updateSubmission, updateReport,
+  createProbe, updateProbe, deleteProbe,
+  createBlock, updateBlock, deleteBlock,
+} from './patients'
 import { deleteCohort, getCohortResults, queryCohort, queryList, getCohorts, saveCohort, exportCohort } from './cohorts'
 import { getModels, getAnalysisJobs, getAnalysisJob, submitAnalysis, submitBatchAnalysis, cancelAnalysis, deleteAnalysis, getAnalysisResult, getLiveJobState, getAnalysisOverlay, downloadAnalysisFile, getAnalysisOverlayBlob } from './analysis'
 import { getSlideInfo, getThumbnailUrl, getRelatedScans, matchSlides } from './slides'
-import { getScansForBlock, registerScan, deleteScan } from './scans'
+import { getScansForBlock, registerScan, updateScan, deleteScan } from './scans'
 import { getStains, createStain, updateStain } from './stains'
 import { search, lookup, getStats, getDashboardStats } from './search'
 import { createChatSession, listChatSessions, getChatSession, getAssistantHealth, streamChat, confirmAction } from './assistant'
@@ -26,7 +31,9 @@ export const api = {
   // Auth
   login, register, logout, getMe, getUsers, createUser, deactivateUser,
   // Patients
-  getPatients, getPatient, getHierarchy,
+  getPatients, getPatient, getHierarchy, updatePatient, updateSubmission, updateReport,
+  createProbe, updateProbe, deleteProbe,
+  createBlock, updateBlock, deleteBlock,
   // Cohorts
   deleteCohort, getCohortResults, queryCohort, queryList, getCohorts, saveCohort, exportCohort,
 
@@ -34,7 +41,7 @@ export const api = {
   getAnalysisResult, getAnalysisOverlay, downloadAnalysisFile, getAnalysisOverlayBlob, getLiveJobState,
 
   getSlideInfo, getThumbnailUrl, getRelatedScans, matchSlides,
-  getScansForBlock, registerScan, deleteScan,
+  getScansForBlock, registerScan, updateScan, deleteScan,
   // Stains
   getStains, createStain, updateStain,
   // Search & Stats

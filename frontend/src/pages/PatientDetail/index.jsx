@@ -4,9 +4,10 @@ import { useParams, useNavigate, useLocation } from 'react-router-dom'
 import Layout from '../../components/Layout'
 import { Badge, Btn, Panel, SpinnerPage, ErrorMsg, SegmentedControl } from '../../components/ui'
 import { api } from '../../api'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useAuth } from '../../context/AuthContext'
 
+import { ProbeModal, BlockModal, ConfirmDeleteModal } from './EditModals'
 import RegisterScanModal from './RegisterScanModal'
 import ScansDrawer from './ScansDrawer'
 import SummaryPanel from './SummaryPanel'
@@ -56,32 +57,86 @@ function ScannedIcon({ size = 16 }) {
   )
 }
 
-function ReportBlock({ label, text }) {
+function ReportBlock({ label, text, onSave, saving }) {
   const [expanded, setExpanded] = useState(false)
-  const isLong = text && text.length > 200
+  const [editing,  setEditing]  = useState(false)
+  const [draft,    setDraft]    = useState(text ?? '')
+  const isLong    = !editing && text && text.length > 200
+  const isDirty   = draft !== (text ?? '')
+
+  function handleSave() {
+    if (!isDirty) { setEditing(false); return }
+    onSave(draft).then(() => setEditing(false))
+  }
+
+  function handleCancel() {
+    setDraft(text ?? '')
+    setEditing(false)
+  }
+
   return (
     <div style={{ border: '1px solid var(--border-l)', borderRadius: 6, overflow: 'hidden', background: 'white' }}>
+      {/* Header */}
       <div style={{
         padding: '6px 10px', background: 'var(--navy-05)', borderBottom: '1px solid var(--border-l)',
         fontSize: 11, fontWeight: 600, color: 'var(--text-2)', textTransform: 'uppercase',
         letterSpacing: '0.06em', display: 'flex', justifyContent: 'space-between', alignItems: 'center',
       }}>
         {label}
-        {isLong && (
-          <button onClick={() => setExpanded(e => !e)}
-            style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 11, color: 'var(--navy)', fontFamily: 'var(--font-sans)' }}>
-            {expanded ? 'Show less' : 'Show all'}
-          </button>
-        )}
+        <div style={{ display: 'flex', gap: 6 }}>
+          {!editing && isLong && (
+            <button onClick={() => setExpanded(e => !e)}
+              style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 11, color: 'var(--navy)', fontFamily: 'var(--font-sans)' }}>
+              {expanded ? 'Show less' : 'Show all'}
+            </button>
+          )}
+          {/* Edit button — only rendered when onSave is provided (i.e. user is admin) */}
+          {onSave && !editing && (
+            <button onClick={() => { setDraft(text ?? ''); setEditing(true) }}
+              style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 11, color: 'var(--navy)', fontFamily: 'var(--font-sans)' }}>
+              Edit
+            </button>
+          )}
+          {onSave && editing && (
+            <>
+              <button onClick={handleCancel}
+                style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 11, color: 'var(--text-3)', fontFamily: 'var(--font-sans)' }}>
+                Cancel
+              </button>
+              <button onClick={handleSave} disabled={saving || !isDirty}
+                style={{ background: 'none', border: 'none', cursor: isDirty ? 'pointer' : 'default',
+                  fontSize: 11, color: isDirty ? 'var(--teal)' : 'var(--text-3)',
+                  fontFamily: 'var(--font-sans)', fontWeight: 600 }}>
+                {saving ? 'Saving…' : 'Save'}
+              </button>
+            </>
+          )}
+        </div>
       </div>
-      <div style={{
-        padding: '10px', fontSize: 12, lineHeight: 1.6,
-        color: text ? 'var(--text-1)' : 'var(--text-3)',
-        fontStyle: text ? 'normal' : 'italic', whiteSpace: 'pre-wrap',
-        maxHeight: expanded ? 'none' : 120, overflow: 'hidden',
-      }}>
-        {text ? (expanded || !isLong ? text : text.slice(0, 200) + '…') : 'Not available'}
-      </div>
+
+      {/* Body */}
+      {editing ? (
+        <textarea
+          value={draft}
+          onChange={e => setDraft(e.target.value)}
+          style={{
+            width: '100%', boxSizing: 'border-box',
+            minHeight: 160, padding: '10px',
+            fontSize: 12, lineHeight: 1.6, fontFamily: 'var(--font-sans)',
+            color: 'var(--text-1)', border: 'none', resize: 'vertical',
+            outline: 'none', background: 'var(--navy-05)',
+          }}
+        />
+      ) : (
+        <div style={{
+          padding: '10px', fontSize: 12, lineHeight: 1.6,
+          color: text ? 'var(--text-1)' : 'var(--text-3)',
+          fontStyle: text ? 'normal' : 'italic', whiteSpace: 'pre-wrap',
+          maxHeight: expanded ? 'none' : 120, overflow: 'hidden',
+        }}>
+          {text ? (expanded || !isLong ? text : text.slice(0, 200) + '…') : 'Not available'}
+        </div>
+      )}
     </div>
   )
 }
@@ -414,7 +469,7 @@ export default function PatientDetail() {
   const { id }   = useParams()
   const navigate = useNavigate()
   const location = useLocation()
-  const { token } = useAuth();
+  const { token, isAdmin } = useAuth();
 
   // ── React Query: patient hierarchy ────────────────────────────────────────
   const { data, isLoading: loading, error: queryError } = useQuery({
@@ -430,6 +485,13 @@ export default function PatientDetail() {
   const [expandedReports, setExpandedReports] = useState({})
   const [drawerOpen,      setDrawerOpen]      = useState(false)
   const [registerOpen,    setRegisterOpen]    = useState(false)
+  const [editScan,        setEditScan]        = useState(null)   // scan object being edited
+  const [addProbeForSub,  setAddProbeForSub]  = useState(null)   // sub object
+  const [editProbeTarget, setEditProbeTarget] = useState(null)   // { probe, sub }
+  const [deleteProbeTarget, setDeleteProbeTarget] = useState(null) // { probe, sub }
+  const [addBlockForProbe,  setAddBlockForProbe]  = useState(null) // { probe, sub }
+  const [editBlockTarget,   setEditBlockTarget]   = useState(null) // { block, probe, sub }
+  const [deleteBlockTarget, setDeleteBlockTarget] = useState(null) // { block, probe, sub }
   const [filterTab,       setFilterTab]       = useState('all')  // 'all' | 'malignant' | 'scanned'
 
   // Ref map: sub.id → DOM element (for scroll-to from timeline)
@@ -445,6 +507,28 @@ export default function PatientDetail() {
     queryFn:  () => api.getScansForBlock(selected.block.id),
     enabled:  !!selected?.block?.id,
   })
+
+  const queryClient = useQueryClient()
+  const invalidate  = () => queryClient.invalidateQueries({ queryKey: ['patient', id] })
+
+  const patchSubmission = useMutation({
+    mutationFn: ({ subId, data }) => api.updateSubmission(id, subId, data),
+    onSuccess:  invalidate,
+  })
+
+  const patchReport = useMutation({
+    mutationFn: ({ patientId, subId, reportId, data }) =>
+      api.updateReport(patientId, subId, reportId, data),
+    onSuccess: invalidate,
+  })
+
+  const addProbe    = useMutation({ mutationFn: ({ subId, data })                   => api.createProbe(id, subId, data),              onSuccess: invalidate })
+  const patchProbe  = useMutation({ mutationFn: ({ subId, probeId, data })          => api.updateProbe(id, subId, probeId, data),      onSuccess: invalidate })
+  const removeProbe = useMutation({ mutationFn: ({ subId, probeId })                => api.deleteProbe(id, subId, probeId),            onSuccess: invalidate })
+
+  const addBlock    = useMutation({ mutationFn: ({ subId, probeId, data })          => api.createBlock(id, subId, probeId, data),      onSuccess: invalidate })
+  const patchBlock  = useMutation({ mutationFn: ({ subId, probeId, blockId, data }) => api.updateBlock(id, subId, probeId, blockId, data), onSuccess: invalidate })
+  const removeBlock = useMutation({ mutationFn: ({ subId, probeId, blockId })       => api.deleteBlock(id, subId, probeId, blockId),   onSuccess: () => { invalidate(); setSelected(null) } })
 
   // ── Filtered submissions ───────────────────────────────────────────────────
   const filteredSubmissions = useMemo(() => {
@@ -692,8 +776,26 @@ export default function PatientDetail() {
                           </button>
                           {reportOpen && (
                             <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 8 }}>
-                              {macro && <ReportBlock label="Macroscopy"  text={macro.report_text} />}
-                              {micro && <ReportBlock label="Microscopy"  text={micro.report_text} />}
+                              {macro && (
+                                <ReportBlock
+                                  label="Macroscopy"
+                                  text={macro.report_text}
+                                  onSave={isAdmin
+                                    ? (text) => patchReport.mutateAsync({ patientId: id, subId: sub.id, reportId: macro.id, data: { report_text: text } })
+                                    : undefined}
+                                  saving={patchReport.isPending}
+                                />
+                              )}
+                              {micro && (
+                                <ReportBlock
+                                  label="Microscopy"
+                                  text={micro.report_text}
+                                  onSave={isAdmin
+                                    ? (text) => patchReport.mutateAsync({ patientId: id, subId: sub.id, reportId: micro.id, data: { report_text: text } })
+                                    : undefined}
+                                  saving={patchReport.isPending}
+                                />
+                              )}
                             </div>
                           )}
                         </div>
@@ -722,6 +824,18 @@ export default function PatientDetail() {
                             <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-3)' }}>
                               {probe.snomed_topo_code}
                             </span>
+                            {isAdmin && (
+                              <div onClick={e => e.stopPropagation()} style={{ display: 'flex', gap: 4 }}>
+                                <button onClick={() => setEditProbeTarget({ probe, sub })}
+                                  style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 11, color: 'var(--navy)', fontFamily: 'var(--font-sans)', padding: '0 4px' }}>
+                                  Edit
+                                </button>
+                                <button onClick={() => setDeleteProbeTarget({ probe, sub })}
+                                  style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 11, color: 'var(--crimson)', fontFamily: 'var(--font-sans)', padding: '0 4px' }}>
+                                  Delete
+                                </button>
+                              </div>
+                            )}
                           </div>
 
                           {expandedProbes[probe.id] && (
@@ -759,13 +873,51 @@ export default function PatientDetail() {
                                     }}>
                                       {noScans ? 'no scans' : `${scanCount} scan${scanCount !== 1 ? 's' : ''}`}
                                     </span>
+                                    {isAdmin && (
+                                      <div onClick={e => e.stopPropagation()} style={{ display: 'flex', gap: 4 }}>
+                                        <button onClick={() => setEditBlockTarget({ block, probe, sub })}
+                                          style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 11, color: 'var(--navy)', fontFamily: 'var(--font-sans)', padding: '0 4px' }}>
+                                          Edit
+                                        </button>
+                                        <button onClick={() => setDeleteBlockTarget({ block, probe, sub })}
+                                          style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 11, color: 'var(--crimson)', fontFamily: 'var(--font-sans)', padding: '0 4px' }}>
+                                          Delete
+                                        </button>
+                                      </div>
+                                    )}
                                   </div>
                                 )
                               })}
+                              {isAdmin && (
+                              <button
+                                onClick={() => setAddBlockForProbe({ probe, sub })}
+                                style={{
+                                  marginTop: 2, padding: '4px 10px', borderRadius: 6, fontSize: 11,
+                                  border: '1px dashed var(--navy-20)', background: 'none',
+                                  cursor: 'pointer', color: 'var(--navy)', fontFamily: 'var(--font-sans)',
+                                  width: '100%', textAlign: 'left',
+                                }}
+                              >
+                                + Add block
+                              </button>
+                            )}
                             </div>
                           )}
                         </div>
                       ))}
+                    {isAdmin && (
+                        <button
+                          onClick={() => setAddProbeForSub(sub)}
+                          style={{
+                            marginTop: 4, padding: '5px 10px', borderRadius: 6, fontSize: 11,
+                            border: '1px dashed var(--navy-20)', background: 'none',
+                            cursor: 'pointer', color: 'var(--navy)', fontFamily: 'var(--font-sans)',
+                            width: '100%', textAlign: 'left',
+                          }}
+                        >
+                          + Add probe
+                        </button>
+                      )}
                     </div>
                   )}
                 </div>
@@ -885,6 +1037,21 @@ export default function PatientDetail() {
                         >
                           Open viewer ↗
                         </button>
+                        {isAdmin && (
+                          <button
+                            onClick={e => { e.stopPropagation(); setEditScan(sc) }}
+                            style={{
+                              marginTop: 4, padding: '3px 0', fontSize: 11,
+                              background: 'none', border: '1px solid var(--navy-20)',
+                              borderRadius: 4, cursor: 'pointer', color: 'var(--navy)',
+                              fontFamily: 'var(--font-sans)', fontWeight: 500, width: '100%',
+                            }}
+                            onMouseEnter={e => { e.currentTarget.style.background = 'var(--navy-05)' }}
+                            onMouseLeave={e => { e.currentTarget.style.background = 'none' }}
+                          >
+                            Edit scan
+                          </button>
+                        )}
                       </div>
                     </div>
                   ))}
@@ -923,6 +1090,76 @@ export default function PatientDetail() {
           existingScans={scans}
           onClose={() => setRegisterOpen(false)}
           onSuccess={() => { setRegisterOpen(false); refreshScans() }}
+        />
+      )}
+
+      {editScan && selected && (
+        <RegisterScanModal
+          block={selected.block}
+          probe={selected.probe}
+          sub={selected.sub}
+          existingScans={scans}
+          existingScan={editScan}
+          onClose={() => setEditScan(null)}
+          onSuccess={() => { setEditScan(null); refreshScans() }}
+        />
+      )}
+
+      {addProbeForSub && (
+        <ProbeModal
+          sub={addProbeForSub}
+          onClose={() => setAddProbeForSub(null)}
+          onSave={data => addProbe.mutateAsync({ subId: addProbeForSub.id, data }).then(() => setAddProbeForSub(null))}
+          saving={addProbe.isPending}
+        />
+      )}
+
+      {editProbeTarget && (
+        <ProbeModal
+          sub={editProbeTarget.sub}
+          existing={editProbeTarget.probe}
+          onClose={() => setEditProbeTarget(null)}
+          onSave={data => patchProbe.mutateAsync({ subId: editProbeTarget.sub.id, probeId: editProbeTarget.probe.id, data }).then(() => setEditProbeTarget(null))}
+          saving={patchProbe.isPending}
+        />
+      )}
+
+      {deleteProbeTarget && (
+        <ConfirmDeleteModal
+          title="Delete probe"
+          message={`Delete probe "${deleteProbeTarget.probe.lis_probe_id}" and all its blocks and scan records? This cannot be undone.`}
+          onClose={() => setDeleteProbeTarget(null)}
+          onConfirm={() => removeProbe.mutateAsync({ subId: deleteProbeTarget.sub.id, probeId: deleteProbeTarget.probe.id }).then(() => setDeleteProbeTarget(null))}
+          saving={removeProbe.isPending}
+        />
+      )}
+
+      {addBlockForProbe && (
+        <BlockModal
+          probe={addBlockForProbe.probe}
+          onClose={() => setAddBlockForProbe(null)}
+          onSave={data => addBlock.mutateAsync({ subId: addBlockForProbe.sub.id, probeId: addBlockForProbe.probe.id, data }).then(() => setAddBlockForProbe(null))}
+          saving={addBlock.isPending}
+        />
+      )}
+
+      {editBlockTarget && (
+        <BlockModal
+          probe={editBlockTarget.probe}
+          existing={editBlockTarget.block}
+          onClose={() => setEditBlockTarget(null)}
+          onSave={data => patchBlock.mutateAsync({ subId: editBlockTarget.sub.id, probeId: editBlockTarget.probe.id, blockId: editBlockTarget.block.id, data }).then(() => setEditBlockTarget(null))}
+          saving={patchBlock.isPending}
+        />
+      )}
+
+      {deleteBlockTarget && (
+        <ConfirmDeleteModal
+          title="Delete block"
+          message={`Delete block "${deleteBlockTarget.block.block_label}" and its ${deleteBlockTarget.block.scans?.length ?? 0} scan record(s)? This cannot be undone.`}
+          onClose={() => setDeleteBlockTarget(null)}
+          onConfirm={() => removeBlock.mutateAsync({ subId: deleteBlockTarget.sub.id, probeId: deleteBlockTarget.probe.id, blockId: deleteBlockTarget.block.id }).then(() => setDeleteBlockTarget(null))}
+          saving={removeBlock.isPending}
         />
       )}
     </Layout>

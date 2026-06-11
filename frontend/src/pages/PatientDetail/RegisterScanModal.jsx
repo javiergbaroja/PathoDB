@@ -6,15 +6,18 @@ import { api } from '../../api'
 
 const FILE_FORMATS = ['SVS', 'CZI', 'NDPI', 'SCN', 'TIF', 'MRXS', 'VSI', 'BIF', 'OTHER']
 
-export default function RegisterScanModal({ block, probe, sub, existingScans, onClose, onSuccess }) {
+export default function RegisterScanModal({ block, probe, sub, existingScans, onClose, onSuccess, existingScan }) {
   const [stains, setStains] = useState([])
   const [error,  setError]  = useState('')
+  const isEditing = !!existingScan
 
   const {
     register, handleSubmit, watch,
     formState: { isSubmitting, errors },
   } = useForm({
-    defaultValues: { stain_name: '', file_path: '', file_format: 'SVS', magnification: '' },
+    defaultValues: isEditing
+      ? { stain_name: existingScan.stain_name ?? '', file_format: existingScan.file_format ?? 'SVS', magnification: existingScan.magnification ?? '' }
+      : { stain_name: '', file_path: '', file_format: 'SVS', magnification: '' },
   })
 
   useEffect(() => { api.getStains().then(setStains).catch(() => {}) }, [])
@@ -26,16 +29,24 @@ export default function RegisterScanModal({ block, probe, sub, existingScans, on
   async function onSubmit(form) {
     setError('')
     try {
-      await api.registerScan({
-        lis_submission_id: sub.lis_submission_id,
-        lis_probe_id:      probe.lis_probe_id,
-        block_label:       block.block_label,
-        stain_name:        form.stain_name,
-        file_path:         form.file_path,
-        file_format:       form.file_format || null,
-        magnification:     form.magnification ? parseFloat(form.magnification) : null,
-        block_lis_ref:     block.block_label,
-      })
+      if (isEditing) {
+        await api.updateScan(existingScan.id, {
+          stain_name:    form.stain_name   || null,
+          file_format:   form.file_format  || null,
+          magnification: form.magnification ? parseFloat(form.magnification) : null,
+        })
+      } else {
+        await api.registerScan({
+          lis_submission_id: sub.lis_submission_id,
+          lis_probe_id:      probe.lis_probe_id,
+          block_label:       block.block_label,
+          stain_name:        form.stain_name,
+          file_path:         form.file_path,
+          file_format:       form.file_format || null,
+          magnification:     form.magnification ? parseFloat(form.magnification) : null,
+          block_lis_ref:     block.block_label,
+        })
+      }
       onSuccess()
     } catch (e) {
       setError(e.message)
@@ -46,7 +57,7 @@ export default function RegisterScanModal({ block, probe, sub, existingScans, on
     <Modal
       isOpen
       onClose={onClose}
-      title="Register scan"
+      title={isEditing ? 'Edit scan' : 'Register scan'}
       subtitle={`${sub.lis_submission_id} / ${probe.lis_probe_id} / Block ${block.block_label}`}
       width={480}
     >
@@ -72,15 +83,17 @@ export default function RegisterScanModal({ block, probe, sub, existingScans, on
             )}
           </FormField>
 
-          <FormField label="File path *" htmlFor="scan-path" error={errors.file_path?.message}>
-            <FormInput
-              id="scan-path"
-              type="text"
-              placeholder="/storage/slides/..."
-              aria-invalid={!!errors.file_path}
-              {...register('file_path', { required: 'File path is required' })}
-            />
-          </FormField>
+          {!isEditing && (
+            <FormField label="File path *" htmlFor="scan-path" error={errors.file_path?.message}>
+              <FormInput
+                id="scan-path"
+                type="text"
+                placeholder="/storage/slides/..."
+                aria-invalid={!!errors.file_path}
+                {...register('file_path', { required: !isEditing ? 'File path is required' : false })}
+              />
+            </FormField>
+          )}
 
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
             <FormField label="Format" htmlFor="scan-format">
@@ -117,7 +130,7 @@ export default function RegisterScanModal({ block, probe, sub, existingScans, on
         <Modal.Footer>
           <Btn variant="ghost" type="button" onClick={onClose}>Cancel</Btn>
           <Btn variant="primary" type="submit" disabled={isSubmitting}>
-            {isSubmitting ? 'Registering…' : 'Register scan'}
+            {isSubmitting ? (isEditing ? 'Saving…' : 'Registering…') : (isEditing ? 'Save changes' : 'Register scan')}
           </Btn>
         </Modal.Footer>
       </form>

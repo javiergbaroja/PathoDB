@@ -278,3 +278,48 @@ PatientWithSubmissions.model_rebuild()
 SubmissionResponse.model_rebuild()
 ProbeResponse.model_rebuild()
 BlockResponse.model_rebuild()
+
+# ─── Clinical data update schemas (admin only) ────────────────────────────────
+class PatientUpdate(BaseModel):
+    date_of_birth: Optional[date] = None
+    sex:           Optional[str]  = None
+
+class SubmissionUpdate(BaseModel):
+    report_date:     Optional[date] = None
+    malignancy_flag: Optional[bool] = None
+    consent:         Optional[str]  = None
+
+class ReportUpdate(BaseModel):
+    report_text: Optional[str]  = None
+    report_date: Optional[date] = None
+
+class ProbeCreate(BaseModel):
+    lis_probe_id:       str
+    submission_type:    Optional[str] = None
+    snomed_topo_code:   Optional[str] = None
+    topo_description:   Optional[str] = None
+    location_additional: Optional[str] = None
+
+class ProbeUpdate(BaseModel):
+    lis_probe_id:       Optional[str] = None
+    submission_type:    Optional[str] = None
+    snomed_topo_code:   Optional[str] = None
+    topo_description:   Optional[str] = None
+    location_additional: Optional[str] = None
+
+class BlockCreate(BaseModel):
+    block_label:    str
+    block_sequence: Optional[int] = None
+    block_info:     Optional[str] = None
+    tissue_count:   Optional[int] = None
+
+class BlockUpdate(BaseModel):
+    block_label:    Optional[str] = None
+    block_sequence: Optional[int] = None
+    block_info:     Optional[str] = None
+    tissue_count:   Optional[int] = None
+
+class ScanUpdate(BaseModel):
+    stain_name:   Optional[str]   = None
+    file_format:  Optional[str]   = None
+    magnification: Optional[float] = None

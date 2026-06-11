@@ -9,15 +9,18 @@ from natsort import natsorted
 from datetime import date
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session, selectinload
+from sqlalchemy import text
 
 from ..database import get_db
 from ..models import Patient, Submission, Probe, Block, Scan, Stain, Report
 from ..schemas import (
     PatientResponse, PatientWithSubmissions, HierarchyResponse,
     HierarchySubmission, HierarchyProbe, HierarchyBlock, ScanSummary,
-    ReportSummary,
+    ReportSummary, PatientUpdate, SubmissionUpdate, ReportUpdate,
+    ProbeCreate, ProbeUpdate,
+    BlockCreate, BlockUpdate,
 )
-from ..auth import get_current_active_user
+from ..auth import get_current_active_user, require_admin
 from ..models import User
 
 router = APIRouter(prefix="/patients", tags=["patients"])
@@ -269,3 +272,250 @@ def get_patient_hierarchy(
         "created_at":    patient.created_at,
         "submissions":   submissions_out,
     }
+
+
+@router.patch("/{patient_id}", response_model=PatientResponse)
+def update_patient(
+    patient_id: int,
+    req: PatientUpdate,
+    db: Session = Depends(get_db),
+    _: User = Depends(require_admin),
+):
+    patient = db.get(Patient, patient_id)
+    if not patient:
+        raise HTTPException(status_code=404, detail="Patient not found")
+    if req.date_of_birth is not None:
+        patient.date_of_birth = req.date_of_birth
+    if req.sex is not None:
+        patient.sex = req.sex
+    db.commit()
+    db.refresh(patient)
+    return patient
+
+
+@router.patch("/{patient_id}/submissions/{submission_id}")
+def update_submission(
+    patient_id: int,
+    submission_id: int,
+    req: SubmissionUpdate,
+    db: Session = Depends(get_db),
+    _: User = Depends(require_admin),
+):
+    sub = db.query(Submission).filter(
+        Submission.id == submission_id,
+        Submission.patient_id == patient_id,
+    ).first()
+    if not sub:
+        raise HTTPException(status_code=404, detail="Submission not found")
+    if req.report_date     is not None: sub.report_date     = req.report_date
+    if req.malignancy_flag is not None: sub.malignancy_flag = req.malignancy_flag
+    if req.consent         is not None: sub.consent         = req.consent
+    db.commit()
+    db.refresh(sub)
+    return sub
+
+
+@router.patch("/{patient_id}/submissions/{submission_id}/reports/{report_id}")
+def update_report(
+    patient_id: int,
+    submission_id: int,
+    report_id: int,
+    req: ReportUpdate,
+    db: Session = Depends(get_db),
+    _: User = Depends(require_admin),
+):
+    sub = db.query(Submission).filter(
+        Submission.id == submission_id,
+        Submission.patient_id == patient_id,
+    ).first()
+    if not sub:
+        raise HTTPException(status_code=404, detail="Submission not found")
+    report = db.query(Report).filter(
+        Report.id == report_id,
+        Report.submission_id == submission_id,
+    ).first()
+    if not report:
+        raise HTTPException(status_code=404, detail="Report not found")
+    if req.report_text is not None: report.report_text = req.report_text
+    if req.report_date is not None: report.report_date = req.report_date
+    db.commit()
+    # Invalidate stale embedding so the next embed job re-processes this report
+    db.execute(text("DELETE FROM report_embeddings WHERE report_id = :rid"), {"rid": report_id})
+    db.commit()
+    db.refresh(report)
+    return report
+
+
+# ── Probes ────────────────────────────────────────────────────────────────────
+
+@router.post("/{patient_id}/submissions/{submission_id}/probes", status_code=201)
+def create_probe(
+    patient_id: int,
+    submission_id: int,
+    req: ProbeCreate,
+    db: Session = Depends(get_db),
+    _: User = Depends(require_admin),
+):
+    sub = db.query(Submission).filter(
+        Submission.id == submission_id, Submission.patient_id == patient_id
+    ).first()
+    if not sub:
+        raise HTTPException(404, "Submission not found")
+    if db.query(Probe).filter(
+        Probe.submission_id == submission_id, Probe.lis_probe_id == req.lis_probe_id
+    ).first():
+        raise HTTPException(409, "A probe with this ID already exists in this submission")
+    probe = Probe(
+        submission_id=submission_id,
+        lis_probe_id=req.lis_probe_id,
+        submission_type=req.submission_type,
+        snomed_topo_code=req.snomed_topo_code,
+        topo_description=req.topo_description,
+        location_additional=req.location_additional,
+    )
+    db.add(probe)
+    db.commit()
+    db.refresh(probe)
+    return probe
+
+
+@router.patch("/{patient_id}/submissions/{submission_id}/probes/{probe_id}")
+def update_probe(
+    patient_id: int,
+    submission_id: int,
+    probe_id: int,
+    req: ProbeUpdate,
+    db: Session = Depends(get_db),
+    _: User = Depends(require_admin),
+):
+    sub = db.query(Submission).filter(
+        Submission.id == submission_id, Submission.patient_id == patient_id
+    ).first()
+    if not sub:
+        raise HTTPException(404, "Submission not found")
+    probe = db.query(Probe).filter(
+        Probe.id == probe_id, Probe.submission_id == submission_id
+    ).first()
+    if not probe:
+        raise HTTPException(404, "Probe not found")
+    if req.lis_probe_id      is not None: probe.lis_probe_id      = req.lis_probe_id
+    if req.submission_type   is not None: probe.submission_type   = req.submission_type
+    if req.snomed_topo_code  is not None: probe.snomed_topo_code  = req.snomed_topo_code
+    if req.topo_description  is not None: probe.topo_description  = req.topo_description
+    if req.location_additional is not None: probe.location_additional = req.location_additional
+    db.commit()
+    db.refresh(probe)
+    return probe
+
+
+@router.delete("/{patient_id}/submissions/{submission_id}/probes/{probe_id}", status_code=204)
+def delete_probe(
+    patient_id: int,
+    submission_id: int,
+    probe_id: int,
+    db: Session = Depends(get_db),
+    _: User = Depends(require_admin),
+):
+    sub = db.query(Submission).filter(
+        Submission.id == submission_id, Submission.patient_id == patient_id
+    ).first()
+    if not sub:
+        raise HTTPException(404, "Submission not found")
+    probe = db.query(Probe).filter(
+        Probe.id == probe_id, Probe.submission_id == submission_id
+    ).first()
+    if not probe:
+        raise HTTPException(404, "Probe not found")
+    db.delete(probe)
+    db.commit()
+
+
+# ── Blocks ────────────────────────────────────────────────────────────────────
+
+@router.post("/{patient_id}/submissions/{submission_id}/probes/{probe_id}/blocks", status_code=201)
+def create_block(
+    patient_id: int,
+    submission_id: int,
+    probe_id: int,
+    req: BlockCreate,
+    db: Session = Depends(get_db),
+    _: User = Depends(require_admin),
+):
+    sub = db.query(Submission).filter(
+        Submission.id == submission_id, Submission.patient_id == patient_id
+    ).first()
+    if not sub:
+        raise HTTPException(404, "Submission not found")
+    probe = db.query(Probe).filter(
+        Probe.id == probe_id, Probe.submission_id == submission_id
+    ).first()
+    if not probe:
+        raise HTTPException(404, "Probe not found")
+    if db.query(Block).filter(
+        Block.probe_id == probe_id, Block.block_label == req.block_label
+    ).first():
+        raise HTTPException(409, "A block with this label already exists in this probe")
+    block = Block(
+        probe_id=probe_id,
+        block_label=req.block_label,
+        block_sequence=req.block_sequence,
+        block_info=req.block_info,
+        tissue_count=req.tissue_count,
+    )
+    db.add(block)
+    db.commit()
+    db.refresh(block)
+    return block
+
+
+@router.patch("/{patient_id}/submissions/{submission_id}/probes/{probe_id}/blocks/{block_id}")
+def update_block(
+    patient_id: int,
+    submission_id: int,
+    probe_id: int,
+    block_id: int,
+    req: BlockUpdate,
+    db: Session = Depends(get_db),
+    _: User = Depends(require_admin),
+):
+    # ownership chain check
+    sub = db.query(Submission).filter(
+        Submission.id == submission_id, Submission.patient_id == patient_id
+    ).first()
+    if not sub:
+        raise HTTPException(404, "Submission not found")
+    block = db.query(Block).filter(
+        Block.id == block_id, Block.probe_id == probe_id
+    ).first()
+    if not block:
+        raise HTTPException(404, "Block not found")
+    if req.block_label    is not None: block.block_label    = req.block_label
+    if req.block_sequence is not None: block.block_sequence = req.block_sequence
+    if req.block_info     is not None: block.block_info     = req.block_info
+    if req.tissue_count   is not None: block.tissue_count   = req.tissue_count
+    db.commit()
+    db.refresh(block)
+    return block
+
+
+@router.delete("/{patient_id}/submissions/{submission_id}/probes/{probe_id}/blocks/{block_id}", status_code=204)
+def delete_block(
+    patient_id: int,
+    submission_id: int,
+    probe_id: int,
+    block_id: int,
+    db: Session = Depends(get_db),
+    _: User = Depends(require_admin),
+):
+    sub = db.query(Submission).filter(
+        Submission.id == submission_id, Submission.patient_id == patient_id
+    ).first()
+    if not sub:
+        raise HTTPException(404, "Submission not found")
+    block = db.query(Block).filter(
+        Block.id == block_id, Block.probe_id == probe_id
+    ).first()
+    if not block:
+        raise HTTPException(404, "Block not found")
+    db.delete(block)
+    db.commit()

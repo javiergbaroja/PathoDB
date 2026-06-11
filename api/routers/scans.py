@@ -10,7 +10,7 @@ from sqlalchemy.exc import IntegrityError
 
 from ..database import get_db
 from ..models import Scan, Block, Probe, Submission, Patient, Stain, User
-from ..schemas import ScanResponse, ScanSummary, ScanRegisterRequest
+from ..schemas import ScanResponse, ScanSummary, ScanRegisterRequest, ScanUpdate
 from ..auth import get_current_active_user, require_admin, get_user_or_scanner
 
 router = APIRouter(tags=["scans"])
@@ -215,6 +215,33 @@ def register_scan(
         .filter(Scan.id == scan.id)
         .first()
     )
+    return _scan_to_response(sc)
+
+@router.patch("/scans/{scan_id}", response_model=ScanResponse)
+def update_scan(
+    scan_id: int,
+    req: ScanUpdate,
+    db: Session = Depends(get_db),
+    _: User = Depends(require_admin),
+):
+    sc = db.query(Scan).options(
+        joinedload(Scan.stain),
+        joinedload(Scan.block).joinedload(Block.probe)
+            .joinedload(Probe.submission).joinedload(Submission.patient)
+    ).filter(Scan.id == scan_id).first()
+    if not sc:
+        raise HTTPException(404, "Scan not found")
+    if req.stain_name is not None:
+        stain = db.query(Stain).filter(Stain.stain_name == req.stain_name).first()
+        if not stain:
+            stain = db.query(Stain).filter(Stain.aliases.any(req.stain_name)).first()
+        if not stain:
+            raise HTTPException(404, f"Stain '{req.stain_name}' not found")
+        sc.stain_id = stain.id
+    if req.file_format   is not None: sc.file_format   = req.file_format.upper()
+    if req.magnification is not None: sc.magnification = req.magnification
+    db.commit()
+    db.refresh(sc)
     return _scan_to_response(sc)
 
 
