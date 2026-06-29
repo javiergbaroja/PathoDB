@@ -24,20 +24,36 @@ const COLUMN_LABELS = {
   lis_submission_id: 'Submission ID',
   lis_probe_id: 'Probe ID',
   snomed_topo_code: 'SNOMED Topo',
+  snomed_topo_codes: 'SNOMED Topo',
   topo_description: 'Topography',
+  topo_descriptions: 'Topographies',
+  snomed_morph_codes: 'Morphology Codes',
+  morph_descriptions: 'Morphology',
+  snomed_etio_codes: 'Etiology Codes',
+  etio_descriptions: 'Etiology',
   submission_type: 'Type',
   block_label: 'Block',
   block_info: 'Block Info',
   consent: 'Consent',
   stain_name: 'Stain',
   stain_category: 'Stain Category',
+  stains: 'Stains',
   file_path: 'File Path',
   malignancy_flag: 'Malignancy',
+  malignant_count: 'Malignant',
   report_date: 'Report Date',
+  report_macro: 'Macro Report',
+  report_microscopy: 'Micro Report',
   sex: 'Sex',
   date_of_birth: 'DOB',
   magnification: 'Magnification',
   file_format: 'Format',
+  submission_count: 'Submissions',
+  probe_count: 'Probes',
+  block_count: 'Blocks',
+  scan_count: 'Scans',
+  tissue_count: 'Tissue',
+  location_additional: 'Location',
 }
 
 function humanizeHeader(key) {
@@ -264,7 +280,17 @@ function GenericResultsTable({ rows }) {
         <tbody>
           {shown.map((row, i) => (
             <Tr key={i}>
-              {cols.map((col, j) => <Td key={j}>{row[col] == null ? '—' : String(row[col])}</Td>)}
+              {cols.map((col, j) => {
+                const val = row[col]
+                let display
+                if (val == null) display = '—'
+                else if (col === 'malignancy_flag') display = val === true ? 'Yes' : val === false ? 'No' : '—'
+                else if ((col === 'report_macro' || col === 'report_microscopy') && typeof val === 'string' && val.length > 80)
+                  display = <span title={val}>{val.slice(0, 80)}…</span>
+                else if (typeof val === 'object') display = JSON.stringify(val)
+                else display = String(val)
+                return <Td key={j}>{display}</Td>
+              })}
             </Tr>
           ))}
         </tbody>

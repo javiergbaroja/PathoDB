@@ -977,6 +977,35 @@ export function RadioCardGroup({ name, value, onChange, options, disabled, accen
 }
 
 // ============================================================
+// CODE CHIP + SNOMED TRIAD
+// ============================================================
+
+export function CodeChip({ code, description, axis = 'T', className, style }) {
+  return (
+    <span className={cx(s.codeChip, s[`codeChip_${axis}`], className)} style={style} title={code}>
+      <span className={s.codeChipAxis}>{axis}</span>
+      <span className={s.codeChipText}>{description || code}</span>
+    </span>
+  )
+}
+
+export function SnomedTriad({ topoCode, topoDescription, morphCodes, etioCodes, compact = false, className, style }) {
+  const hasAnything = topoCode || morphCodes?.length || etioCodes?.length
+  if (!hasAnything) return null
+  return (
+    <div className={cx(s.snomedTriad, compact && s.snomedTriadCompact, className)} style={style}>
+      {topoCode && <CodeChip code={topoCode} description={topoDescription} axis="T" />}
+      {morphCodes?.map(c => (
+        <CodeChip key={c.code || c} code={c.code || c} description={c.description} axis="M" />
+      ))}
+      {etioCodes?.map(c => (
+        <CodeChip key={c.code || c} code={c.code || c} description={c.description} axis="E" />
+      ))}
+    </div>
+  )
+}
+
+// ============================================================
 // TOAST NOTIFICATIONS
 // ============================================================
 
