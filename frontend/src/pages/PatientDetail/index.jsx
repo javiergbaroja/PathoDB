@@ -2,7 +2,7 @@
 import { useState, useEffect, useRef, useMemo } from 'react'
 import { useParams, useNavigate, useLocation } from 'react-router-dom'
 import Layout from '../../components/Layout'
-import { Badge, Btn, Panel, SpinnerPage, ErrorMsg, SegmentedControl, SlideThumbnail, SnomedTriad } from '../../components/ui'
+import { Badge, Btn, Panel, SpinnerPage, ErrorMsg, SegmentedControl, SlideThumbnail, SnomedTriad, CodeChip } from '../../components/ui'
 import { api } from '../../api'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useAuth } from '../../context/AuthContext'
@@ -306,7 +306,8 @@ function MiniTimeline({ submissions, onDotClick }) {
         Submission timeline
       </div>
 
-      <svg width="100%" viewBox={`0 0 ${TL_W} ${viewH}`} style={{ overflow: 'visible', display: 'block' }}>
+      <div style={{ maxHeight: 90, overflowX: 'auto', overflowY: 'auto' }}>
+      <svg width="100%" viewBox={`0 0 ${TL_W} ${viewH}`} style={{ overflow: 'visible', display: 'block', minWidth: viewH > 90 ? 500 : undefined }}>
 
         {/* ── Track: full background pill ── */}
         <rect
@@ -390,6 +391,7 @@ function MiniTimeline({ submissions, onDotClick }) {
           )
         })}
       </svg>
+      </div>
 
       {/* Legend */}
       <div style={{ display: 'flex', gap: 18, marginTop: 6 }}>
@@ -641,7 +643,7 @@ export default function PatientDetail() {
   return (
     <Layout title={title} actions={actions}>
       <div style={{
-        display: 'grid', gridTemplateColumns: selected ? '1fr 1fr' : '1fr 340px',
+        display: 'grid', gridTemplateColumns: selected ? '2fr 1fr' : '1fr 340px',
         height: '100%', overflow: 'hidden', position: 'relative',
         transition: 'grid-template-columns 0.2s ease',
       }}>
@@ -732,14 +734,10 @@ export default function PatientDetail() {
                 probe.blocks?.some(block => (block.scans?.length ?? 0) > 0)
               ) ?? false
 
-              // Unique topology descriptions for this submission
-              const topos = [
-                ...new Set(
-                  (sub.probes ?? [])
-                    .map(p => p.topo_description)
-                    .filter(Boolean)
-                ),
-              ]
+              // Unique SNOMED descriptions across all probes in this submission
+              const topos = [...new Set((sub.probes ?? []).map(p => p.topo_description).filter(Boolean))]
+              const morphs = [...new Set((sub.probes ?? []).flatMap(p => (p.snomed_morph_codes ?? []).map(c => c.description)).filter(Boolean))]
+              const etios = [...new Set((sub.probes ?? []).flatMap(p => (p.snomed_etio_codes ?? []).map(c => c.description)).filter(Boolean))]
 
               return (
                 <div
@@ -777,19 +775,15 @@ export default function PatientDetail() {
                       {sub.malignancy_flag && <Badge variant="red">Malignant</Badge>}
                     </div>
 
-                    {/* Topology descriptions row */}
-                    {topos.length > 0 && (
+                    {/* SNOMED chips row */}
+                    {(topos.length > 0 || morphs.length > 0 || etios.length > 0) && (
                       <div style={{
-                        paddingLeft: 28, marginTop: 3,
-                        fontSize: 11, color: 'var(--text-3)',
-                        overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                        paddingLeft: 28, marginTop: 4,
+                        display: 'flex', flexWrap: 'wrap', gap: 3,
                       }}>
-                        {topos.slice(0, 3).join(' · ')}
-                        {topos.length > 3 && (
-                          <span style={{ color: 'var(--navy-40)', fontStyle: 'italic' }}>
-                            {' '}+{topos.length - 3} more
-                          </span>
-                        )}
+                        {topos.map(t => <CodeChip key={`t-${t}`} code="" description={t} axis="T" />)}
+                        {morphs.map(m => <CodeChip key={`m-${m}`} code="" description={m} axis="M" />)}
+                        {etios.map(e => <CodeChip key={`e-${e}`} code="" description={e} axis="E" />)}
                       </div>
                     )}
                   </div>
@@ -871,10 +865,17 @@ export default function PatientDetail() {
                             </span>
                             <div style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--navy-60)', flexShrink: 0 }} />
                             <span style={{ flex: 1, fontSize: 12.5, color: 'var(--text-1)', fontWeight: 500 }}>
-                              {probe.lis_probe_id} — {probe.topo_description || probe.snomed_topo_code || 'Unknown site'}
+                              {probe.lis_probe_id} — {probe.topo_description || 'Unknown site'}
+                              {probe.snomed_morph_codes?.[0]?.description && (
+                                <span style={{ color: 'var(--text-3)', fontWeight: 400 }}> · {probe.snomed_morph_codes[0].description}</span>
+                              )}
                             </span>
-                            <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-3)' }}>
-                              {probe.snomed_topo_code}
+                            <span style={{ fontSize: 10.5, color: 'var(--text-3)', whiteSpace: 'nowrap' }}>
+                              {probe.blocks?.length ?? 0} block{(probe.blocks?.length ?? 0) !== 1 ? 's' : ''}
+                              {' · '}
+                              <span style={{ color: '#1b998b' }}>
+                                {(probe.blocks ?? []).reduce((n, b) => n + (b.scans?.length ?? 0), 0)} scan{(probe.blocks ?? []).reduce((n, b) => n + (b.scans?.length ?? 0), 0) !== 1 ? 's' : ''}
+                              </span>
                             </span>
                             {isAdmin && (
                               <div onClick={e => e.stopPropagation()} style={{ display: 'flex', gap: 4 }}>
@@ -1047,7 +1048,7 @@ export default function PatientDetail() {
                   </div>
                 </div>
               ) : (
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 8, marginBottom: 12 }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2,1fr)', gap: 8, marginBottom: 12 }}>
                   {scans.map(sc => (
                     <div key={sc.id} style={{ 
                       border: '1px solid #1b998b33', 
