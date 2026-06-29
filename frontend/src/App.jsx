@@ -3,7 +3,7 @@
 
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom'
 import { AuthProvider, useAuth } from './context/AuthContext'
-import { SpinnerPage } from './components/ui'
+import { SpinnerPage, ToastProvider } from './components/ui'
 import Login         from './pages/Login'
 import Patients      from './pages/Patients'
 import PatientDetail from './pages/PatientDetail'
@@ -47,6 +47,7 @@ export default function App() {
     <QueryClientProvider client={queryClient}>
       <AuthProvider>
         <BrowserRouter>
+          <ToastProvider>
           <ErrorBoundary>
             <Routes>
               <Route path="/login"     element={<Login />} />
@@ -69,6 +70,7 @@ export default function App() {
               <Route path="*" element={<Navigate to="/dashboard" replace />} />
             </Routes>
           </ErrorBoundary>
+          </ToastProvider>
         </BrowserRouter>
       </AuthProvider>
       <ReactQueryDevtools initialIsOpen={false} position="bottom-right" />

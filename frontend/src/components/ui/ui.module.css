@@ -584,6 +584,7 @@
   border-bottom: 1px solid var(--border-l);
 }
 .multiOption:hover { background: var(--navy-05); }
+.multiOptionActive { background: var(--navy-05); }
 
 /* ============================================================
    TOOL BUTTON (dark mode viewer)
@@ -648,3 +649,46 @@
   font-weight: 400;
   margin: 0 0 16px;
 }
+
+/* ============================================================
+   TOAST NOTIFICATIONS
+   ============================================================ */
+.toastContainer {
+  position: fixed;
+  bottom: 20px;
+  right: 20px;
+  z-index: var(--z-toast);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  pointer-events: none;
+}
+.toast {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  border-radius: var(--radius-lg);
+  font-size: var(--text-base);
+  font-family: var(--font-sans);
+  box-shadow: var(--shadow-l);
+  pointer-events: auto;
+  animation: ui-fadein 0.15s ease;
+  max-width: 400px;
+}
+.toast_success { background: var(--success-bg); color: var(--success); border: 1px solid var(--teal-20); }
+.toast_error   { background: var(--crimson-10); color: var(--crimson); border: 1px solid var(--crimson); }
+.toast_warning { background: var(--warning-bg); color: var(--warning); border: 1px solid var(--amber-20); }
+.toast_info    { background: var(--navy-10);    color: var(--navy);    border: 1px solid var(--navy-20); }
+.toastMsg { flex: 1; }
+.toastClose {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: inherit;
+  opacity: 0.6;
+  font-size: 16px;
+  line-height: 1;
+  padding: 0 2px;
+}
+.toastClose:hover { opacity: 1; }

@@ -218,13 +218,13 @@ function FilterModeForm({ filter, onFilterChange, lockReturnLevel }) {
       <SectionLabel>Clinical</SectionLabel>
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12 }}>
         <FormField label="Report date from">
-          <FormInput type="date" onChange={e => onFilterChange('submission_date_from', e.target.value)} />
+          <FormInput type="date" value={filter.submission_date_from || ''} onChange={e => onFilterChange('submission_date_from', e.target.value)} />
         </FormField>
         <FormField label="Report date to">
-          <FormInput type="date" onChange={e => onFilterChange('submission_date_to', e.target.value)} />
+          <FormInput type="date" value={filter.submission_date_to || ''} onChange={e => onFilterChange('submission_date_to', e.target.value)} />
         </FormField>
         <FormField label="Malignancy">
-          <FormSelect onChange={e => onFilterChange('malignancy_flag', e.target.value === '' ? null : e.target.value === 'true')}>
+          <FormSelect value={filter.malignancy_flag === null ? '' : String(filter.malignancy_flag)} onChange={e => onFilterChange('malignancy_flag', e.target.value === '' ? null : e.target.value === 'true')}>
             {MALIGNANCY_OPTS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
           </FormSelect>
         </FormField>
@@ -267,11 +267,12 @@ function FilterModeForm({ filter, onFilterChange, lockReturnLevel }) {
         <FormField label="Block info contains">
           <FormInput
             placeholder="e.g. Tumor, Core 1…"
+            value={filter.block_info_search}
             onChange={e => onFilterChange('block_info_search', e.target.value)}
           />
         </FormField>
         <FormField label="Has scan">
-          <FormSelect onChange={e => onFilterChange('has_scan', e.target.value === '' ? null : e.target.value === 'true')}>
+          <FormSelect value={filter.has_scan === null ? '' : String(filter.has_scan)} onChange={e => onFilterChange('has_scan', e.target.value === '' ? null : e.target.value === 'true')}>
             {HAS_SCAN_OPTS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
           </FormSelect>
         </FormField>
@@ -307,12 +308,14 @@ function FilterModeForm({ filter, onFilterChange, lockReturnLevel }) {
           <FormField label="Magnification ≥">
             <FormInput
               type="number" min={0} step={0.5} placeholder="e.g. 20"
+              value={filter.magnification_min ?? ''}
               onChange={e => onFilterChange('magnification_min', e.target.value ? parseFloat(e.target.value) : null)}
             />
           </FormField>
           <FormField label="Magnification ≤">
             <FormInput
               type="number" min={0} step={0.5} placeholder="e.g. 40"
+              value={filter.magnification_max ?? ''}
               onChange={e => onFilterChange('magnification_max', e.target.value ? parseFloat(e.target.value) : null)}
             />
           </FormField>
@@ -444,13 +447,13 @@ function ListModeForm({ listState, onListStateChange, lockReturnLevel }) {
       <SectionLabel>Clinical</SectionLabel>
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12 }}>
         <FormField label="Report date from">
-          <FormInput type="date" onChange={e => setLF('submission_date_from', e.target.value)} />
+          <FormInput type="date" value={listFilter.submission_date_from || ''} onChange={e => setLF('submission_date_from', e.target.value)} />
         </FormField>
         <FormField label="Report date to">
-          <FormInput type="date" onChange={e => setLF('submission_date_to', e.target.value)} />
+          <FormInput type="date" value={listFilter.submission_date_to || ''} onChange={e => setLF('submission_date_to', e.target.value)} />
         </FormField>
         <FormField label="Malignancy">
-          <FormSelect onChange={e => setLF('malignancy_flag', e.target.value === '' ? null : e.target.value === 'true')}>
+          <FormSelect value={listFilter.malignancy_flag === null ? '' : String(listFilter.malignancy_flag)} onChange={e => setLF('malignancy_flag', e.target.value === '' ? null : e.target.value === 'true')}>
             {MALIGNANCY_OPTS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
           </FormSelect>
         </FormField>
@@ -491,10 +494,10 @@ function ListModeForm({ listState, onListStateChange, lockReturnLevel }) {
       <SectionLabel>Block</SectionLabel>
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
         <FormField label="Block info contains">
-          <FormInput placeholder="e.g. Tumor, Core 1…" onChange={e => setLF('block_info_search', e.target.value)} />
+          <FormInput placeholder="e.g. Tumor, Core 1…" value={listFilter.block_info_search} onChange={e => setLF('block_info_search', e.target.value)} />
         </FormField>
         <FormField label="Has scan">
-          <FormSelect onChange={e => setLF('has_scan', e.target.value === '' ? null : e.target.value === 'true')}>
+          <FormSelect value={listFilter.has_scan === null ? '' : String(listFilter.has_scan)} onChange={e => setLF('has_scan', e.target.value === '' ? null : e.target.value === 'true')}>
             {HAS_SCAN_OPTS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
           </FormSelect>
         </FormField>
@@ -529,10 +532,12 @@ function ListModeForm({ listState, onListStateChange, lockReturnLevel }) {
             />
             <FormField label="Magnification ≥">
               <FormInput type="number" min={0} step={0.5} placeholder="e.g. 20"
+                value={listFilter.magnification_min ?? ''}
                 onChange={e => setLF('magnification_min', e.target.value ? parseFloat(e.target.value) : null)} />
             </FormField>
             <FormField label="Magnification ≤">
               <FormInput type="number" min={0} step={0.5} placeholder="e.g. 40"
+                value={listFilter.magnification_max ?? ''}
                 onChange={e => setLF('magnification_max', e.target.value ? parseFloat(e.target.value) : null)} />
             </FormField>
           </div>
