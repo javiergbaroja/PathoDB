@@ -12,16 +12,19 @@ from sqlalchemy.orm import Session, selectinload
 from sqlalchemy import text
 
 from ..database import get_db
-from ..models import Patient, Submission, Probe, Block, Scan, Stain, Report
+from ..models import (
+    Patient, Submission, Probe, 
+    Block, Scan, Report, 
+    User, SnomedCode
+)
 from ..schemas import (
-    PatientResponse, PatientWithSubmissions, HierarchyResponse,
+    PatientResponse, PatientWithSubmissions,
     HierarchySubmission, HierarchyProbe, HierarchyBlock, ScanSummary,
-    ReportSummary, PatientUpdate, SubmissionUpdate, ReportUpdate,
+    ReportSummary, PatientUpdate, ProbeResponse, SubmissionUpdate, ReportUpdate,
     ProbeCreate, ProbeUpdate,
     BlockCreate, BlockUpdate,
 )
 from ..auth import get_current_active_user, require_admin
-from ..models import User
 
 router = APIRouter(prefix="/patients", tags=["patients"])
 
@@ -88,6 +91,42 @@ def resolve_b_number(b_str: str, db: Session) -> list:
         return []
     return db.query(Patient).filter(Patient.id.in_(results)).all()
 
+
+def enrich_snomed_codes(db: Session, codes: list[str] | None) -> list[dict]:
+    """['M-81403', 'M-09000'] -> [{'code': 'M-81403', 'description': '...'}, ...]
+    Looked up from the snomed_codes master vocabulary. Order of `codes` is preserved."""
+    if not codes:
+        return []
+    descs = dict(db.query(SnomedCode.code, SnomedCode.description)
+                 .filter(SnomedCode.code.in_(codes)).all())
+    return [{"code": c, "description": descs.get(c)} for c in codes]
+
+def _validated_codes(db: Session, category: str, codes) -> list[str] | None:
+    """De-dupe + validate against snomed_codes. None means 'field omitted, leave untouched'."""
+    if codes is None:
+        return None
+    codes = list(dict.fromkeys(c.strip() for c in codes if c.strip()))
+    if codes:
+        found = {c for (c,) in db.query(SnomedCode.code)
+                 .filter(SnomedCode.code.in_(codes), SnomedCode.category == category).all()}
+        missing = [c for c in codes if c not in found]
+        if missing:
+            raise HTTPException(400, f"Unknown {category} code(s): {', '.join(missing)}")
+    return codes
+
+def _probe_response(db: Session, probe: Probe) -> dict:
+    return {
+        "id": probe.id,
+        "submission_id": probe.submission_id,
+        "lis_probe_id": probe.lis_probe_id,
+        "submission_type": probe.submission_type,
+        "snomed_topo_code": probe.snomed_topo_code,
+        "topo_description": probe.topo_description,
+        "location_additional": probe.location_additional,
+        "snomed_morph_codes": enrich_snomed_codes(db, probe.snomed_morph_codes),
+        "snomed_etio_codes": enrich_snomed_codes(db, probe.snomed_etio_codes),
+        "blocks": probe.blocks,
+    }
 
 def _enrich_patients(patient_list: list, db: Session) -> list[dict]:
     if not patient_list:
@@ -184,8 +223,7 @@ def get_patient_hierarchy(
     patient = (
         db.query(Patient)
         .options(
-            selectinload(Patient.submissions)
-            .selectinload(Submission.reports),
+            selectinload(Patient.submissions).selectinload(Submission.reports),
             selectinload(Patient.submissions)
             .selectinload(Submission.probes)
             .selectinload(Probe.blocks)
@@ -235,6 +273,8 @@ def get_patient_hierarchy(
                     snomed_topo_code=probe.snomed_topo_code,
                     topo_description=probe.topo_description,
                     location_additional=probe.location_additional,
+                    snomed_morph_codes=enrich_snomed_codes(db, probe.snomed_morph_codes),
+                    snomed_etio_codes=enrich_snomed_codes(db, probe.snomed_etio_codes),
                     blocks=blocks_out,
                 )
             )
@@ -347,8 +387,7 @@ def update_report(
 
 
 # ── Probes ────────────────────────────────────────────────────────────────────
-
-@router.post("/{patient_id}/submissions/{submission_id}/probes", status_code=201)
+@router.post("/{patient_id}/submissions/{submission_id}/probes", status_code=201, response_model=ProbeResponse)
 def create_probe(
     patient_id: int,
     submission_id: int,
@@ -372,14 +411,16 @@ def create_probe(
         snomed_topo_code=req.snomed_topo_code,
         topo_description=req.topo_description,
         location_additional=req.location_additional,
+        snomed_morph_codes=_validated_codes(db, "morphology", req.snomed_morph_codes) or [],
+        snomed_etio_codes=_validated_codes(db, "etiology", req.snomed_etio_codes) or [],
     )
     db.add(probe)
     db.commit()
     db.refresh(probe)
-    return probe
+    return _probe_response(db, probe)
 
 
-@router.patch("/{patient_id}/submissions/{submission_id}/probes/{probe_id}")
+@router.patch("/{patient_id}/submissions/{submission_id}/probes/{probe_id}", response_model=ProbeResponse)
 def update_probe(
     patient_id: int,
     submission_id: int,
@@ -403,9 +444,13 @@ def update_probe(
     if req.snomed_topo_code  is not None: probe.snomed_topo_code  = req.snomed_topo_code
     if req.topo_description  is not None: probe.topo_description  = req.topo_description
     if req.location_additional is not None: probe.location_additional = req.location_additional
+    morph_codes = _validated_codes(db, "morphology", req.snomed_morph_codes)
+    etio_codes  = _validated_codes(db, "etiology", req.snomed_etio_codes)
+    if morph_codes is not None: probe.snomed_morph_codes = morph_codes
+    if etio_codes  is not None: probe.snomed_etio_codes  = etio_codes
     db.commit()
     db.refresh(probe)
-    return probe
+    return _probe_response(db, probe)
 
 
 @router.delete("/{patient_id}/submissions/{submission_id}/probes/{probe_id}", status_code=204)

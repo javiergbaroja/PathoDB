@@ -7,6 +7,14 @@ import logoHorizontalNeg from '../assets/logos/logo_horizontal_neg.svg'
 import s from './Layout.module.css'
 
 const cx = (...names) => names.filter(Boolean).join(' ')
+function AdminImportIcon() {
+  return (
+    <svg width="15" height="15" viewBox="0 0 16 16" fill="currentColor">
+      <path d="M8.5 6.5a.5.5 0 00-1 0v3.793L6.354 9.146a.5.5 0 10-.708.708l2 2a.5.5 0 00.708 0l2-2a.5.5 0 00-.708-.708L8.5 10.293V6.5z"/>
+      <path d="M14 14V4.5L9.5 0H4a2 2 0 00-2 2v12a2 2 0 002 2h8a2 2 0 002-2zM9.5 3A1.5 1.5 0 0011 4.5h2V14a1 1 0 01-1 1H4a1 1 0 01-1-1V2a1 1 0 011-1h5.5v2z"/>
+    </svg>
+  )
+}
 
 const NAV = [
   {
@@ -45,8 +53,15 @@ const NAV = [
   },
 ]
 
+const ADMIN_NAV = {
+  section: 'Admin',
+  items: [
+    { to: '/admin/data-import', label: 'Data Import', icon: <AdminImportIcon /> },
+  ],
+}
+
 export default function Layout({ children, title, actions }) {
-  const { user, logout } = useAuth()
+  const { user, logout, isAdmin } = useAuth()
   const navigate          = useNavigate()
 
   const [query,     setQuery]     = useState('')
@@ -163,7 +178,24 @@ export default function Layout({ children, title, actions }) {
               ))}
             </div>
           ))}
+          {isAdmin && (
+            <div>
+              <div className={s.navSection}>{ADMIN_NAV.section}</div>
+              {ADMIN_NAV.items.map(({ to, label, icon, badge }) => (
+                <NavLink
+                  key={to}
+                  to={to}
+                  className={({ isActive }) => cx(s.navLink, isActive && s.navLinkActive)}
+                >
+                  <span className={s.navIcon}>{icon}</span>
+                  {label}
+                  {badge && <span className={s.navBadge}>{badge}</span>}
+                </NavLink>
+              ))}
+            </div>
+          )}
         </nav>
+
 
         <div className={s.sidebarFoot}>
           <div className={s.userRow}>

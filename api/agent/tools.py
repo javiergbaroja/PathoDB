@@ -16,6 +16,7 @@ from sqlalchemy.orm import Session
 
 from ..config import get_settings
 from ..models import User, Patient
+from ..routers import enrich_snomed_codes
 
 log = logging.getLogger("pathodb_agent")
 
@@ -43,9 +44,13 @@ def get_tools(db: Session, user: User) -> list:
 
     @tool
     def query_cohort(
-        return_level: str = "block",
+        return_level: str = "scan",
         topo_description_search: Optional[str] = None,
         snomed_topo_codes: Optional[List[str]] = None,
+        snomed_morph_codes: Optional[List[str]] = None,
+        morph_description_search: Optional[str] = None,
+        snomed_etiology_codes: Optional[List[str]] = None,
+        etiology_description_search: Optional[str] = None,
         submission_types: Optional[List[str]] = None,
         malignancy_flag: Optional[bool] = None,
         submission_date_from: Optional[str] = None,
@@ -56,13 +61,13 @@ def get_tools(db: Session, user: User) -> list:
         file_formats: Optional[List[str]] = None,
         magnification_min: Optional[float] = None,
         magnification_max: Optional[float] = None,
+        max_rows: int = 50,
     ) -> str:
-        """Find patients/specimens/slides matching structured criteria.
-
+        """...
         return_level is one of patient, submission, probe, block, scan.
-        Dates are ISO (YYYY-MM-DD). Validate topography/stain values with
-        lookup_filter_values first. Cannot express negative-stain or count
-        constraints.
+        Dates are ISO (YYYY-MM-DD). Validate topography/morphology/etiology/stain
+        values with lookup_filter_values first. Cannot express negative-stain or
+        count constraints.
         """
         from ..routers.cohorts import _run_cohort_query
         from ..schemas import CohortFilter
@@ -70,6 +75,10 @@ def get_tools(db: Session, user: User) -> list:
             return_level=return_level,
             topo_description_search=topo_description_search,
             snomed_topo_codes=snomed_topo_codes,
+            snomed_morph_codes=snomed_morph_codes,
+            morph_description_search=[morph_description_search] if morph_description_search else None,
+            snomed_etiology_codes=snomed_etiology_codes,
+            etiology_description_search=[etiology_description_search] if etiology_description_search else None,
             submission_types=submission_types,
             malignancy_flag=malignancy_flag,
             submission_date_from=submission_date_from,
@@ -96,8 +105,9 @@ def get_tools(db: Session, user: User) -> list:
 
     @tool
     def lookup_filter_values(field: str, q: str) -> str:
-        """Auto-complete valid filter values for query_cohort. The
-        field is one of snomed_topo_code, topo_description, stain_name."""
+        """Auto-complete valid filter values for query_cohort. The field is one
+        of snomed_topo_code, topo_description, snomed_morph_code, morph_description,
+        snomed_etiology_code, etiology_description, stain_name."""
         from ..routers.stats import lookup_values
         try:
             values = lookup_values(field=field, q=q, db=db, _=user)
@@ -269,6 +279,8 @@ def get_tools(db: Session, user: User) -> list:
                 "submission_type": probe.submission_type,
                 "snomed_topo_code": probe.snomed_topo_code,
                 "topo_description": probe.topo_description,
+                "snomed_morph_codes": enrich_snomed_codes(db, probe.snomed_morph_codes),
+                "snomed_etio_codes": enrich_snomed_codes(db, probe.snomed_etio_codes),
                 "blocks": [],
             }
             for block in probe.blocks:

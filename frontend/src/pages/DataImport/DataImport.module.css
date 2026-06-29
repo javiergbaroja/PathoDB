@@ -1,0 +1,382 @@
+/* ============================================================
+   Data Import — Admin ETL page
+   Uses design tokens from index.css. No hardcoded colors.
+   ============================================================ */
+
+/* ── Page header ─────────────────────────────────────────────── */
+.headerRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 24px;
+}
+
+.subtitle {
+  margin-top: 4px;
+  font-size: var(--text-sm);
+  color: var(--text-3);
+}
+
+/* ── Import cards grid ───────────────────────────────────────── */
+.cardGrid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 16px;
+  margin-bottom: 32px;
+}
+
+@media (max-width: 1100px) {
+  .cardGrid { grid-template-columns: 1fr; }
+}
+
+.card {
+  background: var(--white);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  transition: var(--transition-base);
+}
+
+.card:hover {
+  border-color: var(--navy-40);
+  box-shadow: var(--shadow-md);
+}
+
+.cardHeader {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.cardIcon {
+  width: 36px;
+  height: 36px;
+  border-radius: var(--radius-md);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.cardIconSubmissions { background: var(--teal-10); color: var(--teal); }
+.cardIconBlocks      { background: var(--navy-10); color: var(--navy); }
+.cardIconScans       { background: var(--amber-20); color: var(--amber-h); }
+
+.cardTitle {
+  font-size: var(--text-base);
+  font-weight: 600;
+  color: var(--text-1);
+}
+
+.cardDesc {
+  font-size: var(--text-sm);
+  color: var(--text-2);
+  line-height: 1.55;
+  flex: 1;
+}
+
+.cardColumns {
+  font-size: 11px;
+  color: var(--text-3);
+  font-family: var(--font-mono);
+  background: var(--navy-05);
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  line-height: 1.6;
+}
+
+.cardActions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+/* ── File drop zone ──────────────────────────────────────────── */
+.dropZone {
+  border: 1.5px dashed var(--border);
+  border-radius: var(--radius-md);
+  padding: 14px 16px;
+  text-align: center;
+  font-size: var(--text-sm);
+  color: var(--text-3);
+  cursor: pointer;
+  transition: var(--transition-base);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 48px;
+}
+
+.dropZone:hover {
+  border-color: var(--teal);
+  color: var(--teal);
+  background: var(--teal-10);
+}
+
+.dropZoneActive {
+  border-color: var(--teal);
+  background: var(--teal-10);
+  color: var(--teal);
+}
+
+.selectedFile {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  background: var(--navy-05);
+  border-radius: var(--radius-md);
+  font-size: var(--text-sm);
+  color: var(--text-1);
+}
+
+.selectedFileName {
+  flex: 1;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.clearFile {
+  background: none;
+  border: none;
+  color: var(--text-3);
+  cursor: pointer;
+  padding: 2px;
+  display: flex;
+  align-items: center;
+}
+
+.clearFile:hover { color: var(--crimson); }
+
+/* ── Folder picker ───────────────────────────────────────────── */
+.folderInput {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.folderPath {
+  flex: 1;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--navy-05);
+  color: var(--text-1);
+}
+
+.folderPath::placeholder { color: var(--text-3); }
+
+/* ── Job history table ───────────────────────────────────────── */
+.historySection {
+  margin-top: 8px;
+}
+
+.sectionTitle {
+  font-family: var(--font-heading);
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-1);
+  margin-bottom: 12px;
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--text-sm);
+}
+
+.table th {
+  text-align: left;
+  padding: 8px 12px;
+  color: var(--text-3);
+  font-weight: 500;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  border-bottom: 1px solid var(--border);
+  background: var(--navy-05);
+}
+
+.table td {
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border-l);
+  vertical-align: middle;
+}
+
+.table tr:last-child td { border-bottom: none; }
+
+.table tr:hover td { background: var(--navy-05); }
+
+.tableWrap {
+  background: var(--white);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+}
+
+/* ── Progress bar ────────────────────────────────────────────── */
+.progressWrap {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 120px;
+}
+
+.progressBar {
+  flex: 1;
+  height: 6px;
+  background: var(--navy-10);
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.progressFill {
+  height: 100%;
+  border-radius: 3px;
+  transition: width 0.4s ease;
+}
+
+.progressFillRunning  { background: var(--teal); }
+.progressFillDone     { background: var(--success-dot); }
+.progressFillFailed   { background: var(--crimson); }
+
+.progressPct {
+  font-size: 11px;
+  font-family: var(--font-mono);
+  color: var(--text-3);
+  min-width: 32px;
+  text-align: right;
+}
+
+/* ── Status badges ───────────────────────────────────────────── */
+.statusDot {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  margin-right: 6px;
+}
+
+.statusDotQueued    { background: var(--navy-40); }
+.statusDotRunning   { background: var(--teal); animation: pulse 1.5s ease infinite; }
+.statusDotDone      { background: var(--success-dot); }
+.statusDotFailed    { background: var(--crimson); }
+.statusDotCancelled { background: var(--text-3); }
+
+@keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+
+/* ── Source path display ─────────────────────────────────────── */
+.sourcePath {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-2);
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ── Summary stats row ───────────────────────────────────────── */
+.summaryChips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.summaryChip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  padding: 2px 7px;
+  border-radius: var(--radius-full);
+  background: var(--navy-05);
+  color: var(--text-2);
+  font-family: var(--font-mono);
+}
+
+/* ── Empty state ─────────────────────────────────────────────── */
+.emptyRow {
+  text-align: center;
+  color: var(--text-3);
+  padding: 32px 12px !important;
+  font-size: var(--text-sm);
+}
+
+/* ── Scan Cleanup Review Modal ───────────────────────────────── */
+.reviewSummary {
+  display: flex;
+  gap: 20px;
+  padding: 12px 14px;
+  background: var(--navy-05);
+  border-radius: var(--radius-md);
+  margin-bottom: 16px;
+}
+
+.reviewSummaryItem {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.reviewSummaryValue {
+  font-family: var(--font-mono);
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text-1);
+}
+
+.reviewSummaryLabel {
+  font-size: 11px;
+  color: var(--text-3);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.cleanBanner {
+  padding: 10px 14px;
+  background: var(--teal-10);
+  color: var(--teal);
+  border-radius: var(--radius-md);
+  font-size: var(--text-sm);
+  margin-bottom: 14px;
+}
+
+.blockedRow {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border-l);
+  cursor: pointer;
+}
+.blockedRow:last-child { border-bottom: none; }
+
+.blockedRowCheckbox {
+  margin-top: 3px;
+  accent-color: var(--crimson);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.blockedRowBody {
+  flex: 1;
+  min-width: 0;
+}
+
+.blockedRowPath {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text-1);
+  word-break: break-all;
+  margin-bottom: 4px;
+}

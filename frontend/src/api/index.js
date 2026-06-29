@@ -18,6 +18,7 @@ import { createChatSession, listChatSessions, getChatSession, getAssistantHealth
 import { createTMA, uploadTMACoresCSV, uploadTMAScansCSV, getTMACores, getTMAs, getTMA, updateTMA, deleteTMA } from './tmas'
 import { getRegistration, autoRegister, saveRegistration, deleteRegistration } from './registration'
 import { browseDirectory, createDirectory } from './filesystem'
+import { getEtlJobs, getEtlJob, submitEtlJob, cancelEtlJob, purgeEtlJob, downloadEtlReport } from './etl'
 import { 
   getProjects, getProject, createProject, updateProject, deleteProject,
   syncProject, getProjectProgress, createProjectFromFile,
@@ -66,4 +67,6 @@ export const api = {
 
   // Filesystem browsing
   browseDirectory, createDirectory,
+  // ETL
+  getEtlJobs, getEtlJob, submitEtlJob, cancelEtlJob, purgeEtlJob, downloadEtlReport
 }

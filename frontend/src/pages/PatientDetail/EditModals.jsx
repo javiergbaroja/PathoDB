@@ -1,6 +1,7 @@
 // frontend/src/pages/PatientDetail/EditModals.jsx
 import { useState } from 'react'
-import { Modal, Btn, FormField, FormInput, ErrorMsg } from '../../components/ui'
+import { Modal, Btn, FormField, FormInput, ErrorMsg, MultiSelect } from '../../components/ui'
+import { api } from '../../api'
 
 // ── ProbeModal ────────────────────────────────────────────────────────────────
 export function ProbeModal({ sub, existing, onClose, onSave, saving }) {
@@ -11,6 +12,8 @@ export function ProbeModal({ sub, existing, onClose, onSave, saving }) {
     snomed_topo_code:    existing?.snomed_topo_code    ?? '',
     topo_description:    existing?.topo_description    ?? '',
     location_additional: existing?.location_additional ?? '',
+    snomed_morph_codes:    existing?.snomed_morph_codes?.map(c => c.code) ?? [],
+    snomed_etio_codes:      existing?.snomed_etio_codes?.map(c => c.code) ?? [],
   })
   const [error, setError] = useState('')
 
@@ -26,15 +29,14 @@ export function ProbeModal({ sub, existing, onClose, onSave, saving }) {
         snomed_topo_code:    form.snomed_topo_code    || null,
         topo_description:    form.topo_description    || null,
         location_additional: form.location_additional || null,
+        snomed_morph_codes:    form.snomed_morph_codes,
+        snomed_etio_codes:      form.snomed_etio_codes,
       })
     } catch (e) { setError(e.message) }
   }
 
   return (
-    <Modal isOpen onClose={onClose}
-      title={isEdit ? 'Edit probe' : 'Add probe'}
-      subtitle={sub.lis_submission_id}
-      width={460}>
+    <Modal isOpen onClose={onClose} title={isEdit ? 'Edit probe' : 'Add probe'} subtitle={sub.lis_submission_id} width={460}>
       <Modal.Body style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-3)' }}>
         <ErrorMsg message={error} onDismiss={() => setError('')} />
         <FormField label="Probe ID *" htmlFor="probe-id">
@@ -53,6 +55,22 @@ export function ProbeModal({ sub, existing, onClose, onSave, saving }) {
         </div>
         <FormField label="Location (additional)" htmlFor="probe-loc">
           <FormInput id="probe-loc" value={form.location_additional} onChange={set('location_additional')} placeholder="e.g. Ascending" />
+        </FormField>
+        <FormField label="Morphology codes">
+          <MultiSelect
+            selected={form.snomed_morph_codes}
+            onChange={val => setForm(f => ({ ...f, snomed_morph_codes: val }))}
+            loadOptions={val => api.lookup('snomed_morph_code', val)}
+            placeholder="e.g. M-81403"
+          />
+        </FormField>
+        <FormField label="Etiology codes">
+          <MultiSelect
+            selected={form.snomed_etio_codes}
+            onChange={val => setForm(f => ({ ...f, snomed_etio_codes: val }))}
+            loadOptions={val => api.lookup('snomed_etiology_code', val)}
+            placeholder="e.g. L-25000"
+          />
         </FormField>
       </Modal.Body>
       <Modal.Footer>

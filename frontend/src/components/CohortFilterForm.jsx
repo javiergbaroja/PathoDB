@@ -34,6 +34,10 @@ import { api } from '../api'
 export const EMPTY_FILTER = {
   snomed_topo_codes:       [],
   topo_description_search: [],
+  snomed_morph_codes:           [],
+  morph_description_search:    [],
+  snomed_etio_codes:        [],
+  etio_description_search: [],
   stain_names:             [],
   stain_categories:        [],
   submission_types:        [],
@@ -69,6 +73,10 @@ export const EMPTY_LIST_STATE = {
     file_formats:            [],
     magnification_min:       null,
     magnification_max:       null,
+    snomed_morph_codes:           [],
+    morph_description_search:    [],
+    snomed_etio_codes:        [],
+    etio_description_search: [],
   },
 }
 
@@ -157,7 +165,7 @@ function FilterModeForm({ filter, onFilterChange, lockReturnLevel }) {
       </div>
       <div style={{ display: 'grid', gridTemplateColumns: lockReturnLevel ? '1fr' : '1fr 1fr', gap: 16, marginTop: 10 }}>
         <MultiSelect
-          label="SNOMED code"
+          label="Topography SNOMED code"
           selected={filter.snomed_topo_codes}
           onChange={val => onFilterChange('snomed_topo_codes', val)}
           loadOptions={val => api.lookup('snomed_topo_code', val)}
@@ -173,6 +181,38 @@ function FilterModeForm({ filter, onFilterChange, lockReturnLevel }) {
             </FormSelect>
           </FormField>
         )}
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: lockReturnLevel ? '1fr' : '1fr 1fr', gap: 16, marginTop: 10 }}>
+        <MultiSelect
+          label="Morphology description"
+          selected={filter.morph_description_search}
+          onChange={val => onFilterChange('morph_description_search', val)}
+          loadOptions={val => api.lookup('morph_description', val)}
+          placeholder="e.g. adenocarcinoma…"
+        />
+        <MultiSelect
+          label="Morphology SNOMED code"
+          selected={filter.snomed_morph_codes}
+          onChange={val => onFilterChange('snomed_morph_codes', val)}
+          loadOptions={val => api.lookup('snomed_morph_code', val)}
+          placeholder="e.g. M81403"
+        />
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: lockReturnLevel ? '1fr' : '1fr 1fr', gap: 16, marginTop: 10 }}>
+        <MultiSelect
+          label="Etiology description"
+          selected={filter.etio_description_search}
+          onChange={val => onFilterChange('etio_description_search', val)}
+          loadOptions={val => api.lookup('etio_description', val)}
+          placeholder="e.g. bacterium"
+        />
+        <MultiSelect
+          label="Etiology SNOMED code"
+          selected={filter.snomed_etio_codes}
+          onChange={val => onFilterChange('snomed_etio_codes', val)}
+          loadOptions={val => api.lookup('snomed_etio_code', val)}
+          placeholder="e.g. E10000"
+        />
       </div>
 
       <SectionLabel>Clinical</SectionLabel>

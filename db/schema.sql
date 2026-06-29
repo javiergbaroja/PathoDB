@@ -81,6 +81,34 @@ CREATE TABLE IF NOT EXISTS probes (
     UNIQUE (submission_id, lis_probe_id)
 );
 
+ALTER TABLE probes
+ADD COLUMN IF NOT EXISTS snomed_morph_codes TEXT[] NOT NULL DEFAULT '{}',
+ADD COLUMN IF NOT EXISTS snomed_etio_codes  TEXT[] NOT NULL DEFAULT '{}';
+
+CREATE INDEX IF NOT EXISTS idx_probes_snomed_morph_codes ON probes USING GIN (snomed_morph_codes);
+CREATE INDEX IF NOT EXISTS idx_probes_snomed_etio_codes  ON probes USING GIN (snomed_etio_codes);
+
+CREATE TABLE IF NOT EXISTS snomed_codes (
+    code        TEXT        PRIMARY KEY,
+    category    TEXT        NOT NULL CHECK (category IN ('morphology', 'etiology', 'topography')),
+    description TEXT,
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_snomed_codes_category ON snomed_codes (category);
+
+DO $$
+BEGIN
+    IF EXISTS (
+        SELECT 1 FROM pg_roles WHERE rolname = current_setting('app.db_user', true)
+    ) THEN
+        EXECUTE format(
+            'GRANT SELECT, INSERT, UPDATE, DELETE ON snomed_codes TO %I;',
+            current_setting('app.db_user')
+        );
+    END IF;
+END
+$$;
+
 CREATE INDEX IF NOT EXISTS idx_probes_submission_id ON probes (submission_id);
 CREATE INDEX IF NOT EXISTS idx_probes_snomed ON probes (snomed_topo_code);
 
@@ -400,3 +428,20 @@ CREATE TABLE IF NOT EXISTS agent_audit (
 );
 CREATE INDEX IF NOT EXISTS idx_agent_audit_user  ON agent_audit (user_id);
 CREATE INDEX IF NOT EXISTS idx_agent_audit_event ON agent_audit (event_type);
+
+CREATE TABLE IF NOT EXISTS etl_jobs (
+    id              SERIAL      PRIMARY KEY,
+    job_type        TEXT        NOT NULL
+                                CHECK (job_type IN ('submissions', 'blocks', 'scans')),
+    status          TEXT        NOT NULL DEFAULT 'queued'
+                                CHECK (status IN ('queued','running','done','failed','cancelled')),
+    slurm_job_id    INTEGER,
+    source_path     TEXT        NOT NULL,          -- saved upload path or scan folder
+    config_json     JSONB       NOT NULL DEFAULT '{}',
+    progress        INTEGER     NOT NULL DEFAULT 0, -- 0-100
+    summary_json    JSONB,                          -- final stats on completion
+    error_message   TEXT,
+    submitted_by    INTEGER     REFERENCES users (id),
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+);

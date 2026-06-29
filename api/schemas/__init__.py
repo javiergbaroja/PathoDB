@@ -87,6 +87,13 @@ class ReportResponse(ReportSummary):
 
 # ─── Probes ───────────────────────────────────────────────────────────────────
 
+class SnomedCodeResponse(BaseModel):
+    code: str
+    category: Optional[str] = None
+    description: Optional[str] = None
+
+    model_config = {"from_attributes": True}
+
 class ProbeSummary(BaseModel):
     id: int
     lis_probe_id: str
@@ -94,6 +101,8 @@ class ProbeSummary(BaseModel):
     snomed_topo_code: Optional[str]
     topo_description: Optional[str]
     location_additional: Optional[str]
+    snomed_morph_codes: List[SnomedCodeResponse] = []
+    snomed_etio_codes: List[SnomedCodeResponse] = []
 
     model_config = {"from_attributes": True}
 
@@ -195,6 +204,10 @@ class HierarchyResponse(PatientResponse):
 class CohortFilter(BaseModel):
     snomed_topo_codes: Optional[List[str]] = None
     topo_description_search: Optional[Union[str, List[str]]] = None
+    snomed_morph_codes: Optional[List[str]] = None
+    morph_description_search: Optional[List[str]] = None
+    snomed_etio_codes: Optional[List[str]] = None
+    etio_description_search: Optional[List[str]] = None
     submission_types: Optional[List[str]] = None
     malignancy_flag: Optional[bool] = None
     consent_statuses: Optional[List[str]] = None
@@ -299,6 +312,8 @@ class ProbeCreate(BaseModel):
     snomed_topo_code:   Optional[str] = None
     topo_description:   Optional[str] = None
     location_additional: Optional[str] = None
+    snomed_morph_codes: Optional[List[str]] = None
+    snomed_etio_codes:  Optional[List[str]] = None
 
 class ProbeUpdate(BaseModel):
     lis_probe_id:       Optional[str] = None
@@ -306,6 +321,8 @@ class ProbeUpdate(BaseModel):
     snomed_topo_code:   Optional[str] = None
     topo_description:   Optional[str] = None
     location_additional: Optional[str] = None
+    snomed_morph_codes: Optional[List[str]] = None
+    snomed_etio_codes:  Optional[List[str]] = None
 
 class BlockCreate(BaseModel):
     block_label:    str
@@ -323,3 +340,20 @@ class ScanUpdate(BaseModel):
     stain_name:   Optional[str]   = None
     file_format:  Optional[str]   = None
     magnification: Optional[float] = None
+    
+
+class EtlJobResponse(BaseModel):
+    id:            int
+    job_type:      str
+    status:        str
+    slurm_job_id:  Optional[int]
+    source_path:   str
+    config_json:   dict
+    progress:      int
+    summary_json:  Optional[dict]
+    error_message: Optional[str]
+    submitted_by:  Optional[int]
+    created_at:    datetime
+    updated_at:    datetime
+ 
+    model_config = {"from_attributes": True}

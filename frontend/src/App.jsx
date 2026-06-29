@@ -19,6 +19,7 @@ import TMAsList from './pages/TMAs'
 import TMADetail from './pages/TMADetail'
 import JobTracker  from './pages/JobTracker'
 import Dashboard   from './pages/Dashboard'
+import DataImport  from './pages/DataImport'
 import { ErrorBoundary } from './components/ErrorBoundary'
 
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
@@ -64,6 +65,7 @@ export default function App() {
               <Route path="/tmas/:tmaId" element={<Protected><TMADetail /></Protected>} />
               <Route path="/projects"            element={<Protected><Projects /></Protected>} />
               <Route path="/projects/:projectId" element={<Protected><ProjectDetail /></Protected>} />
+              <Route path="/admin/data-import" element={<Protected><DataImport /></Protected>} />
               <Route path="*" element={<Navigate to="/dashboard" replace />} />
             </Routes>
           </ErrorBoundary>

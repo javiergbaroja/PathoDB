@@ -29,3 +29,9 @@ pathodb_conda_data
 server_address.txt
 scripts/*
 slurm_api_old.sh
+pathodb_postrecovery_*.dump
+db/etl_jobs_migration.sql
+data/*/*/*
+etl/etl_worker.py
+etl/*.csv
+probes_not_found.txt

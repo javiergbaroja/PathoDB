@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import func, cast, Integer, exists
 
 from ..database import get_db
-from ..models import Patient, Submission, Probe, Block, Scan, Stain, User
+from ..models import Patient, Submission, Probe, Block, Scan, Stain, SnomedCode, User
 from ..auth import get_current_active_user
 
 router = APIRouter(prefix="/stats", tags=["stats"])
@@ -184,7 +184,12 @@ def get_dashboard_stats(
 
 @router.get("/lookup/{field}")
 def lookup_values(
-    field: Literal["snomed_topo_code", "topo_description", "stain_name", "stain_category", "submission_type", "file_format"],
+    field: Literal[
+        "snomed_topo_code", "topo_description", "stain_name", "stain_category",
+        "submission_type", "file_format",
+        "snomed_morph_code", "morph_description",
+        "snomed_etiology_code", "etiology_description",
+    ],
     q: str = Query(..., min_length=1),
     db: Session = Depends(get_db),
     _: User = Depends(get_current_active_user),
@@ -200,6 +205,22 @@ def lookup_values(
         results = db.query(Scan.file_format).filter(Scan.file_format.ilike(f"%{q}%")).distinct().limit(15).all()
     elif field == "snomed_topo_code":
         results = db.query(Probe.snomed_topo_code).filter(Probe.snomed_topo_code.ilike(f"%{q}%")).distinct().limit(15).all()
+    elif field == "snomed_morph_code":
+        results = db.query(SnomedCode.code).filter(
+            SnomedCode.category == "morphology", SnomedCode.code.ilike(f"%{q}%")
+        ).distinct().limit(15).all()
+    elif field == "morph_description":
+        results = db.query(SnomedCode.description).filter(
+            SnomedCode.category == "morphology", SnomedCode.description.ilike(f"%{q}%")
+        ).distinct().limit(15).all()
+    elif field == "snomed_etio_code":
+        results = db.query(SnomedCode.code).filter(
+            SnomedCode.category == "etiology", SnomedCode.code.ilike(f"%{q}%")
+        ).distinct().limit(15).all()
+    elif field == "etio_description":
+        results = db.query(SnomedCode.description).filter(
+            SnomedCode.category == "etiology", SnomedCode.description.ilike(f"%{q}%")
+        ).distinct().limit(15).all()
     else:
         results = db.query(Probe.topo_description).filter(Probe.topo_description.ilike(f"%{q}%")).distinct().limit(15).all()
 

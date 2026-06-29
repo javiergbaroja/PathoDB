@@ -103,6 +103,8 @@ class Probe(Base):
     snomed_topo_code    = Column(Text)
     topo_description    = Column(Text)
     location_additional = Column(Text)
+    snomed_morph_codes  = Column(ARRAY(Text), nullable=False, default=list)
+    snomed_etio_codes   = Column(ARRAY(Text), nullable=False, default=list)
     created_at          = Column(TIMESTAMP(timezone=True), server_default=func.now())
 
     __table_args__ = (
@@ -361,3 +363,32 @@ class AgentAudit(Base):
     tool_name  = Column(Text, nullable=True)
     payload    = Column(JSONB, nullable=True)
     created_at = Column(TIMESTAMP(timezone=True), server_default=func.now())
+
+
+class EtlJob(Base):
+    __tablename__ = "etl_jobs"
+ 
+    id            = Column(Integer, primary_key=True)
+    job_type      = Column(Text, nullable=False)
+    status        = Column(Text, nullable=False, default="queued")
+    slurm_job_id  = Column(Integer)
+    source_path   = Column(Text, nullable=False)
+    config_json   = Column(JSONB, nullable=False, server_default="{}")
+    progress      = Column(Integer, nullable=False, default=0)
+    summary_json  = Column(JSONB)
+    error_message = Column(Text)
+    submitted_by  = Column(Integer, ForeignKey("users.id"))
+    created_at    = Column(TIMESTAMP(timezone=True), server_default=func.now())
+    updated_at    = Column(TIMESTAMP(timezone=True), server_default=func.now())
+ 
+    submitted_by_user = relationship("User", foreign_keys=[submitted_by])
+
+
+
+class SnomedCode(Base):
+    __tablename__ = "snomed_codes"
+
+    code        = Column(Text, primary_key=True)
+    category    = Column(Text, nullable=False)   # 'morphology' | 'etiology'
+    description = Column(Text)
+    created_at  = Column(TIMESTAMP(timezone=True), server_default=func.now())

@@ -824,6 +824,11 @@ export default function PatientDetail() {
                             <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-3)' }}>
                               {probe.snomed_topo_code}
                             </span>
+                            {(probe.snomed_morph_codes?.length > 0 || probe.snomed_etio_codes?.length > 0) && (
+                              <Badge variant="muted" style={{ fontSize: 9 }}>
+                                M·{probe.snomed_morph_codes?.length ?? 0} E·{probe.snomed_etio_codes?.length ?? 0}
+                              </Badge>
+                            )}
                             {isAdmin && (
                               <div onClick={e => e.stopPropagation()} style={{ display: 'flex', gap: 4 }}>
                                 <button onClick={() => setEditProbeTarget({ probe, sub })}
@@ -840,6 +845,16 @@ export default function PatientDetail() {
 
                           {expandedProbes[probe.id] && (
                             <div style={{ paddingLeft: 20, display: 'flex', flexDirection: 'column', gap: 3, marginBottom: 4 }}>
+                              {(probe.snomed_morph_codes?.length > 0 || probe.snomed_etio_codes?.length > 0) && (
+                                <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginBottom: 6 }}>
+                                  {probe.snomed_morph_codes?.map(c => (
+                                    <Badge key={c.code} variant="navy" title={c.code}>{c.description || c.code}</Badge>
+                                  ))}
+                                  {probe.snomed_etio_codes?.map(c => (
+                                    <Badge key={c.code} variant="teal" title={c.code}>{c.description || c.code}</Badge>
+                                  ))}
+                                </div>
+                              )}
                               {probe.blocks?.map(block => {
                                 const isSelected = selected?.block?.id === block.id
                                 const scanCount  = block.scans?.length ?? 0
@@ -972,7 +987,7 @@ export default function PatientDetail() {
                     No scans registered
                   </div>
                   <div style={{ fontSize: 12, color: 'var(--crimson)' }}>
-                    Consider sectioning before re-embedding.
+                    Consider re-syncing from storage.
                   </div>
                 </div>
               ) : (

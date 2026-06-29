@@ -21,6 +21,7 @@ from ..database import get_db
 from ..models import Scan, Block, Probe, Submission, Patient, Report, Stain
 from ..auth import get_current_active_user, decode_token
 from ..config import get_settings
+from .patients import enrich_snomed_codes
 
 log      = logging.getLogger("pathodb_slides")
 settings = get_settings()
@@ -164,6 +165,8 @@ def _slide_info(scan_id: int, db: Session, include_technical: bool = True) -> di
         "topo_description":    probe.topo_description    if probe else None,
         "location_additional": probe.location_additional if probe else None,
         "submission_type":     probe.submission_type     if probe else None,
+        "snomed_morph_codes":  enrich_snomed_codes(db, probe.snomed_morph_codes) if probe else [],
+        "snomed_etio_codes":   enrich_snomed_codes(db, probe.snomed_etio_codes) if probe else [],
 
         # Clinical — submission
         "lis_submission_id": sub.lis_submission_id if sub else None,

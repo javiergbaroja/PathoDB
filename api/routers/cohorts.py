@@ -12,12 +12,12 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy.orm import Session, joinedload
-from sqlalchemy import and_, or_, func, exists
+from sqlalchemy import and_, or_, func, exists, false, select
 from datetime import date as DateType
 from typing import Literal, Optional
 
 from ..database import get_db
-from ..models import Patient, Submission, Probe, Block, Scan, Stain, Cohort, Report, User
+from ..models import Patient, Submission, Probe, Block, Scan, Stain, Cohort, Report, SnomedCode, User
 from ..schemas import CohortFilter, CohortSave, CohortResponse
 from ..auth import get_current_active_user
 
@@ -127,9 +127,20 @@ def _get_stains_for_block(db: Session, block_id: int) -> str:
 
 
 def _format_results(rows, return_level: str, db: Session, f=None) -> list[dict]:
-    """Format query rows (block, probe, sub, patient) into result dicts."""
     seen = set()
     results = []
+    if not rows:
+        return results
+
+    all_codes = set()
+    for block, probe, sub, patient in rows:
+        all_codes.update(probe.snomed_morph_codes or [])
+        all_codes.update(probe.snomed_etio_codes or [])
+    desc_map = dict(db.query(SnomedCode.code, SnomedCode.description)
+                     .filter(SnomedCode.code.in_(all_codes)).all()) if all_codes else {}
+
+    def _enrich(codes):
+        return [{"code": c, "description": desc_map.get(c)} for c in (codes or [])]
 
     if not rows:
         return results
@@ -226,6 +237,8 @@ def _format_results(rows, return_level: str, db: Session, f=None) -> list[dict]:
                     "lis_probe_id":       probe.lis_probe_id,
                     "snomed_topo_code":   probe.snomed_topo_code,
                     "topo_description":   probe.topo_description,
+                    "snomed_morph_codes": _enrich(probe.snomed_morph_codes),
+                    "snomed_etio_codes":  _enrich(probe.snomed_etio_codes),
                     "submission_type":    probe.submission_type,
                     "location_additional":probe.location_additional,
                     "consent":            sub.consent,
@@ -242,12 +255,13 @@ def _format_results(rows, return_level: str, db: Session, f=None) -> list[dict]:
                     "lis_probe_id":      probe.lis_probe_id,
                     "snomed_topo_code":  probe.snomed_topo_code,
                     "topo_description":  probe.topo_description,
+                    "snomed_morph_codes": _enrich(probe.snomed_morph_codes),
+                    "snomed_etio_codes":  _enrich(probe.snomed_etio_codes),
                     "submission_type":   probe.submission_type,
                     "block_label":       block.block_label,
                     "block_info":        block.block_info,
                     "consent":           sub.consent,
                     "stains":            stains,
-                    "scan_count":        len(block.scans) if hasattr(block, 'scans') else 0,
                 })
 
     return results
@@ -271,6 +285,30 @@ def _apply_filters(db: Session, f: CohortFilter):
             q = q.filter(Probe.topo_description.ilike(f"%{f.topo_description_search}%"))
     if f.snomed_topo_codes:
         q = q.filter(Probe.snomed_topo_code.in_(f.snomed_topo_codes))
+    if f.snomed_morph_codes:
+        q = q.filter(Probe.snomed_morph_codes.op('&&')(f.snomed_morph_codes))
+    if f.morph_description_search:
+        morph_code_subq = (
+            select(func.array_agg(SnomedCode.code))
+            .where(
+                SnomedCode.category == "morphology",
+                SnomedCode.description.in_(f.morph_description_search),
+            )
+            .scalar_subquery()
+        )
+        q = q.filter(Probe.snomed_morph_codes.op('&&')(morph_code_subq))
+    if f.snomed_etio_codes:
+        q = q.filter(Probe.snomed_etio_codes.op('&&')(f.snomed_etio_codes))
+    if f.etio_description_search:
+        etio_code_subq = (
+            select(func.array_agg(SnomedCode.code))
+            .where(
+                SnomedCode.category == "etiology",
+                SnomedCode.description.in_(f.etio_description_search),
+            )
+            .scalar_subquery()
+        )
+        q = q.filter(Probe.snomed_etio_codes.op('&&')(etio_code_subq))
     if f.submission_types:
         q = q.filter(Probe.submission_type.in_(f.submission_types))
     if f.malignancy_flag is not None:
@@ -324,6 +362,10 @@ class ListQueryRequest(BaseModel):
     # Standard filters — same fields as CohortFilter, applied at SQL level
     snomed_topo_codes:       Optional[list[str]] = None
     topo_description_search: Optional[list[str]] = None
+    snomed_morph_codes:      Optional[list[str]] = None
+    morph_description_search:Optional[list[str]] = None
+    snomed_etio_codes:       Optional[list[str]] = None
+    etio_description_search: Optional[list[str]] = None
     submission_types:        Optional[list[str]] = None
     malignancy_flag:         Optional[bool] = None
     consent_statuses:        Optional[list[str]] = None
