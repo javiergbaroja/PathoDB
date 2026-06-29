@@ -1,21 +1,8 @@
 // frontend/src/pages/SlideViewer/ClinicalPanel.jsx
 import s from './ClinicalPanel.module.css'
-import { Badge } from '../../components/ui'
+import { Badge, SnomedTriad } from '../../components/ui'
 
 const cx = (...names) => names.filter(Boolean).join(' ')
-
-function CodeBadgeList({ items, variant }) {
-  if (!items?.length) return null
-  return (
-    <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
-      {items.map(c => (
-        <Badge key={c.code} variant={variant} title={c.code}>
-          {c.description || c.code}
-        </Badge>
-      ))}
-    </div>
-  )
-}
 
 export default function ClinicalPanel({ displayInfo, compareMode, hasRight, panelSide, setPanelSide, reportOpen, setReportOpen }) {
   const hasMacro = !!displayInfo.report_macro
@@ -59,12 +46,16 @@ export default function ClinicalPanel({ displayInfo, compareMode, hasRight, pane
       <PanelSection label="Probe">
         <PanelRow label="ID"         value={displayInfo.lis_probe_id} mono />
         <PanelRow label="Topography" value={displayInfo.topo_description} />
-        <PanelRow label="SNOMED Topo"     value={displayInfo.snomed_topo_code} mono />
-        {displayInfo.snomed_morph_codes?.length > 0 && (
-          <PanelRow label="Morphology" value={<CodeBadgeList items={displayInfo.snomed_morph_codes} variant="navy" />} />
-        )}
-        {displayInfo.snomed_etio_codes?.length > 0 && (
-          <PanelRow label="Etiology" value={<CodeBadgeList items={displayInfo.snomed_etio_codes} variant="teal" />} />
+        {(displayInfo.snomed_topo_code || displayInfo.snomed_morph_codes?.length > 0 || displayInfo.snomed_etio_codes?.length > 0) && (
+          <PanelRow label="SNOMED" value={
+            <SnomedTriad
+              topoCode={displayInfo.snomed_topo_code}
+              topoDescription={displayInfo.topo_description}
+              morphCodes={displayInfo.snomed_morph_codes}
+              etioCodes={displayInfo.snomed_etio_codes}
+              compact
+            />
+          } />
         )}
         <PanelRow label="Type"       value={displayInfo.submission_type} />
         <PanelRow label="Location"   value={displayInfo.location_additional} />

@@ -692,3 +692,41 @@
   padding: 0 2px;
 }
 .toastClose:hover { opacity: 1; }
+
+/* ============================================================
+   CODE CHIP  (SNOMED axis-coloured chip)
+   ============================================================ */
+.codeChip {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 1px 7px 1px 5px;
+  border-radius: var(--radius-full);
+  font-size: 11px;
+  line-height: 1.5;
+  white-space: nowrap;
+  max-width: 240px;
+}
+.codeChipAxis {
+  font-weight: 700;
+  font-size: 9px;
+  opacity: 0.55;
+  flex-shrink: 0;
+}
+.codeChipText {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.codeChip_T { background: var(--navy-05); color: var(--text-2); }
+.codeChip_M { background: var(--navy-10); color: var(--navy); }
+.codeChip_E { background: var(--teal-10); color: var(--teal); }
+
+/* SNOMED TRIAD (groups T + M[] + E[] chips) */
+.snomedTriad {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  align-items: center;
+}
+.snomedTriadCompact { gap: 3px; }
+.snomedTriadCompact .codeChip { font-size: 10px; padding: 0 5px 0 4px; }

@@ -199,17 +199,62 @@ def _format_results(rows, return_level: str, db: Session, f=None) -> list[dict]:
         
         return results
 
+    # --- Aggregation helpers for multi-probe fields ---
+    def _bracket_join(values):
+        """Wrap each element in braces: ['a','b'] → '{a}{b}'."""
+        return ''.join(f'{{{v}}}' for v in values if v) if values else ''
+
+    def _bracket_join_multi(lists_of_codes):
+        """For each probe's code list, semicolon-join inside braces.
+        [[c1,c2],[c3]] → '{c1;c2}{c3}'."""
+        parts = []
+        for codes in lists_of_codes:
+            if codes:
+                parts.append('{' + ';'.join(codes) + '}')
+        return ''.join(parts)
+
+    def _bracket_join_descriptions(lists_of_codes):
+        """Same as _bracket_join_multi but uses resolved descriptions."""
+        parts = []
+        for codes in lists_of_codes:
+            if codes:
+                descs = [desc_map.get(c, c) or c for c in codes]
+                parts.append('{' + ';'.join(descs) + '}')
+        return ''.join(parts)
+
+    # --- Pre-aggregate probes per submission for submission-level export ---
+    sub_probes = {}  # sub.id → list of Probe objects
+    sub_patients = {}  # sub.id → Patient
+    patient_subs = {}  # patient.id → list of Submission objects
+    for block, probe, sub, patient in rows:
+        sub_probes.setdefault(sub.id, [])
+        if probe.id not in {p.id for p in sub_probes[sub.id]}:
+            sub_probes[sub.id].append(probe)
+        sub_patients[sub.id] = patient
+        patient_subs.setdefault(patient.id, set())
+        patient_subs[patient.id].add(sub.id)
+
     # --- Standard processing for patient/submission/probe/block levels ---
     for block, probe, sub, patient in rows:
         if return_level == "patient":
             key = patient.id
             if key not in seen:
                 seen.add(key)
+                pat_sub_ids = patient_subs.get(patient.id, set())
+                pat_submissions = [s for s in [sub] if s.id in pat_sub_ids]
+                # Count from all rows for this patient
+                all_patient_subs = {}
+                for _, _, s, p in rows:
+                    if p.id == patient.id:
+                        all_patient_subs[s.id] = s
+                sub_list = list(all_patient_subs.values())
                 results.append({
-                    "patient_code":  patient.patient_code,
-                    "date_of_birth": str(patient.date_of_birth) if patient.date_of_birth else None,
-                    "sex":           patient.sex,
-                    "consent":       sub.consent,
+                    "patient_code":       patient.patient_code,
+                    "date_of_birth":      str(patient.date_of_birth) if patient.date_of_birth else None,
+                    "sex":                patient.sex,
+                    "submission_count":   len(sub_list),
+                    "malignant_count":    sum(1 for s in sub_list if s.malignancy_flag is True),
+                    "consent":            sub.consent,
                 })
 
         elif return_level == "submission":
@@ -217,30 +262,56 @@ def _format_results(rows, return_level: str, db: Session, f=None) -> list[dict]:
             if key not in seen:
                 seen.add(key)
                 reps = _get_reports_for_submission(db, sub.id)
+                probes = sub_probes.get(sub.id, [])
+
+                # Count blocks across all probes in this submission
+                block_count = sum(
+                    1 for _, _, s, _ in rows if s.id == sub.id
+                    for _ in [1]
+                )
+                # Actually count unique blocks
+                sub_block_ids = set()
+                for b, p, s, _ in rows:
+                    if s.id == sub.id:
+                        sub_block_ids.add(b.id)
+
                 results.append({
-                    "patient_code":      patient.patient_code,
-                    "lis_submission_id": sub.lis_submission_id,
-                    "report_date":       str(sub.report_date) if sub.report_date else None,
-                    "malignancy_flag":   sub.malignancy_flag,
-                    "consent":           sub.consent,
-                    "report_macro":      reps['macro'],
-                    "report_microscopy": reps['microscopy'],
+                    "patient_code":           patient.patient_code,
+                    "lis_submission_id":      sub.lis_submission_id,
+                    "report_date":            str(sub.report_date) if sub.report_date else None,
+                    "malignancy_flag":        sub.malignancy_flag,
+                    "consent":                sub.consent,
+                    "probe_count":            len(probes),
+                    "block_count":            len(sub_block_ids),
+                    "snomed_topo_codes":      _bracket_join([p.snomed_topo_code for p in probes]),
+                    "topo_descriptions":      _bracket_join([p.topo_description for p in probes]),
+                    "snomed_morph_codes":     _bracket_join_multi([p.snomed_morph_codes for p in probes]),
+                    "morph_descriptions":     _bracket_join_descriptions([p.snomed_morph_codes for p in probes]),
+                    "snomed_etio_codes":      _bracket_join_multi([p.snomed_etio_codes for p in probes]),
+                    "etio_descriptions":      _bracket_join_descriptions([p.snomed_etio_codes for p in probes]),
+                    "report_macro":           reps['macro'],
+                    "report_microscopy":      reps['microscopy'],
                 })
 
         elif return_level == "probe":
             key = probe.id
             if key not in seen:
                 seen.add(key)
+                morph = _enrich(probe.snomed_morph_codes)
+                etio = _enrich(probe.snomed_etio_codes)
                 results.append({
                     "patient_code":       patient.patient_code,
                     "lis_submission_id":  sub.lis_submission_id,
                     "lis_probe_id":       probe.lis_probe_id,
                     "snomed_topo_code":   probe.snomed_topo_code,
                     "topo_description":   probe.topo_description,
-                    "snomed_morph_codes": _enrich(probe.snomed_morph_codes),
-                    "snomed_etio_codes":  _enrich(probe.snomed_etio_codes),
+                    "snomed_morph_codes": '; '.join(c['code'] for c in morph) if morph else '',
+                    "morph_descriptions": '; '.join(c['description'] or c['code'] for c in morph) if morph else '',
+                    "snomed_etio_codes":  '; '.join(c['code'] for c in etio) if etio else '',
+                    "etio_descriptions":  '; '.join(c['description'] or c['code'] for c in etio) if etio else '',
                     "submission_type":    probe.submission_type,
                     "location_additional":probe.location_additional,
+                    "malignancy_flag":    sub.malignancy_flag,
                     "consent":            sub.consent,
                 })
 
@@ -249,17 +320,24 @@ def _format_results(rows, return_level: str, db: Session, f=None) -> list[dict]:
             if key not in seen:
                 seen.add(key)
                 stains = _get_stains_for_block(db, block.id)
+                morph = _enrich(probe.snomed_morph_codes)
+                etio = _enrich(probe.snomed_etio_codes)
+                scan_count = db.query(func.count(Scan.id)).filter(Scan.block_id == block.id).scalar()
                 results.append({
                     "patient_code":      patient.patient_code,
                     "lis_submission_id": sub.lis_submission_id,
                     "lis_probe_id":      probe.lis_probe_id,
                     "snomed_topo_code":  probe.snomed_topo_code,
                     "topo_description":  probe.topo_description,
-                    "snomed_morph_codes": _enrich(probe.snomed_morph_codes),
-                    "snomed_etio_codes":  _enrich(probe.snomed_etio_codes),
+                    "snomed_morph_codes": '; '.join(c['code'] for c in morph) if morph else '',
+                    "morph_descriptions": '; '.join(c['description'] or c['code'] for c in morph) if morph else '',
+                    "snomed_etio_codes":  '; '.join(c['code'] for c in etio) if etio else '',
+                    "etio_descriptions":  '; '.join(c['description'] or c['code'] for c in etio) if etio else '',
                     "submission_type":   probe.submission_type,
                     "block_label":       block.block_label,
                     "block_info":        block.block_info,
+                    "tissue_count":      block.tissue_count,
+                    "scan_count":        scan_count,
                     "consent":           sub.consent,
                     "stains":            stains,
                 })
