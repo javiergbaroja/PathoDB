@@ -5,7 +5,7 @@
  * Styles live in ./ui.module.css. Design tokens (CSS variables) in /src/index.css.
  */
 
-import React, { useState, useEffect, forwardRef } from 'react'
+import React, { useState, useEffect, useRef, useCallback, useMemo, useContext, createContext, useId, forwardRef } from 'react'
 import s from './ui.module.css'
 
 const cx = (...names) => names.filter(Boolean).join(' ')
@@ -320,19 +320,84 @@ export function SortIcon({ col, sortCol, sortDir }) {
 // MODAL
 // ============================================================
 
+const FOCUSABLE = 'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])'
+
 export function Modal({ isOpen, onClose, title, subtitle, children, width = 440 }) {
+  const titleId = useId()
+  const cardRef = useRef(null)
+  const previousFocusRef = useRef(null)
+
+  // Capture the element that had focus before the modal opened
+  useEffect(() => {
+    if (isOpen) {
+      previousFocusRef.current = document.activeElement
+    }
+  }, [isOpen])
+
+  // Focus the modal card when it opens; restore focus when it closes
+  useEffect(() => {
+    if (isOpen && cardRef.current) {
+      cardRef.current.focus()
+    }
+    return () => {
+      if (previousFocusRef.current && typeof previousFocusRef.current.focus === 'function') {
+        previousFocusRef.current.focus()
+      }
+    }
+  }, [isOpen])
+
+  // Escape key closes the modal
+  useEffect(() => {
+    if (!isOpen || !onClose) return
+    const handleKey = (e) => {
+      if (e.key === 'Escape') { onClose() }
+    }
+    document.addEventListener('keydown', handleKey)
+    return () => document.removeEventListener('keydown', handleKey)
+  }, [isOpen, onClose])
+
+  // Focus trap: Tab / Shift+Tab cycle within the modal
+  const handleKeyDown = useCallback((e) => {
+    if (e.key !== 'Tab' || !cardRef.current) return
+    const focusable = Array.from(cardRef.current.querySelectorAll(FOCUSABLE))
+    if (focusable.length === 0) return
+    const first = focusable[0]
+    const last = focusable[focusable.length - 1]
+    if (e.shiftKey) {
+      if (document.activeElement === first) {
+        e.preventDefault()
+        last.focus()
+      }
+    } else {
+      if (document.activeElement === last) {
+        e.preventDefault()
+        first.focus()
+      }
+    }
+  }, [])
+
   if (!isOpen) return null
   return (
     <div onClick={onClose} className={s.modalOverlay}>
-      <div onClick={e => e.stopPropagation()} className={s.modalCard} style={{ width }}>
+      <div
+        ref={cardRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={title ? titleId : undefined}
+        tabIndex={-1}
+        onClick={e => e.stopPropagation()}
+        onKeyDown={handleKeyDown}
+        className={s.modalCard}
+        style={{ width }}
+      >
         {(title || onClose) && (
           <div className={s.modalHeader}>
             <div>
-              {title && <div className={s.modalTitle}>{title}</div>}
+              {title && <div id={titleId} className={s.modalTitle}>{title}</div>}
               {subtitle && <div className={s.modalSubtitle}>{subtitle}</div>}
             </div>
             {onClose && (
-              <button onClick={onClose} className={s.modalClose}>×</button>
+              <button onClick={onClose} aria-label="Close" className={s.modalClose}>×</button>
             )}
           </div>
         )}
@@ -673,7 +738,9 @@ export function MultiSelect({ label, selected, onChange, placeholder, loadOption
   const [query,       setQuery]       = useState('')
   const [suggestions, setSuggestions] = useState([])
   const [show,        setShow]        = useState(false)
+  const [activeIndex, setActiveIndex] = useState(-1)
   const wrapperRef = React.useRef(null)
+  const id = useId()
 
   useEffect(() => {
     function handler(e) {
@@ -689,12 +756,14 @@ export function MultiSelect({ label, selected, onChange, placeholder, loadOption
       try {
         const res = await loadOptions(val)
         setSuggestions(res.filter(item => !selected?.includes(item)))
+        setActiveIndex(-1)
         setShow(true)
       } catch {
         /* swallow */
       }
     } else {
       setSuggestions([])
+      setActiveIndex(-1)
       setShow(false)
     }
   }
@@ -703,6 +772,37 @@ export function MultiSelect({ label, selected, onChange, placeholder, loadOption
     if (!selected?.includes(item)) onChange([...(selected || []), item])
   }
   function remove(item) { onChange(selected.filter(i => i !== item)) }
+
+  function handleKeyDown(e) {
+    if (e.key === 'ArrowDown') {
+      e.preventDefault()
+      if (!show || suggestions.length === 0) return
+      setActiveIndex(prev => (prev + 1) % suggestions.length)
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault()
+      if (!show || suggestions.length === 0) return
+      setActiveIndex(prev => (prev <= 0 ? suggestions.length - 1 : prev - 1))
+    } else if (e.key === 'Enter') {
+      e.preventDefault()
+      if (show && suggestions.length > 0) {
+        const idx = activeIndex >= 0 ? activeIndex : 0
+        add(suggestions[idx])
+        setQuery('')
+        setSuggestions([])
+        setActiveIndex(-1)
+        setShow(false)
+      }
+    } else if (e.key === 'Escape') {
+      setQuery('')
+      setSuggestions([])
+      setActiveIndex(-1)
+      setShow(false)
+    } else if (e.key === 'Backspace' && query === '' && selected?.length) {
+      remove(selected[selected.length - 1])
+    }
+  }
+
+  const listboxId = `multiselect-listbox-${id}`
 
   return (
     <div ref={wrapperRef} className={s.multi}>
@@ -720,15 +820,27 @@ export function MultiSelect({ label, selected, onChange, placeholder, loadOption
           value={query}
           onChange={e => fetchSuggestions(e.target.value)}
           onFocus={() => query && setShow(true)}
+          onKeyDown={handleKeyDown}
+          role="combobox"
+          aria-expanded={show}
+          aria-controls={listboxId}
+          aria-activedescendant={activeIndex >= 0 ? `multiselect-option-${id}-${activeIndex}` : undefined}
         />
         {query && (
           <button onClick={() => { setQuery(''); setShow(false) }} className={s.multiClear}>×</button>
         )}
       </div>
       {show && suggestions.length > 0 && (
-        <div className={s.multiDropdown}>
-          {suggestions.map(item => (
-            <div key={item} onClick={() => add(item)} className={s.multiOption}>
+        <div className={s.multiDropdown} role="listbox" id={listboxId}>
+          {suggestions.map((item, index) => (
+            <div
+              key={item}
+              onClick={() => add(item)}
+              className={cx(s.multiOption, index === activeIndex && s.multiOptionActive)}
+              role="option"
+              id={`multiselect-option-${id}-${index}`}
+              aria-selected={index === activeIndex}
+            >
               {item}
             </div>
           ))}
@@ -861,5 +973,57 @@ export function RadioCardGroup({ name, value, onChange, options, disabled, accen
         </label>
       ))}
     </div>
+  )
+}
+
+// ============================================================
+// TOAST NOTIFICATIONS
+// ============================================================
+
+const ToastContext = createContext(null)
+
+export function useToast() {
+  const ctx = useContext(ToastContext)
+  if (!ctx) throw new Error('useToast must be used within ToastProvider')
+  return ctx
+}
+
+export function ToastProvider({ children }) {
+  const [toasts, setToasts] = useState([])
+  const counterRef = useRef(0)
+
+  const addToast = useCallback((message, variant = 'info', duration = 4000) => {
+    const id = ++counterRef.current
+    setToasts(prev => [...prev, { id, message, variant }])
+    if (duration > 0) {
+      setTimeout(() => setToasts(prev => prev.filter(t => t.id !== id)), duration)
+    }
+    return id
+  }, [])
+
+  const dismiss = useCallback((id) => {
+    setToasts(prev => prev.filter(t => t.id !== id))
+  }, [])
+
+  const api = useMemo(() => ({
+    success: (msg, dur) => addToast(msg, 'success', dur),
+    error:   (msg, dur) => addToast(msg, 'error', dur ?? 6000),
+    warning: (msg, dur) => addToast(msg, 'warning', dur),
+    info:    (msg, dur) => addToast(msg, 'info', dur),
+    dismiss,
+  }), [addToast, dismiss])
+
+  return (
+    <ToastContext.Provider value={api}>
+      {children}
+      <div className={s.toastContainer} aria-live="polite">
+        {toasts.map(t => (
+          <div key={t.id} className={cx(s.toast, s[`toast_${t.variant}`])}>
+            <span className={s.toastMsg}>{t.message}</span>
+            <button className={s.toastClose} onClick={() => dismiss(t.id)} aria-label="Dismiss">×</button>
+          </div>
+        ))}
+      </div>
+    </ToastContext.Provider>
   )
 }

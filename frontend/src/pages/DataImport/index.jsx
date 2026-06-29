@@ -1,5 +1,5 @@
 // frontend/src/pages/DataImport/index.jsx
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { Navigate } from 'react-router-dom'
 import { useAuth } from '../../context/AuthContext'
 import Layout from '../../components/Layout'
@@ -240,23 +240,28 @@ function ProgressBar({ percent, status }) {
 
 function ImportCard({ type, config, onSubmit, submitting }) {
   const [file, setFile] = useState(null)
-  const [scanFolder, setScanFolder] = useState('')
+  const [mode, setMode] = useState('preview')
+  const [previewResult, setPreviewResult] = useState(null)
   const isFile = config.mode === 'file'
 
   function handleSubmit() {
     if (isFile && !file) return
-    if (!isFile && !scanFolder.trim()) return
-    onSubmit({
-      jobType: type,
-      file: isFile ? file : null,
-      scanFolder: isFile ? null : scanFolder.trim(),
-    })
-    // Clear after submit
-    setFile(null)
-    setScanFolder('')
+    if (mode === 'preview') {
+      onSubmit({
+        jobType: type,
+        mode: 'preview',
+        file: isFile ? file : null,
+      })
+    } else {
+      onSubmit({
+        jobType: type,
+        mode: 'commit',
+        file: isFile ? file : null,
+      })
+    }
   }
 
-  const canSubmit = isFile ? !!file : !!scanFolder.trim()
+  const canSubmit = isFile ? !!file : false
 
   return (
     <div className={s.card}>
@@ -275,35 +280,43 @@ function ImportCard({ type, config, onSubmit, submitting }) {
         </div>
       )}
 
-      {isFile ? (
+      <SegmentedControl
+        small
+        style={{ marginBottom: 8, marginTop: 4 }}
+        options={[['preview', 'Preview (dry run)'], ['commit', 'Import directly']]}
+        value={mode}
+        onChange={setMode}
+      />
+
+      {mode === 'preview' && (
+        <div style={{ fontSize: 11, color: 'var(--text-3)', marginBottom: 8 }}>
+          Validates the file and reports what would be created or updated — nothing is written to the database.
+        </div>
+      )}
+      {mode === 'commit' && (
+        <div style={{ fontSize: 11, color: 'var(--warning)', marginBottom: 8 }}>
+          Imports directly into the database. Consider running a preview first.
+        </div>
+      )}
+
+      {isFile && (
         <FileDropZone
           file={file}
           onFile={setFile}
           onClear={() => setFile(null)}
           accept={ACCEPTED_FILE_TYPES}
         />
-      ) : (
-        <div className={s.folderInput}>
-          <FolderIcon />
-          <input
-            className={s.folderPath}
-            type="text"
-            placeholder="/storage/research/…/slides"
-            value={scanFolder}
-            onChange={e => setScanFolder(e.target.value)}
-          />
-        </div>
       )}
 
       <div className={s.cardActions}>
         <Btn
-          variant="teal"
+          variant={mode === 'commit' ? 'teal' : 'primary'}
           small
           disabled={!canSubmit || submitting}
           onClick={handleSubmit}
         >
           {submitting ? <Spinner size={14} color="var(--white)" /> : null}
-          {isFile ? 'Upload & Import' : 'Start Scan Crawl'}
+          {mode === 'preview' ? 'Run Preview' : 'Upload & Import'}
         </Btn>
       </div>
     </div>
@@ -485,6 +498,7 @@ export default function DataImport() {
   const [error, setError] = useState('')
   const [reviewJob, setReviewJob] = useState(null) // completed preview job under review
   const [reportJob, setReportJob] = useState(null)
+  const [historyFilter, setHistoryFilter] = useState('all')
   const pollRef = useRef(null)
 
   // Redirect non-admins
@@ -501,16 +515,19 @@ export default function DataImport() {
     }
   }, [])
 
-  // Initial load + polling
+  // Initial load + polling (stops when no active jobs)
   useEffect(() => {
     fetchJobs()
-
-    pollRef.current = setInterval(() => {
-      fetchJobs()
-    }, POLL_INTERVAL)
-
     return () => clearInterval(pollRef.current)
   }, [fetchJobs])
+
+  useEffect(() => {
+    clearInterval(pollRef.current)
+    if (hasActiveJobs) {
+      pollRef.current = setInterval(fetchJobs, POLL_INTERVAL)
+    }
+    return () => clearInterval(pollRef.current)
+  }, [hasActiveJobs, fetchJobs])
 
   async function handleSubmit({ jobType, mode, file, scanFolder }) {
     setSubmitting(jobType)
@@ -536,13 +553,18 @@ export default function DataImport() {
 
   const hasActiveJobs = jobs.some(j => j.status === 'queued' || j.status === 'running')
 
+  const filteredJobs = useMemo(() => {
+    const sorted = [...jobs].sort((a, b) =>
+      new Date(b.created_at) - new Date(a.created_at)
+    )
+    if (historyFilter === 'all') return sorted
+    return sorted.filter(j => j.job_type === historyFilter)
+  }, [jobs, historyFilter])
+
   return (
     <Layout title="Data Import">
       <div className={s.headerRow}>
         <div>
-          <h1 style={{ fontFamily: 'var(--font-heading)', fontSize: 20, fontWeight: 600, color: 'var(--text-1)' }}>
-            Data Import
-          </h1>
           <p className={s.subtitle}>
             Upload PathoWin exports or crawl slide folders to populate the database.
             Each import runs as a SLURM job on the cluster.
@@ -588,7 +610,20 @@ export default function DataImport() {
 
       {/* ── Job history ──────────────────────────────────────────────────── */}
       <div className={s.historySection}>
-        <div className={s.sectionTitle}>Import History</div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 8 }}>
+          <div className={s.sectionTitle} style={{ marginBottom: 0 }}>Import History</div>
+          <SegmentedControl
+            small
+            options={[
+              ['all', 'All'],
+              ['submissions', 'Submissions'],
+              ['blocks', 'Blocks'],
+              ['scans', 'Scans'],
+            ]}
+            value={historyFilter}
+            onChange={setHistoryFilter}
+          />
+        </div>
         <div className={s.tableWrap}>
           <table className={s.table}>
             <thead>
@@ -610,14 +645,16 @@ export default function DataImport() {
                     <Spinner size={18} />
                   </td>
                 </tr>
-              ) : jobs.length === 0 ? (
+              ) : filteredJobs.length === 0 ? (
                 <tr>
                   <td colSpan={8} className={s.emptyRow}>
-                    No import jobs yet. Use the cards above to start one.
+                    {jobs.length === 0
+                      ? 'No import jobs yet. Use the cards above to start one.'
+                      : 'No jobs match this filter.'}
                   </td>
                 </tr>
               ) : (
-                jobs.map(job => (
+                filteredJobs.map(job => (
                   <JobRow key={job.id} job={job} onCancel={handleCancel} onReview={setReviewJob} onReport={setReportJob} />
                 ))
               )}

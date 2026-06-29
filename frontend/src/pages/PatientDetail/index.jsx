@@ -2,7 +2,7 @@
 import { useState, useEffect, useRef, useMemo } from 'react'
 import { useParams, useNavigate, useLocation } from 'react-router-dom'
 import Layout from '../../components/Layout'
-import { Badge, Btn, Panel, SpinnerPage, ErrorMsg, SegmentedControl } from '../../components/ui'
+import { Badge, Btn, Panel, SpinnerPage, ErrorMsg, SegmentedControl, SlideThumbnail } from '../../components/ui'
 import { api } from '../../api'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useAuth } from '../../context/AuthContext'
@@ -608,7 +608,25 @@ export default function PatientDetail() {
     <Btn variant="ghost" small onClick={() => navigate('/patients')}>Back to patients</Btn>
   )
 
-  if (loading) return <Layout title="Loading…" actions={actions}><SpinnerPage /></Layout>
+  if (loading) return (
+    <Layout title="Loading…" actions={actions}>
+      <div style={{
+        display: 'grid', gridTemplateColumns: '1fr 340px',
+        height: '100%', overflow: 'hidden',
+      }}>
+        <div style={{ padding: '16px', display: 'flex', flexDirection: 'column', gap: 12 }}>
+          <div style={{ height: 80, background: 'var(--navy-05)', borderRadius: 'var(--radius-lg)', animation: 'pulse 1.5s infinite' }} />
+          <div style={{ height: 60, background: 'var(--navy-05)', borderRadius: 'var(--radius-lg)', animation: 'pulse 1.5s infinite' }} />
+          {[1,2,3].map(i => (
+            <div key={i} style={{ height: 44, background: 'var(--navy-05)', borderRadius: 'var(--radius-md)', animation: 'pulse 1.5s infinite', animationDelay: `${i * 0.1}s` }} />
+          ))}
+        </div>
+        <div style={{ padding: '16px', borderLeft: '1px solid var(--border-l)' }}>
+          <div style={{ height: 200, background: 'var(--navy-05)', borderRadius: 'var(--radius-lg)', animation: 'pulse 1.5s infinite' }} />
+        </div>
+      </div>
+    </Layout>
+  )
   if (error)   return <Layout title="Error"    actions={actions}><div style={{ padding: 24 }}><ErrorMsg message={error} /></div></Layout>
   if (!data)   return null
 
@@ -623,8 +641,9 @@ export default function PatientDetail() {
   return (
     <Layout title={title} actions={actions}>
       <div style={{
-        display: 'grid', gridTemplateColumns: '1fr 1fr',
+        display: 'grid', gridTemplateColumns: selected ? '1fr 1fr' : '1fr 340px',
         height: '100%', overflow: 'hidden', position: 'relative',
+        transition: 'grid-template-columns 0.2s ease',
       }}>
 
         {/* ── Left: hierarchy ───────────────────────────────────────────────── */}
@@ -646,11 +665,38 @@ export default function PatientDetail() {
               display: 'flex', alignItems: 'center',
               justifyContent: 'space-between', marginBottom: 12,
             }}>
-              <div style={{
-                fontSize: 11, fontWeight: 600, color: 'var(--text-3)',
-                textTransform: 'uppercase', letterSpacing: '0.06em',
-              }}>
-                Submissions
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <div style={{
+                  fontSize: 11, fontWeight: 600, color: 'var(--text-3)',
+                  textTransform: 'uppercase', letterSpacing: '0.06em',
+                }}>
+                  Submissions
+                </div>
+                <button
+                  onClick={() => {
+                    const allExpanded = filteredSubmissions.every(s => expandedSubs[s.id])
+                    if (allExpanded) {
+                      setExpandedSubs({})
+                      setExpandedProbes({})
+                    } else {
+                      const newSubs = {}
+                      const newProbes = {}
+                      filteredSubmissions.forEach(s => {
+                        newSubs[s.id] = true
+                        s.probes?.forEach(p => { newProbes[p.id] = true })
+                      })
+                      setExpandedSubs(newSubs)
+                      setExpandedProbes(newProbes)
+                    }
+                  }}
+                  style={{
+                    background: 'none', border: 'none', cursor: 'pointer',
+                    fontSize: 11, color: 'var(--navy)', fontFamily: 'var(--font-sans)',
+                    padding: '2px 6px',
+                  }}
+                >
+                  {filteredSubmissions.every(s => expandedSubs[s.id]) ? 'Collapse all' : 'Expand all'}
+                </button>
               </div>
               <SegmentedControl
                 small
@@ -677,7 +723,7 @@ export default function PatientDetail() {
             {/* Submission accordion */}
             {filteredSubmissions.map(sub => {
               const subOpen    = !!expandedSubs[sub.id]
-              const reportOpen = !!expandedReports[sub.id]
+              const reportOpen = expandedReports[sub.id] !== false
               const macro      = sub.reports?.find(r => r.report_type === 'macro')
               const micro      = sub.reports?.find(r => r.report_type === 'microscopy')
               const hasReports = macro || micro
@@ -756,7 +802,7 @@ export default function PatientDetail() {
                       {hasReports && (
                         <div>
                           <button
-                            onClick={() => setExpandedReports(r => ({ ...r, [sub.id]: !r[sub.id] }))}
+                            onClick={() => setExpandedReports(r => ({ ...r, [sub.id]: r[sub.id] !== false ? false : true }))}
                             style={{
                               display: 'flex', alignItems: 'center', gap: 6,
                               padding: '6px 10px', borderRadius: 6, width: '100%', textAlign: 'left',
@@ -805,7 +851,13 @@ export default function PatientDetail() {
                       {sub.probes?.map(probe => (
                         <div key={probe.id}>
                           <div
-                            onClick={() => setExpandedProbes(s => ({ ...s, [probe.id]: !s[probe.id] }))}
+                            onClick={() => {
+                              const willExpand = !expandedProbes[probe.id]
+                              setExpandedProbes(s => ({ ...s, [probe.id]: willExpand }))
+                              if (willExpand && probe.blocks?.length === 1) {
+                                selectBlock(probe.blocks[0], probe, sub)
+                              }
+                            }}
                             style={{
                               display: 'flex', alignItems: 'center', gap: 8,
                               padding: '7px 10px', borderRadius: 6, cursor: 'pointer',
@@ -944,6 +996,18 @@ export default function PatientDetail() {
         {/* ── Right: scan detail ────────────────────────────────────────────── */}
         <div style={{ overflowY: 'auto', padding: '16px 24px 16px 12px' }}>
           <SummaryPanel patientId={parseInt(id)} />
+          {selected && (
+            <div style={{
+              display: 'flex', alignItems: 'center', gap: 6, marginBottom: 12,
+              fontSize: 11, color: 'var(--text-3)', fontFamily: 'var(--font-mono)',
+            }}>
+              <span>{selected.sub.lis_submission_id}</span>
+              <span style={{ color: 'var(--navy-20)' }}>▸</span>
+              <span>{selected.probe.lis_probe_id}</span>
+              <span style={{ color: 'var(--navy-20)' }}>▸</span>
+              <span style={{ color: 'var(--navy)', fontWeight: 600 }}>Block {selected.block.block_label}</span>
+            </div>
+          )}
           {!selected ? (
             <div style={{
               height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center',
@@ -1002,28 +1066,7 @@ export default function PatientDetail() {
                       background: 'white'
                       }}>
                       
-                      {/* ── NEW THUMBNAIL CONTAINER ── */}
-                      <div style={{ 
-                        height: 110, // Fixed height keeps the grid uniform
-                        background: '#0d1623', // Using the dark background from Filmstrip.jsx
-                        position: 'relative',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        borderBottom: '1px solid #1b998b33'
-                        }}>
-                        <img 
-                          src={`/api/slides/${sc.id}/thumbnail?width=256&token=${token}`} 
-                          alt={`${sc.stain_name} preview`} 
-                          loading="lazy" 
-                          style={{ width: '100%', height: '100%', objectFit: 'contain' }}
-                          // Fallback if the thumbnail generation failed or hasn't finished in the ETL
-                          onError={(e) => {
-                            e.target.style.display = 'none';
-                            e.target.parentElement.innerHTML = '<span style="color:rgba(255,255,255,0.4); font-size: 10px; font-family: var(--font-mono);">No Thumbnail</span>';
-                          }}
-                        />
-                      </div>
+                      <SlideThumbnail scanId={sc.id} token={token} width={256} height={110} alt={`${sc.stain_name} preview`} />
 
                       {/* ── EXISTING METADATA ── */}
                       <div style={{ padding: '10px', display: 'flex', flexDirection: 'column', gap: 4 }}>

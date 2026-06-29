@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo } from 'react'
+import { useNavigate } from 'react-router-dom'
 import Layout from '../components/Layout'
 import {
   Btn, Panel, ErrorMsg,
@@ -6,6 +7,7 @@ import {
   FormInput,
   ConfirmDialog,
   useSortState, sortRows, SortIcon,
+  useToast,
 } from '../components/ui'
 import CohortFilterForm, {
   EMPTY_FILTER,
@@ -14,6 +16,33 @@ import CohortFilterForm, {
   cleanFilter,
 } from '../components/CohortFilterForm'
 import { api } from '../api'
+
+// ─── Column label map ────────────────────────────────────────────────────────
+
+const COLUMN_LABELS = {
+  patient_code: 'Patient',
+  lis_submission_id: 'Submission ID',
+  lis_probe_id: 'Probe ID',
+  snomed_topo_code: 'SNOMED Topo',
+  topo_description: 'Topography',
+  submission_type: 'Type',
+  block_label: 'Block',
+  block_info: 'Block Info',
+  consent: 'Consent',
+  stain_name: 'Stain',
+  stain_category: 'Stain Category',
+  file_path: 'File Path',
+  malignancy_flag: 'Malignancy',
+  report_date: 'Report Date',
+  sex: 'Sex',
+  date_of_birth: 'DOB',
+  magnification: 'Magnification',
+  file_format: 'Format',
+}
+
+function humanizeHeader(key) {
+  return COLUMN_LABELS[key] || key.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())
+}
 
 // ─── Result summary helpers ───────────────────────────────────────────────────
 
@@ -143,12 +172,17 @@ const SCAN_COLS = ['patient_code','lis_submission_id','lis_probe_id','snomed_top
                    'topo_description','submission_type','block_label','block_info',
                    'consent','stain_name','stain_category','file_path']
 const MONO_COLS = new Set(['lis_submission_id','lis_probe_id','snomed_topo_code'])
-const LIMIT     = 50
+const PAGE_SIZE = 50
 
 function ScanResultsTable({ rows }) {
   const { sortCol, sortDir, toggleSort } = useSortState()
+  const [page, setPage] = useState(0)
   const sorted = useMemo(() => sortRows(rows, sortCol, sortDir), [rows, sortCol, sortDir])
-  const shown  = sorted.slice(0, LIMIT)
+  const totalPages = Math.ceil(sorted.length / PAGE_SIZE)
+  const shown = sorted.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE)
+
+  // Reset page when rows change
+  useEffect(() => { setPage(0) }, [rows])
 
   return (
     <div style={{ overflowX: 'auto', marginBottom: 4 }}>
@@ -157,7 +191,7 @@ function ScanResultsTable({ rows }) {
           <tr>
             {SCAN_COLS.map(h => (
               <Th key={h} onClick={() => toggleSort(h)}>
-                {h.replace(/_/g, ' ')}<SortIcon col={h} sortCol={sortCol} sortDir={sortDir} />
+                {humanizeHeader(h)}<SortIcon col={h} sortCol={sortCol} sortDir={sortDir} />
               </Th>
             ))}
             <Th>Viewer</Th>
@@ -184,9 +218,19 @@ function ScanResultsTable({ rows }) {
           ))}
         </tbody>
       </Table>
-      {rows.length > LIMIT && (
-        <div style={{ padding: '8px 10px', fontSize: 'var(--text-sm)', color: 'var(--text-3)', borderTop: '1px solid var(--border-l)' }}>
-          Showing {LIMIT} of {rows.length} — export CSV/JSON for full results
+      {sorted.length > PAGE_SIZE && (
+        <div style={{
+          padding: '8px 14px', display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+          borderTop: '1px solid var(--border-l)', fontSize: 'var(--text-sm)', color: 'var(--text-3)'
+        }}>
+          <span>Showing {page * PAGE_SIZE + 1}–{Math.min((page + 1) * PAGE_SIZE, sorted.length)} of {sorted.length}</span>
+          <div style={{ display: 'flex', gap: 4 }}>
+            <Btn variant="ghost" small disabled={page === 0} onClick={() => setPage(0)}>« First</Btn>
+            <Btn variant="ghost" small disabled={page === 0} onClick={() => setPage(p => p - 1)}>‹ Prev</Btn>
+            <span style={{ padding: '4px 8px', fontSize: 12 }}>Page {page + 1} of {totalPages}</span>
+            <Btn variant="ghost" small disabled={page >= totalPages - 1} onClick={() => setPage(p => p + 1)}>Next ›</Btn>
+            <Btn variant="ghost" small disabled={page >= totalPages - 1} onClick={() => setPage(totalPages - 1)}>Last »</Btn>
+          </div>
         </div>
       )}
     </div>
@@ -195,10 +239,15 @@ function ScanResultsTable({ rows }) {
 
 function GenericResultsTable({ rows }) {
   const { sortCol, sortDir, toggleSort } = useSortState()
+  const [page, setPage] = useState(0)
   if (!rows.length) return null
   const cols   = Object.keys(rows[0])
   const sorted = useMemo(() => sortRows(rows, sortCol, sortDir), [rows, sortCol, sortDir])
-  const shown  = sorted.slice(0, LIMIT)
+  const totalPages = Math.ceil(sorted.length / PAGE_SIZE)
+  const shown = sorted.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE)
+
+  // Reset page when rows change
+  useEffect(() => { setPage(0) }, [rows])
 
   return (
     <div style={{ overflowX: 'auto', marginBottom: 4 }}>
@@ -207,7 +256,7 @@ function GenericResultsTable({ rows }) {
           <tr>
             {cols.map(h => (
               <Th key={h} onClick={() => toggleSort(h)}>
-                {h.replace(/_/g, ' ')}<SortIcon col={h} sortCol={sortCol} sortDir={sortDir} />
+                {humanizeHeader(h)}<SortIcon col={h} sortCol={sortCol} sortDir={sortDir} />
               </Th>
             ))}
           </tr>
@@ -220,11 +269,100 @@ function GenericResultsTable({ rows }) {
           ))}
         </tbody>
       </Table>
-      {rows.length > LIMIT && (
-        <div style={{ padding: '8px 10px', fontSize: 'var(--text-sm)', color: 'var(--text-3)' }}>
-          Showing {LIMIT} of {rows.length} — export for full results
+      {sorted.length > PAGE_SIZE && (
+        <div style={{
+          padding: '8px 14px', display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+          borderTop: '1px solid var(--border-l)', fontSize: 'var(--text-sm)', color: 'var(--text-3)'
+        }}>
+          <span>Showing {page * PAGE_SIZE + 1}–{Math.min((page + 1) * PAGE_SIZE, sorted.length)} of {sorted.length}</span>
+          <div style={{ display: 'flex', gap: 4 }}>
+            <Btn variant="ghost" small disabled={page === 0} onClick={() => setPage(0)}>« First</Btn>
+            <Btn variant="ghost" small disabled={page === 0} onClick={() => setPage(p => p - 1)}>‹ Prev</Btn>
+            <span style={{ padding: '4px 8px', fontSize: 12 }}>Page {page + 1} of {totalPages}</span>
+            <Btn variant="ghost" small disabled={page >= totalPages - 1} onClick={() => setPage(p => p + 1)}>Next ›</Btn>
+            <Btn variant="ghost" small disabled={page >= totalPages - 1} onClick={() => setPage(totalPages - 1)}>Last »</Btn>
+          </div>
         </div>
       )}
+    </div>
+  )
+}
+
+// ─── Active filter chips ─────────────────────────────────────────────────────
+
+function ActiveFilterChips({ filter, mode, listState, onRemove }) {
+  const chips = []
+  const f = mode === 'filter' ? filter : listState.listFilter
+
+  if (f.topo_description_search?.length > 0)
+    f.topo_description_search.forEach(v => chips.push({ key: 'topo_description_search', value: v, label: `Topography: ${v}` }))
+  if (f.snomed_topo_codes?.length > 0)
+    f.snomed_topo_codes.forEach(v => chips.push({ key: 'snomed_topo_codes', value: v, label: `SNOMED topo: ${v}` }))
+  if (f.morph_description_search?.length > 0)
+    f.morph_description_search.forEach(v => chips.push({ key: 'morph_description_search', value: v, label: `Morphology: ${v}` }))
+  if (f.snomed_morph_codes?.length > 0)
+    f.snomed_morph_codes.forEach(v => chips.push({ key: 'snomed_morph_codes', value: v, label: `SNOMED morph: ${v}` }))
+  if (f.etio_description_search?.length > 0)
+    f.etio_description_search.forEach(v => chips.push({ key: 'etio_description_search', value: v, label: `Etiology: ${v}` }))
+  if (f.snomed_etio_codes?.length > 0)
+    f.snomed_etio_codes.forEach(v => chips.push({ key: 'snomed_etio_codes', value: v, label: `SNOMED etio: ${v}` }))
+  if (f.submission_types?.length > 0)
+    f.submission_types.forEach(v => chips.push({ key: 'submission_types', value: v, label: `Type: ${v}` }))
+  if (f.stain_names?.length > 0)
+    f.stain_names.forEach(v => chips.push({ key: 'stain_names', value: v, label: `Stain: ${v}` }))
+  if (f.stain_categories?.length > 0)
+    f.stain_categories.forEach(v => chips.push({ key: 'stain_categories', value: v, label: `Stain cat: ${v}` }))
+  if (f.file_formats?.length > 0)
+    f.file_formats.forEach(v => chips.push({ key: 'file_formats', value: v, label: `Format: ${v}` }))
+  if (f.consent_statuses?.length > 0)
+    f.consent_statuses.forEach(v => chips.push({ key: 'consent_statuses', value: v, label: `Consent: ${v}` }))
+  if (f.submission_date_from) chips.push({ key: 'submission_date_from', label: `From: ${f.submission_date_from}` })
+  if (f.submission_date_to) chips.push({ key: 'submission_date_to', label: `To: ${f.submission_date_to}` })
+  if (f.malignancy_flag !== null && f.malignancy_flag !== undefined)
+    chips.push({ key: 'malignancy_flag', label: `Malignancy: ${f.malignancy_flag ? 'Positive' : 'Negative'}` })
+  if (f.has_scan !== null && f.has_scan !== undefined)
+    chips.push({ key: 'has_scan', label: f.has_scan ? 'Has scan' : 'No scan' })
+  if (f.magnification_min != null) chips.push({ key: 'magnification_min', label: `Mag ≥ ${f.magnification_min}` })
+  if (f.magnification_max != null) chips.push({ key: 'magnification_max', label: `Mag ≤ ${f.magnification_max}` })
+  if (f.block_info_search) chips.push({ key: 'block_info_search', label: `Block: "${f.block_info_search}"` })
+
+  if (mode === 'list' && listState.idText.trim()) {
+    const count = listState.idText.split('\n').filter(s => s.trim()).length
+    chips.push({ key: '_ids', label: `${count} ${listState.idType === 'b_number' ? 'B-numbers' : 'patient codes'}` })
+  }
+
+  if (chips.length === 0) return null
+
+  return (
+    <div style={{
+      display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 12,
+      padding: '8px 12px', background: 'var(--navy-05)', borderRadius: 'var(--radius-md)',
+      border: '1px solid var(--border-l)',
+    }}>
+      <span style={{ fontSize: 11, color: 'var(--text-3)', fontWeight: 600, alignSelf: 'center', marginRight: 4 }}>
+        {chips.length} filter{chips.length !== 1 ? 's' : ''}
+      </span>
+      {chips.map((chip, i) => (
+        <span key={`${chip.key}-${chip.value || i}`} style={{
+          display: 'inline-flex', alignItems: 'center', gap: 4,
+          padding: '2px 8px', borderRadius: 'var(--radius-full)',
+          fontSize: 11, background: 'var(--navy-10)', color: 'var(--navy)',
+          fontFamily: 'var(--font-sans)',
+        }}>
+          {chip.label}
+          {chip.key !== '_ids' && onRemove && (
+            <button
+              onClick={() => onRemove(chip.key, chip.value)}
+              style={{
+                background: 'none', border: 'none', cursor: 'pointer',
+                color: 'var(--navy-40)', fontSize: 13, lineHeight: 1, padding: 0,
+                fontWeight: 700,
+              }}
+              aria-label={`Remove ${chip.label}`}
+            >&times;</button>
+          )}
+        </span>
+      ))}
     </div>
   )
 }
@@ -261,6 +399,9 @@ function SavedCohortCard({ c, onOpen, onExportCsv, onExportJson, onDelete }) {
 // ─── Main page ────────────────────────────────────────────────────────────────
 
 export default function Cohorts() {
+  const navigate = useNavigate()
+  const toast = useToast()
+
   // ── Filter-mode state ──────────────────────────────────────────────────────
   const [mode,   setMode]   = useState('filter')
   const [filter, setFilter] = useState(EMPTY_FILTER)
@@ -315,6 +456,23 @@ export default function Cohorts() {
   }
   function toggleStain(stain) {
     setExcludedStains(prev => { const n = new Set(prev); n.has(stain) ? n.delete(stain) : n.add(stain); return n })
+  }
+
+  // ── Remove filter chip ────────────────────────────────────────────────────
+  function handleRemoveChip(key, value) {
+    if (mode === 'filter') {
+      setFilter(prev => {
+        const cur = prev[key]
+        if (Array.isArray(cur)) return { ...prev, [key]: cur.filter(v => v !== value) }
+        return { ...prev, [key]: EMPTY_FILTER[key] }
+      })
+    } else {
+      setListState(prev => {
+        const cur = prev.listFilter[key]
+        if (Array.isArray(cur)) return { ...prev, listFilter: { ...prev.listFilter, [key]: cur.filter(v => v !== value) } }
+        return { ...prev, listFilter: { ...prev.listFilter, [key]: EMPTY_LIST_STATE.listFilter[key] } }
+      })
+    }
   }
 
   // ── Query ──────────────────────────────────────────────────────────────────
@@ -402,9 +560,11 @@ export default function Cohorts() {
         ? { ...payload, ...clientTransforms }
         : { is_list_query: true, ...payload, ...clientTransforms }
       await api.saveCohort({ name: saveName, description: saveDesc || undefined, filter_json })
+      const savedName = saveName
       setSaveName('')
       setSaveDesc('')
       setSaved(await api.getCohorts())
+      toast.success(`Cohort "${savedName}" saved`)
     } catch (e) {
       setError(e.message)
     } finally {
@@ -420,6 +580,7 @@ export default function Cohorts() {
       await api.deleteCohort(cohort.id)
       setSaved(await api.getCohorts())
       setDeleteTarget(null)
+      toast.success('Cohort deleted')
     } catch (e) {
       setError(e.message)
     } finally {
@@ -440,7 +601,7 @@ export default function Cohorts() {
   )
 
   return (
-    <Layout title="Cohort Builder" actions={actions}>
+    <Layout title="Cohorts" actions={actions}>
       <div style={{ height: '100%', overflowY: 'auto', padding: 'var(--space-5) var(--space-6)' }}>
         <ErrorMsg message={error} onDismiss={() => setError('')} />
 
@@ -478,6 +639,13 @@ export default function Cohorts() {
                     <Btn variant="ghost" small onClick={downloadJSON}>Export JSON</Btn>
                   </div>
                 </div>
+
+                <ActiveFilterChips
+                  filter={filter}
+                  mode={mode}
+                  listState={listState}
+                  onRemove={handleRemoveChip}
+                />
 
                 <ResultSummary
                   rows={dedupedResults}
@@ -532,7 +700,7 @@ export default function Cohorts() {
                     <SavedCohortCard
                       key={c.id}
                       c={c}
-                      onOpen={id => window.open(`/saved-results/${id}`, '_blank')}
+                      onOpen={id => navigate(`/saved-results/${id}`)}
                       onExportCsv={c => api.exportCohort(c.id, 'csv', c.name).catch(e => setError(e.message))}
                       onExportJson={c => api.exportCohort(c.id, 'json', c.name).catch(e => setError(e.message))}
                       onDelete={setDeleteTarget}
