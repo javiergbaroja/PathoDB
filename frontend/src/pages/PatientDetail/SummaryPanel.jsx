@@ -5,6 +5,20 @@ import { request } from '../../api/client'
 import { getSummarizeHealth, streamPatientSummary } from '../../api/summarize'
 import { Spinner, Btn } from '../../components/ui'
 
+async function fetchSummary(id) {
+  const res = await request('GET', `/summarize/patient/${id}/summary?_t=${Date.now()}`)
+  return res?.data !== undefined ? res.data : res
+}
+
+export function usePatientSummaryExists(patientId) {
+  const { data } = useQuery({
+    queryKey: ['patient-summary', String(patientId)],
+    queryFn:  () => fetchSummary(patientId),
+    enabled:  !!patientId,
+  })
+  return !!data?.summary_text
+}
+
 // ── Sparkle icon ──────────────────────────────────────────────────────────────
 
 function SparkleIcon() {
@@ -49,11 +63,6 @@ export default function SummaryPanel({ patientId }) {
 
   const abortRef    = useRef(null)
   const queryClient = useQueryClient()
-
-  async function fetchSummary(id) {
-    const res = await request('GET', `/summarize/patient/${id}/summary?_t=${Date.now()}`)
-    return res?.data !== undefined ? res.data : res
-  }
 
   const { data, isLoading } = useQuery({
     queryKey: ['patient-summary', String(patientId)],

@@ -3,7 +3,8 @@ import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { Navigate } from 'react-router-dom'
 import { useAuth } from '../../context/AuthContext'
 import Layout from '../../components/Layout'
-import { Btn, Badge, Spinner, SegmentedControl } from '../../components/ui'
+import { Btn, Badge, Spinner, SegmentedControl, ErrorMsg, useToast } from '../../components/ui'
+import DirectoryBrowser from '../../components/DirectoryBrowser'
 import { api } from '../../api'
 import ScanCleanupReviewModal from './ScanCleanupReviewModal'
 import ScanSyncReportModal from './ScanSyncReportModal'
@@ -35,14 +36,6 @@ const JOB_TYPES = {
     iconClass: 'cardIconScans',
     mode: null, // unused — ScansCard manages its own sync/verify toggle
   },
-}
-
-const STATUS_DOT = {
-  queued:    s.statusDotQueued,
-  running:   s.statusDotRunning,
-  done:      s.statusDotDone,
-  failed:    s.statusDotFailed,
-  cancelled: s.statusDotCancelled,
 }
 
 const STATUS_BADGE = {
@@ -241,7 +234,6 @@ function ProgressBar({ percent, status }) {
 function ImportCard({ type, config, onSubmit, submitting }) {
   const [file, setFile] = useState(null)
   const [mode, setMode] = useState('preview')
-  const [previewResult, setPreviewResult] = useState(null)
   const isFile = config.mode === 'file'
 
   function handleSubmit() {
@@ -328,6 +320,7 @@ function ImportCard({ type, config, onSubmit, submitting }) {
 function ScansCard({ config, onSubmit, submitting }) {
   const [mode, setMode] = useState('sync')
   const [scanFolder, setScanFolder] = useState('')
+  const [browserOpen, setBrowserOpen] = useState(false)
 
   function handleSyncSubmit() {
     if (!scanFolder.trim()) return
@@ -371,7 +364,15 @@ function ScansCard({ config, onSubmit, submitting }) {
               value={scanFolder}
               onChange={e => setScanFolder(e.target.value)}
             />
+            <Btn variant="ghost" small onClick={() => setBrowserOpen(true)} title="Browse server storage">
+              Browse
+            </Btn>
           </div>
+          <DirectoryBrowser
+            isOpen={browserOpen}
+            onClose={() => setBrowserOpen(false)}
+            onSelect={path => setScanFolder(path)}
+          />
           <div className={s.cardActions}>
             <Btn
               variant="teal"
@@ -430,12 +431,11 @@ function JobRow({ job, onCancel, onReview, onReport }) {
           : 'warning'
         }>
           {job.job_type}
-          {job.job_type === 'scans' && job.config_json?.mode ? ` · ${job.config_json.mode}` : ''}
+          {job.config_json?.mode ? ` · ${job.config_json.mode}` : ''}
         </Badge>
       </td>
       <td>
-        <span className={STATUS_DOT[job.status] || ''} />
-        {job.status}
+        <Badge variant={STATUS_BADGE[job.status] || 'muted'}>{job.status}</Badge>
       </td>
       <td>
         <ProgressBar percent={job.progress} status={job.status} />
@@ -448,6 +448,14 @@ function JobRow({ job, onCancel, onReview, onReport }) {
       <td>
         {chips && chips.length > 0 ? (
           <div className={s.summaryChips}>
+            {job.config_json?.mode === 'preview' && (
+              <span
+                className={s.summaryChip}
+                style={{ background: 'var(--navy-10)', color: 'var(--navy)', fontWeight: 600 }}
+              >
+                Preview — nothing written
+              </span>
+            )}
             {chips.map(c => (
               <span
                 key={c.label}
@@ -492,6 +500,7 @@ function JobRow({ job, onCancel, onReview, onReport }) {
 
 export default function DataImport() {
   const { isAdmin } = useAuth()
+  const toast = useToast()
   const [jobs, setJobs] = useState([])
   const [loading, setLoading] = useState(true)
   const [submitting, setSubmitting] = useState(null) // which job type is submitting
@@ -501,8 +510,7 @@ export default function DataImport() {
   const [historyFilter, setHistoryFilter] = useState('all')
   const pollRef = useRef(null)
 
-  // Redirect non-admins
-  if (!isAdmin) return <Navigate to="/dashboard" replace />
+  const hasActiveJobs = jobs.some(j => j.status === 'queued' || j.status === 'running')
 
   const fetchJobs = useCallback(async () => {
     try {
@@ -535,6 +543,11 @@ export default function DataImport() {
     try {
       await api.submitEtlJob({ jobType, mode, file, scanFolder })
       await fetchJobs()
+      toast.success(
+        mode === 'preview'
+          ? 'Preview job submitted — see Import History below once it finishes.'
+          : 'Import job submitted — see Import History below for progress.'
+      )
     } catch (e) {
       setError(e.message || 'Failed to submit job')
     } finally {
@@ -551,8 +564,6 @@ export default function DataImport() {
     }
   }
 
-  const hasActiveJobs = jobs.some(j => j.status === 'queued' || j.status === 'running')
-
   const filteredJobs = useMemo(() => {
     const sorted = [...jobs].sort((a, b) =>
       new Date(b.created_at) - new Date(a.created_at)
@@ -560,6 +571,9 @@ export default function DataImport() {
     if (historyFilter === 'all') return sorted
     return sorted.filter(j => j.job_type === historyFilter)
   }, [jobs, historyFilter])
+
+  // Redirect non-admins — after all hooks, never between them.
+  if (!isAdmin) return <Navigate to="/dashboard" replace />
 
   return (
     <Layout title="Data Import">
@@ -578,14 +592,7 @@ export default function DataImport() {
         )}
       </div>
 
-      {error && (
-        <div style={{
-          padding: '10px 14px', marginBottom: 16, borderRadius: 'var(--radius-md)',
-          background: 'var(--danger-bg)', color: 'var(--danger)', fontSize: 13,
-        }}>
-          {error}
-        </div>
-      )}
+      {error && <ErrorMsg message={error} onDismiss={() => setError('')} style={{ marginBottom: 16 }} />}
 
       {/* ── Import cards ─────────────────────────────────────────────────── */}
       <div className={s.cardGrid}>
@@ -623,6 +630,11 @@ export default function DataImport() {
             value={historyFilter}
             onChange={setHistoryFilter}
           />
+          {jobs.length >= 200 && (
+            <span style={{ fontSize: 11, color: 'var(--text-3)' }}>
+              Showing the latest 200 jobs — older jobs aren't listed yet.
+            </span>
+          )}
         </div>
         <div className={s.tableWrap}>
           <table className={s.table}>

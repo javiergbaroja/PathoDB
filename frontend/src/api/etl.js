@@ -4,8 +4,9 @@ import { request, BASE, getToken } from './client'
 export const getEtlJobs = (jobType = null) => {
   const params = new URLSearchParams()
   if (jobType) params.set('job_type', jobType)
+  params.set('limit', '200')   // backend max (api/routers/etl.py: le=200) — was defaulting to 50
   const qs = params.toString()
-  return request('GET', `/etl/jobs${qs ? '?' + qs : ''}`)
+  return request('GET', `/etl/jobs?${qs}`)
 }
 
 export const getEtlJob = (id) => request('GET', `/etl/jobs/${id}`)

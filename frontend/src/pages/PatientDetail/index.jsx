@@ -2,7 +2,7 @@
 import { useState, useEffect, useRef, useMemo } from 'react'
 import { useParams, useNavigate, useLocation } from 'react-router-dom'
 import Layout from '../../components/Layout'
-import { Badge, Btn, Panel, SpinnerPage, ErrorMsg, SegmentedControl, SlideThumbnail, SnomedTriad, CodeChip } from '../../components/ui'
+import { Badge, Btn, Panel, StatCard, SpinnerPage, ErrorMsg, SegmentedControl, SlideThumbnail, SnomedTriad, CodeChip } from '../../components/ui'
 import { api } from '../../api'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useAuth } from '../../context/AuthContext'
@@ -10,10 +10,47 @@ import { useAuth } from '../../context/AuthContext'
 import { ProbeModal, BlockModal, ConfirmDeleteModal } from './EditModals'
 import RegisterScanModal from './RegisterScanModal'
 import ScansDrawer from './ScansDrawer'
-import SummaryPanel from './SummaryPanel'
+import SummaryPanel, { usePatientSummaryExists } from './SummaryPanel'
 import { ConsentIcon } from '../../components/ui/ConsentIcons'
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
+// replace
+function romanToInt(str) {
+  if (!/^[IVXLCDM]+$/i.test(str)) return null
+  const ROMAN = { I: 1, V: 5, X: 10, L: 50, C: 100, D: 500, M: 1000 }
+  const s = str.toUpperCase()
+  let total = 0
+  for (let i = 0; i < s.length; i++) {
+    const cur  = ROMAN[s[i]]
+    const next = ROMAN[s[i + 1]]
+    total += (next && cur < next) ? -cur : cur
+  }
+  return total
+}
+
+// Era 1 (pre-2011) probe labels are roman numerals, with a "1" sentinel used
+// when a submission has exactly one probe and no numeral was assigned.
+// Era 2/3 probe labels are B-number-derived strings (e.g. "B2014.321",
+// "B2014.321/001") that sort correctly with a numeric-aware string compare —
+// same idiom already used for block labels in SlideViewer/Filmstrip.jsx.
+function probeSortKey(probe) {
+  const label = probe.lis_probe_id || ''
+  if (label === '1') return { roman: 1, label }
+  const roman = romanToInt(label)
+  return roman !== null ? { roman, label } : { roman: null, label }
+}
+
+function compareProbes(a, b) {
+  const ka = probeSortKey(a)
+  const kb = probeSortKey(b)
+  if (ka.roman !== null && kb.roman !== null) return ka.roman - kb.roman
+  if (ka.roman !== null) return -1   // roman-numeral (era 1) probes sort first
+  if (kb.roman !== null) return 1
+  return ka.label.localeCompare(kb.label, undefined, { numeric: true, sensitivity: 'base' })
+}
+
+function compareBlocks(a, b) {
+  return (a.block_label || '').localeCompare(b.block_label || '', undefined, { numeric: true, sensitivity: 'base' })
+}
 
 function extractYearFromId(lisId) {
   const m = (lisId || '').match(/B(\d{4})\./i)
@@ -37,20 +74,20 @@ function ScannedIcon({ size = 16 }) {
     <svg xmlns="http://www.w3.org/2000/svg" width={size} height={size} viewBox="0 0 256 256"
       style={{ flexShrink: 0, display: 'inline-block' }} title="Has scanned blocks">
       <rect x="62" y="78" width="104" height="72" rx="12"
-        style={{ stroke: '#1b998b', strokeWidth: 10, strokeLinecap: 'round', strokeLinejoin: 'round', fill: 'none' }} />
-      <rect x="82"  y="96"  width="12" height="14" rx="3" style={{ fill: '#1b998b' }} />
-      <rect x="103" y="96"  width="12" height="14" rx="3" style={{ fill: '#1b998b' }} />
-      <rect x="124" y="96"  width="12" height="14" rx="3" style={{ fill: '#1b998b' }} />
-      <line x1="76"  y1="160" x2="152" y2="160" style={{ stroke: '#1b998b', strokeWidth: 10, strokeLinecap: 'round' }} />
-      <line x1="44"  y1="88"  x2="44"  y2="60"  style={{ stroke: '#1b998b', strokeWidth: 10, strokeLinecap: 'round' }} />
-      <line x1="44"  y1="60"  x2="72"  y2="60"  style={{ stroke: '#1b998b', strokeWidth: 10, strokeLinecap: 'round' }} />
-      <line x1="156" y1="60"  x2="184" y2="60"  style={{ stroke: '#1b998b', strokeWidth: 10, strokeLinecap: 'round' }} />
-      <line x1="184" y1="60"  x2="184" y2="88"  style={{ stroke: '#1b998b', strokeWidth: 10, strokeLinecap: 'round' }} />
-      <line x1="44"  y1="168" x2="44"  y2="196" style={{ stroke: '#1b998b', strokeWidth: 10, strokeLinecap: 'round' }} />
-      <line x1="44"  y1="196" x2="72"  y2="196" style={{ stroke: '#1b998b', strokeWidth: 10, strokeLinecap: 'round' }} />
-      <line x1="156" y1="196" x2="184" y2="196" style={{ stroke: '#1b998b', strokeWidth: 10, strokeLinecap: 'round' }} />
-      <line x1="184" y1="168" x2="184" y2="196" style={{ stroke: '#1b998b', strokeWidth: 10, strokeLinecap: 'round' }} />
-      <circle cx="186" cy="176" r="34" style={{ fill: '#1b998b' }} />
+        style={{ stroke: 'var(--teal)', strokeWidth: 10, strokeLinecap: 'round', strokeLinejoin: 'round', fill: 'none' }} />
+      <rect x="82"  y="96"  width="12" height="14" rx="3" style={{ fill: 'var(--teal)' }} />
+      <rect x="103" y="96"  width="12" height="14" rx="3" style={{ fill: 'var(--teal)' }} />
+      <rect x="124" y="96"  width="12" height="14" rx="3" style={{ fill: 'var(--teal)' }} />
+      <line x1="76"  y1="160" x2="152" y2="160" style={{ stroke: 'var(--teal)', strokeWidth: 10, strokeLinecap: 'round' }} />
+      <line x1="44"  y1="88"  x2="44"  y2="60"  style={{ stroke: 'var(--teal)', strokeWidth: 10, strokeLinecap: 'round' }} />
+      <line x1="44"  y1="60"  x2="72"  y2="60"  style={{ stroke: 'var(--teal)', strokeWidth: 10, strokeLinecap: 'round' }} />
+      <line x1="156" y1="60"  x2="184" y2="60"  style={{ stroke: 'var(--teal)', strokeWidth: 10, strokeLinecap: 'round' }} />
+      <line x1="184" y1="60"  x2="184" y2="88"  style={{ stroke: 'var(--teal)', strokeWidth: 10, strokeLinecap: 'round' }} />
+      <line x1="44"  y1="168" x2="44"  y2="196" style={{ stroke: 'var(--teal)', strokeWidth: 10, strokeLinecap: 'round' }} />
+      <line x1="44"  y1="196" x2="72"  y2="196" style={{ stroke: 'var(--teal)', strokeWidth: 10, strokeLinecap: 'round' }} />
+      <line x1="156" y1="196" x2="184" y2="196" style={{ stroke: 'var(--teal)', strokeWidth: 10, strokeLinecap: 'round' }} />
+      <line x1="184" y1="168" x2="184" y2="196" style={{ stroke: 'var(--teal)', strokeWidth: 10, strokeLinecap: 'round' }} />
+      <circle cx="186" cy="176" r="34" style={{ fill: 'var(--teal)' }} />
       <polyline points="170,176 182,188 203,164"
         style={{ stroke: 'white', strokeWidth: 10, strokeLinecap: 'round', strokeLinejoin: 'round', fill: 'none' }} />
     </svg>
@@ -150,10 +187,10 @@ function PatientSummaryBar({ submissions }) {
 
   const malignantCount = submissions.filter(s => s.malignancy_flag === true).length
 
-  const allBlocks    = submissions.flatMap(s => s.probes?.flatMap(p => p.blocks ?? []) ?? [])
-  const totalBlocks  = allBlocks.length
-  const scannedBlocks = allBlocks.filter(b => (b.scans?.length ?? 0) > 0).length
-  const scannedPct   = totalBlocks > 0 ? Math.round(scannedBlocks / totalBlocks * 100) : 0
+  const allBlocks      = submissions.flatMap(s => s.probes?.flatMap(p => p.blocks ?? []) ?? [])
+  const totalBlocks    = allBlocks.length
+  const scannedBlocks  = allBlocks.filter(b => (b.scans?.length ?? 0) > 0).length
+  const scannedPct     = totalBlocks > 0 ? Math.round(scannedBlocks / totalBlocks * 100) : 0
 
   const yearLabel =
     yearMin === null    ? '—' :
@@ -162,60 +199,45 @@ function PatientSummaryBar({ submissions }) {
 
   return (
     <div style={{
-      display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)',
+      display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 8,
       padding: '12px 16px',
-      background: 'var(--navy-05)',
       borderBottom: '1px solid var(--border-l)',
       flexShrink: 0,
     }}>
-      <SummaryStat label="Submissions" value={submissions.length} />
-      <SummaryStat label="Active years"   value={yearLabel} />
-      <SummaryStat
+      <StatCard label="Submissions" value={submissions.length} />
+      <StatCard label="Active years" value={yearLabel} />
+      <StatCard
         label="Malignant"
         value={malignantCount > 0 ? malignantCount : '—'}
         accent={malignantCount > 0 ? 'var(--crimson)' : undefined}
       />
-      <SummaryStat
+      <StatCard
         label="Blocks scanned"
         value={totalBlocks > 0 ? `${scannedBlocks} / ${totalBlocks}` : '—'}
-        sub={totalBlocks > 0 ? `${scannedPct}%` : undefined}
+        sub={totalBlocks > 0 ? `${scannedPct}% scanned` : undefined}
       />
     </div>
   )
 }
-
-function SummaryStat({ label, value, sub, accent }) {
-  return (
-    <div style={{ padding: '2px 0' }}>
-      <div style={{
-        fontSize: 10, color: 'var(--text-3)', textTransform: 'uppercase',
-        letterSpacing: '0.07em', fontWeight: 600, marginBottom: 3,
-      }}>
-        {label}
-      </div>
-      <div style={{
-        fontSize: 16, fontFamily: 'var(--font-serif)',
-        color: accent || 'var(--navy)', lineHeight: 1.15,
-      }}>
-        {value}
-      </div>
-      {sub && <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 2 }}>{sub}</div>}
-    </div>
-  )
-}
-
 // ─── Mini timeline ────────────────────────────────────────────────────────────
 
-const TL_W     = 500
-const TL_PAD   = 36          // horizontal padding inside the SVG canvas
-const TL_AY    = 20          // y of the track centre-line
-const TL_DOT_R = 3.5         // base dot radius
-const TL_TRACK = 2           // track pill height
-const TL_STEP  = TL_DOT_R * 2 + 4   // vertical spacing between stacking levels
+const TL_W          = 500
+const TL_PAD         = 36          // horizontal padding inside the SVG canvas
+const TL_AY          = 20          // y of the track centre-line
+const TL_DOT_R       = 3.5         // base dot radius
+const TL_CLUSTER_R   = 6.5         // radius for a "+N" cluster marker
+const TL_TRACK       = 2           // track pill height
+const TL_STEP        = 10          // vertical spacing between stacking levels
+const MAX_DOTS_PER_YEAR = 3        // show up to this many markers per calendar year
+                                    // before folding the rest into a cluster
+const MAX_LEVEL      = 3           // final safety clamp on stacking height —
+                                    // bounds viewH even if adjacent years collide
 
 function MiniTimeline({ submissions, onDotClick }) {
-  const [tooltip,   setTooltip]   = useState(null)   // { sub, clientX, clientY }
+  const [tooltip,   setTooltip]   = useState(null)   // { sub | cluster, clientX, clientY }
   const [hoveredId, setHoveredId] = useState(null)
+
+  const clusterKey = p => `cluster-${p.subs[0]?.id}`
 
   const { points, yearLabels, viewH, spanX0, spanX1, trackY } = useMemo(() => {
     const mapped = submissions
@@ -231,45 +253,74 @@ function MiniTimeline({ submissions, onDotClick }) {
     const actualMinF = sorted[0].frac
     const actualMaxF = sorted[sorted.length - 1].frac
 
-    // ── Fix 1: expand domain to cover complete integer years so that integer
-    //    year positions always land inside [TL_PAD, TL_W-TL_PAD].
-    //    Previously the domain was [actualMinF, actualMaxF], so toX(floor(actualMinF))
-    //    produced a negative x whenever the first submission fell mid-year.
-    const domainMin  = Math.floor(actualMinF)          // Jan 1 of first year
-    const domainMax  = Math.floor(actualMaxF) + 1      // Jan 1 of year after last
-    const domainSpan = domainMax - domainMin            // always ≥ 1
+    const domainMin  = Math.floor(actualMinF)
+    const domainMax  = Math.floor(actualMaxF) + 1
+    const domainSpan = domainMax - domainMin
 
     const toX = frac => TL_PAD + ((frac - domainMin) / domainSpan) * (TL_W - 2 * TL_PAD)
 
-    // Vertical stacking for overlapping dots
-    const THRESH = TL_DOT_R * 2 + 3
-    const stacked = []
+    // ── Group by calendar year, cap markers per year ──────────────────────
+    // Malignant submissions are kept individually visible first — a cluster
+    // can only ever absorb non-malignant overflow, or malignant overflow once
+    // every visible slot for that year is already a malignant case.
+    const byYear = new Map()
     for (const p of sorted) {
-      let level = 0
-      for (const prev of stacked) {
-        if (Math.abs(prev.x - toX(p.frac)) < THRESH)
-          level = Math.max(level, prev.level + 1)
-      }
-      stacked.push({ ...p, x: toX(p.frac), level })
+      const y = Math.floor(p.frac)
+      if (!byYear.has(y)) byYear.set(y, [])
+      byYear.get(y).push(p)
     }
 
-    // ── Fix 2: compute maxLevel BEFORE assigning y-positions so we can push
-    //    the track down enough to keep stacked dots inside the viewBox.
-    //    Previously viewH added extra height at the *bottom* while dots stacked
-    //    *upward*, causing level-3+ dots to overflow above y=0 (off-screen top).
+    const markers = []
+    for (const [, yearPoints] of byYear) {
+      const ranked = [...yearPoints].sort((a, b) => {
+        const aM = a.sub.malignancy_flag === true ? 0 : 1
+        const bM = b.sub.malignancy_flag === true ? 0 : 1
+        return aM - bM || a.frac - b.frac
+      })
+
+      if (ranked.length <= MAX_DOTS_PER_YEAR) {
+        ranked.forEach(p => markers.push({ kind: 'single', sub: p.sub, frac: p.frac }))
+        continue
+      }
+
+      const visible  = ranked.slice(0, MAX_DOTS_PER_YEAR - 1)
+      const overflow = ranked.slice(MAX_DOTS_PER_YEAR - 1)
+      visible.forEach(p => markers.push({ kind: 'single', sub: p.sub, frac: p.frac }))
+
+      const overflowFrac = overflow.reduce((sum, p) => sum + p.frac, 0) / overflow.length
+      markers.push({
+        kind: 'cluster',
+        subs: overflow.map(p => p.sub),
+        frac: overflowFrac,
+        hasMalignant: overflow.some(p => p.sub.malignancy_flag === true),
+        hasScans: overflow.some(p =>
+          p.sub.probes?.some(pr => pr.blocks?.some(b => (b.scans?.length ?? 0) > 0))
+        ),
+      })
+    }
+    markers.sort((a, b) => a.frac - b.frac)
+
+    // ── Stacking: proximity-based levels, clamped as a final safety net ───
+    const THRESH = TL_DOT_R * 2 + 3
+    const stacked = []
+    for (const m of markers) {
+      const x = toX(m.frac)
+      let level = 0
+      for (const prev of stacked) {
+        if (Math.abs(prev.x - x) < THRESH)
+          level = Math.max(level, prev.level + 1)
+      }
+      stacked.push({ ...m, x, level: Math.min(level, MAX_LEVEL) })
+    }
+
     const maxLevel = Math.max(...stacked.map(p => p.level), 0)
-    const TOP_PAD  = 10                                                   // min gap above highest dot
+    const TOP_PAD  = 10
     const trackY   = Math.max(TL_AY, TOP_PAD + TL_DOT_R + maxLevel * TL_STEP)
 
-    const points = stacked.map(p => ({
-      ...p,
-      // dots sit ON the track at level 0, then rise in discrete steps
-      y: trackY - p.level * TL_STEP,
-    }))
+    const points = stacked.map(p => ({ ...p, y: trackY - p.level * TL_STEP }))
 
-    // Year labels — integer years within the domain, spaced to avoid crowding
     const minY  = domainMin
-    const maxY  = Math.floor(actualMaxF)   // last year that has actual data
+    const maxY  = Math.floor(actualMaxF)
     const ySpan = maxY - minY
     const step  = ySpan === 0 ? 1 : ySpan <= 4 ? 1 : ySpan <= 8 ? 2 : ySpan <= 15 ? 3 : ySpan <= 30 ? 5 : 10
 
@@ -278,10 +329,7 @@ function MiniTimeline({ submissions, onDotClick }) {
       yearLabels.push({ year: y, x: toX(y) })
     }
 
-    // viewH: track centre + half track height + room for tick + label below
-    const viewH = trackY + TL_TRACK / 2 + 24
-
-    // x-extent of the active span highlight (actual first → last submission)
+    const viewH  = trackY + TL_TRACK / 2 + 24
     const spanX0 = toX(actualMinF)
     const spanX1 = toX(actualMaxF)
 
@@ -306,10 +354,8 @@ function MiniTimeline({ submissions, onDotClick }) {
         Submission timeline
       </div>
 
-      <div style={{ maxHeight: 130, overflowX: 'auto', overflowY: 'auto' }}>
-      <svg width="100%" viewBox={`0 0 ${TL_W} ${viewH}`} style={{ overflow: 'visible', display: 'block', minWidth: viewH > 70 ? 500 : undefined }}>
+      <svg width="100%" viewBox={`0 0 ${TL_W} ${viewH}`} style={{ overflow: 'visible', display: 'block' }}>
 
-        {/* ── Track: full background pill ── */}
         <rect
           x={trackX0} y={trackY - TL_TRACK / 2}
           width={trackW} height={TL_TRACK}
@@ -317,7 +363,6 @@ function MiniTimeline({ submissions, onDotClick }) {
           fill="var(--navy)" opacity={0.10}
         />
 
-        {/* ── Track: active-span highlight (first → last submission) ── */}
         {spanX1 > spanX0 && (
           <rect
             x={spanX0} y={trackY - TL_TRACK / 2}
@@ -327,7 +372,6 @@ function MiniTimeline({ submissions, onDotClick }) {
           />
         )}
 
-        {/* ── Year ticks + labels (below track) ── */}
         {yearLabels.map(({ year, x }) => (
           <g key={year}>
             <line
@@ -345,12 +389,39 @@ function MiniTimeline({ submissions, onDotClick }) {
           </g>
         ))}
 
-        {/* ── Dots ── */}
-        {points.map(({ sub, x, y }) => {
-          const hasScans = sub.probes?.some(p =>
-            p.blocks?.some(b => (b.scans?.length ?? 0) > 0)
-          )
-          const isHovered = sub.id === hoveredId
+        {points.map(p => {
+          if (p.kind === 'cluster') {
+            const key       = clusterKey(p)
+            const isHovered = hoveredId === key
+            const r         = isHovered ? TL_CLUSTER_R + 1 : TL_CLUSTER_R
+            const fill      = p.hasMalignant ? 'var(--crimson)' : 'var(--navy-60)'
+            return (
+              <g
+                key={key}
+                style={{ cursor: 'pointer' }}
+                onMouseEnter={e => { setHoveredId(key); setTooltip({ cluster: p, clientX: e.clientX, clientY: e.clientY }) }}
+                onMouseMove={e  => setTooltip(t => t ? { ...t, clientX: e.clientX, clientY: e.clientY } : null)}
+                onMouseLeave={() => { setHoveredId(null); setTooltip(null) }}
+                onClick={() => onDotClick(p.subs.map(s => s.id))}
+              >
+                {p.hasScans && (
+                  <circle cx={p.x} cy={p.y} r={r + 3} fill="none" stroke="var(--teal)" strokeWidth={1.5} opacity={0.7} />
+                )}
+                <circle cx={p.x} cy={p.y} r={r + 1} fill="white" opacity={0.9} />
+                <circle cx={p.x} cy={p.y} r={r} fill={fill} style={{ transition: 'r 0.1s' }} />
+                <text x={p.x} y={p.y + 3} textAnchor="middle" fontSize={8} fontWeight={700} fill="white" style={{ pointerEvents: 'none' }}>
+                  +{p.subs.length}
+                </text>
+                {isHovered && (
+                  <circle cx={p.x} cy={p.y} r={r + 2.5} fill="none" stroke={fill} strokeWidth={0.75} opacity={0.3} />
+                )}
+              </g>
+            )
+          }
+
+          const { sub, x, y } = p
+          const hasScans = sub.probes?.some(pr => pr.blocks?.some(b => (b.scans?.length ?? 0) > 0))
+          const isHovered = hoveredId === sub.id
           const r = isHovered ? TL_DOT_R + 1 : TL_DOT_R
           const fill =
             sub.malignancy_flag === true  ? 'var(--crimson)' :
@@ -363,51 +434,41 @@ function MiniTimeline({ submissions, onDotClick }) {
               style={{ cursor: 'pointer' }}
               onMouseEnter={e => { setHoveredId(sub.id); setTooltip({ sub, clientX: e.clientX, clientY: e.clientY }) }}
               onMouseMove={e  => setTooltip(t => t ? { ...t, clientX: e.clientX, clientY: e.clientY } : null)}
-              onMouseLeave={()  => { setHoveredId(null); setTooltip(null) }}
-              onClick={() => onDotClick(sub.id)}
+              onMouseLeave={() => { setHoveredId(null); setTooltip(null) }}
+              onClick={() => onDotClick([sub.id])}
             >
-              {/* Teal scan ring — drawn first so it sits behind the halo */}
               {hasScans && (
-                <circle
-                  cx={x} cy={y} r={r + 3}
-                  fill="none" stroke="#1b998b" strokeWidth={1.5} opacity={0.7}
-                />
+                <circle cx={x} cy={y} r={r + 3} fill="none" stroke="var(--teal)" strokeWidth={1.5} opacity={0.7} />
               )}
-              {/* White halo — separates the dot from the track and other dots */}
               <circle cx={x} cy={y} r={r + 1} fill="white" opacity={0.9} />
-              {/* Main dot */}
-              <circle
-                cx={x} cy={y} r={r} fill={fill}
-                style={{ transition: 'r 0.1s' }}
-              />
-              {/* Hover glow ring */}
+              <circle cx={x} cy={y} r={r} fill={fill} style={{ transition: 'r 0.1s' }} />
               {isHovered && (
-                <circle
-                  cx={x} cy={y} r={r + 2.5}
-                  fill="none" stroke={fill} strokeWidth={0.75} opacity={0.3}
-                />
+                <circle cx={x} cy={y} r={r + 2.5} fill="none" stroke={fill} strokeWidth={0.75} opacity={0.3} />
               )}
             </g>
           )
         })}
       </svg>
-      </div>
 
-      {/* Legend */}
-      <div style={{ display: 'flex', gap: 18, marginTop: 6 }}>
+      <div style={{ display: 'flex', gap: 18, marginTop: 6, flexWrap: 'wrap' }}>
         {[
           { type: 'dot',  fill: 'var(--crimson)', label: 'Malignant'       },
           { type: 'dot',  fill: 'var(--navy)',    label: 'Benign / unknown' },
           { type: 'ring',                          label: 'Has scans'       },
+          { type: 'count',                         label: 'Clustered years' },
         ].map(({ type, fill, label }) => (
           <div key={label} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
             <svg width={16} height={16} viewBox="0 0 16 16">
               {type === 'ring' ? (
                 <>
-                  {/* white halo */}
                   <circle cx={8} cy={8} r={5}    fill="white" />
                   <circle cx={8} cy={8} r={4}    fill="var(--navy)" />
-                  <circle cx={8} cy={8} r={7.5}  fill="none" stroke="#1b998b" strokeWidth={1.5} opacity={0.7} />
+                  <circle cx={8} cy={8} r={7.5}  fill="none" stroke="var(--teal)" strokeWidth={1.5} opacity={0.7} />
+                </>
+              ) : type === 'count' ? (
+                <>
+                  <circle cx={8} cy={8} r={6.5} fill="var(--navy-60)" />
+                  <text x={8} y={11} textAnchor="middle" fontSize={7} fontWeight={700} fill="white">+N</text>
                 </>
               ) : (
                 <>
@@ -421,9 +482,43 @@ function MiniTimeline({ submissions, onDotClick }) {
         ))}
       </div>
 
-      {/* Tooltip — fixed-position so it's never clipped by panel overflow */}
       {tooltip && (() => {
-        const { sub, clientX, clientY } = tooltip
+        const { clientX, clientY } = tooltip
+
+        if (tooltip.cluster) {
+          const { subs } = tooltip.cluster
+          const malignantCount = subs.filter(s => s.malignancy_flag === true).length
+          const shown = subs.slice(0, 6)
+          return (
+            <div style={{
+              position: 'fixed', left: clientX + 14, top: clientY - 16, zIndex: 1000,
+              background: 'var(--navy)', color: 'white', borderRadius: 7,
+              padding: '9px 12px', fontSize: 11, lineHeight: 1.7, pointerEvents: 'none',
+              boxShadow: '0 6px 20px rgba(0,20,100,0.3)', minWidth: 190,
+              borderLeft: `3px solid ${malignantCount > 0 ? 'var(--crimson)' : 'rgba(255,255,255,0.2)'}`,
+            }}>
+              <div style={{ fontWeight: 600, marginBottom: 4, fontSize: 12 }}>
+                {subs.length} submissions
+              </div>
+              {shown.map(s => (
+                <div key={s.id} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 10, color: 'rgba(255,255,255,0.75)' }}>
+                  <span style={{
+                    width: 5, height: 5, borderRadius: '50%', flexShrink: 0,
+                    background: s.malignancy_flag === true ? '#ff8099' : 'rgba(255,255,255,0.5)',
+                  }} />
+                  <span style={{ fontFamily: 'var(--font-mono)' }}>{s.lis_submission_id}</span>
+                </div>
+              ))}
+              {subs.length > shown.length && (
+                <div style={{ color: 'rgba(255,255,255,0.5)', fontSize: 10, marginTop: 2 }}>
+                  +{subs.length - shown.length} more — click to expand all
+                </div>
+              )}
+            </div>
+          )
+        }
+
+        const { sub } = tooltip
         const allBlocks = sub.probes?.flatMap(p => p.blocks ?? []) ?? []
         const scanned   = allBlocks.filter(b => (b.scans?.length ?? 0) > 0).length
         const status    =
@@ -433,19 +528,10 @@ function MiniTimeline({ submissions, onDotClick }) {
 
         return (
           <div style={{
-            position: 'fixed',
-            left: clientX + 14,
-            top:  clientY - 16,
-            zIndex: 1000,
-            background: 'var(--navy)',
-            color: 'white',
-            borderRadius: 7,
-            padding: '9px 12px',
-            fontSize: 11,
-            lineHeight: 1.8,
-            pointerEvents: 'none',
-            boxShadow: '0 6px 20px rgba(0,20,100,0.3)',
-            minWidth: 175,
+            position: 'fixed', left: clientX + 14, top: clientY - 16, zIndex: 1000,
+            background: 'var(--navy)', color: 'white', borderRadius: 7,
+            padding: '9px 12px', fontSize: 11, lineHeight: 1.8, pointerEvents: 'none',
+            boxShadow: '0 6px 20px rgba(0,20,100,0.3)', minWidth: 175,
             borderLeft: `3px solid ${sub.malignancy_flag === true ? 'var(--crimson)' : sub.malignancy_flag === false ? '#5b9cf6' : 'rgba(255,255,255,0.2)'}`,
           }}>
             <div style={{ fontFamily: 'var(--font-mono)', fontWeight: 600, marginBottom: 2, fontSize: 12 }}>
@@ -464,7 +550,6 @@ function MiniTimeline({ submissions, onDotClick }) {
     </div>
   )
 }
-
 // ─── Main component ───────────────────────────────────────────────────────────
 
 export default function PatientDetail() {
@@ -495,6 +580,9 @@ export default function PatientDetail() {
   const [editBlockTarget,   setEditBlockTarget]   = useState(null) // { block, probe, sub }
   const [deleteBlockTarget, setDeleteBlockTarget] = useState(null) // { block, probe, sub }
   const [filterTab,       setFilterTab]       = useState('all')  // 'all' | 'malignant' | 'scanned'
+  const summaryExists = usePatientSummaryExists(id)
+  const [panelOpenedByUser, setPanelOpenedByUser] = useState(false)
+  const panelOpen = summaryExists || !!selected || panelOpenedByUser
 
   // Ref map: sub.id → DOM element (for scroll-to from timeline)
   const subRefs = useRef({})
@@ -533,28 +621,46 @@ export default function PatientDetail() {
   const removeBlock = useMutation({ mutationFn: ({ subId, probeId, blockId })       => api.deleteBlock(id, subId, probeId, blockId),   onSuccess: () => { invalidate(); setSelected(null) } })
 
   // ── Filtered submissions ───────────────────────────────────────────────────
+  const sortedSubmissions = useMemo(() => {
+    if (!data) return []
+    return data.submissions.map(sub => ({
+      ...sub,
+      probes: [...(sub.probes ?? [])]
+        .sort(compareProbes)
+        .map(probe => ({
+          ...probe,
+          blocks: [...(probe.blocks ?? [])].sort(compareBlocks),
+        })),
+    }))
+  }, [data])
+
   const filteredSubmissions = useMemo(() => {
     if (!data) return []
     switch (filterTab) {
       case 'malignant':
-        return data.submissions.filter(s => s.malignancy_flag === true)
+        return sortedSubmissions.filter(s => s.malignancy_flag === true)
       case 'scanned':
-        return data.submissions.filter(s =>
+        return sortedSubmissions.filter(s =>
           s.probes?.some(p => p.blocks?.some(b => (b.scans?.length ?? 0) > 0))
         )
       default:
-        return data.submissions
+        return sortedSubmissions
     }
-  }, [data, filterTab])
+  }, [data, sortedSubmissions, filterTab])
 
   // ── Timeline dot click → expand + scroll ─────────────────────────────────
-  function handleDotClick(subId) {
-    setExpandedSubs(s => ({ ...s, [subId]: true }))
+  function handleDotClick(subIds) {
+    const ids = Array.isArray(subIds) ? subIds : [subIds]
+    setExpandedSubs(s => {
+      const next = { ...s }
+      ids.forEach(id => { next[id] = true })
+      return next
+    })
     // Small delay so the accordion has time to expand before scroll
     setTimeout(() => {
-      subRefs.current[subId]?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+      subRefs.current[ids[0]]?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
     }, 60)
-    // If the submission is filtered out, reset to 'all'
+    // If a clustered submission is filtered out, reset to 'all'
     if (filterTab !== 'all') setFilterTab('all')
   }
 
@@ -643,13 +749,13 @@ export default function PatientDetail() {
   return (
     <Layout title={title} actions={actions}>
       <div style={{
-        display: 'grid', gridTemplateColumns: selected ? '3fr 2fr' : '1fr 340px',
+        display: 'flex',
         height: '100%', overflow: 'hidden', position: 'relative',
-        transition: 'grid-template-columns 0.2s ease',
       }}>
 
         {/* ── Left: hierarchy ───────────────────────────────────────────────── */}
         <div style={{
+          flex: 1, minWidth: 0,
           display: 'flex', flexDirection: 'column',
           borderRight: '1px solid var(--border-l)',
           overflow: 'hidden',
@@ -747,7 +853,15 @@ export default function PatientDetail() {
                 >
                   {/* Submission header row */}
                   <div
+                    role="button"
+                    tabIndex={0}
+                    aria-expanded={subOpen}
                     onClick={() => setExpandedSubs(s => ({ ...s, [sub.id]: !s[sub.id] }))}
+                    onKeyDown={e => {
+                      if (e.key !== 'Enter' && e.key !== ' ') return
+                      e.preventDefault()
+                      setExpandedSubs(s => ({ ...s, [sub.id]: !s[sub.id] }))
+                    }}
                     style={{
                       display: 'flex', flexDirection: 'column',
                       padding: '8px 10px', borderRadius: 6, cursor: 'pointer',
@@ -845,7 +959,20 @@ export default function PatientDetail() {
                       {sub.probes?.map(probe => (
                         <div key={probe.id}>
                           <div
+                            role="button"
+                            tabIndex={0}
+                            aria-expanded={!!expandedProbes[probe.id]}
                             onClick={() => {
+                              const willExpand = !expandedProbes[probe.id]
+                              setExpandedProbes(s => ({ ...s, [probe.id]: willExpand }))
+                              if (willExpand && probe.blocks?.length === 1) {
+                                selectBlock(probe.blocks[0], probe, sub)
+                              }
+                            }}
+                            onKeyDown={e => {
+                              if (e.target.closest('button')) return   // don't double-fire under nested Edit/Delete
+                              if (e.key !== 'Enter' && e.key !== ' ') return
+                              e.preventDefault()
                               const willExpand = !expandedProbes[probe.id]
                               setExpandedProbes(s => ({ ...s, [probe.id]: willExpand }))
                               if (willExpand && probe.blocks?.length === 1) {
@@ -867,13 +994,13 @@ export default function PatientDetail() {
                             <span style={{ flex: 1, fontSize: 12.5, color: 'var(--text-1)', fontWeight: 500 }}>
                               {probe.lis_probe_id} — {probe.topo_description || 'Unknown site'}
                               {probe.snomed_morph_codes?.[0]?.description && (
-                                <span style={{ color: 'var(--text-3)', fontWeight: 400 }}> · {probe.snomed_morph_codes[0].description}</span>
+                                <span style={{ color: 'var(--text-2)', fontWeight: 500 }}> · {probe.snomed_morph_codes[0].description}</span>
                               )}
                             </span>
                             <span style={{ fontSize: 10.5, color: 'var(--text-3)', whiteSpace: 'nowrap' }}>
                               {probe.blocks?.length ?? 0} block{(probe.blocks?.length ?? 0) !== 1 ? 's' : ''}
                               {' · '}
-                              <span style={{ color: '#1b998b' }}>
+                              <span style={{ color: 'var(--teal)' }}>
                                 {(probe.blocks ?? []).reduce((n, b) => n + (b.scans?.length ?? 0), 0)} scan{(probe.blocks ?? []).reduce((n, b) => n + (b.scans?.length ?? 0), 0) !== 1 ? 's' : ''}
                               </span>
                             </span>
@@ -907,7 +1034,16 @@ export default function PatientDetail() {
                                 return (
                                   <div
                                     key={block.id}
+                                    role="button"
+                                    tabIndex={0}
+                                    aria-pressed={isSelected}
                                     onClick={() => selectBlock(block, probe, sub)}
+                                    onKeyDown={e => {
+                                      if (e.target.closest('button')) return
+                                      if (e.key !== 'Enter' && e.key !== ' ') return
+                                      e.preventDefault()
+                                      selectBlock(block, probe, sub)
+                                    }}
                                     style={{
                                       display: 'flex', alignItems: 'center', gap: 8,
                                       padding: '7px 10px', borderRadius: 6, cursor: 'pointer',
@@ -917,7 +1053,7 @@ export default function PatientDetail() {
                                   >
                                     <div style={{
                                       width: 6, height: 6, borderRadius: '50%', flexShrink: 0,
-                                      background: noScans ? 'var(--crimson)' : '#1b998b',
+                                      background: noScans ? 'var(--crimson)' : 'var(--teal)',
                                     }} />
                                     <span style={{
                                       flex: 1, fontSize: 12.5,
@@ -928,7 +1064,7 @@ export default function PatientDetail() {
                                     </span>
                                     <span style={{
                                       fontSize: 11,
-                                      color: noScans ? 'var(--crimson)' : '#1b998b',
+                                      color: noScans ? 'var(--crimson)' : 'var(--teal)',
                                       fontWeight: noScans ? 600 : 400,
                                     }}>
                                       {noScans ? 'no scans' : `${scanCount} scan${scanCount !== 1 ? 's' : ''}`}
@@ -986,22 +1122,38 @@ export default function PatientDetail() {
           </div>
         </div>
 
-        {/* ── Right: scan detail ────────────────────────────────────────────── */}
-        <div style={{ overflowY: 'auto', padding: '16px 20px' }}>
-          <SummaryPanel patientId={parseInt(id)} />
-          {selected && (
-            <div style={{
-              display: 'flex', alignItems: 'center', gap: 6, marginBottom: 12,
-              fontSize: 11, color: 'var(--text-3)', fontFamily: 'var(--font-mono)',
-            }}>
-              <span>{selected.sub.lis_submission_id}</span>
-              <span style={{ color: 'var(--navy-20)' }}>▸</span>
-              <span>{selected.probe.lis_probe_id}</span>
-              <span style={{ color: 'var(--navy-20)' }}>▸</span>
-              <span style={{ color: 'var(--navy)', fontWeight: 600 }}>Block {selected.block.block_label}</span>
-            </div>
-          )}
-          {!selected ? (
+        {/* ── Right: summary (persistent) + scan detail ─────────────────────── */}
+        <div style={{
+          width: panelOpen ? 400 : 0,
+          flexShrink: 0,
+          borderLeft: panelOpen ? '1px solid var(--border-l)' : '1px solid transparent',
+          overflow: 'hidden',
+          transition: 'width 0.24s ease, border-color 0.24s ease',
+        }}>
+          {/* Inner fixed-width track: stays 400px wide while the outer width
+              animates, so content never reflows during the open/close tween. */}
+          <div style={{ width: 400, height: '100%', overflowY: 'auto', padding: '16px 20px' }}>
+
+            {/* Summary panel is ALWAYS mounted here — never gated on `selected`,
+                so the Generate button can't disappear when a block is clicked. */}
+            <SummaryPanel patientId={parseInt(id)} />
+
+            {/* Scan-detail body. Cross-fades between the hint and the real detail
+                so selecting a block doesn't pop. */}
+            <div style={{ transition: 'opacity 0.18s ease' }}>
+            {selected && (
+              <div style={{
+                display: 'flex', alignItems: 'center', gap: 6, marginBottom: 12,
+                fontSize: 11, color: 'var(--text-3)', fontFamily: 'var(--font-mono)',
+              }}>
+                <span>{selected.sub.lis_submission_id}</span>
+                <span style={{ color: 'var(--navy-20)' }}>▸</span>
+                <span>{selected.probe.lis_probe_id}</span>
+                <span style={{ color: 'var(--navy-20)' }}>▸</span>
+                <span style={{ color: 'var(--navy)', fontWeight: 600 }}>Block {selected.block.block_label}</span>
+              </div>
+            )}
+            {!selected ? (
             <div style={{
               height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center',
               flexDirection: 'column', gap: 8, color: 'var(--text-3)', fontSize: 13,
@@ -1064,7 +1216,7 @@ export default function PatientDetail() {
                       {/* ── EXISTING METADATA ── */}
                       <div style={{ padding: '10px', display: 'flex', flexDirection: 'column', gap: 4 }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                          <div style={{ width: 6, height: 6, borderRadius: '50%', background: '#1b998b', flexShrink: 0 }} />
+                          <div style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--teal)', flexShrink: 0 }} />
                           <span style={{ fontFamily: 'var(--font-mono)', fontSize: 12, fontWeight: 500, color: 'var(--navy)' }}>
                             {sc.stain_name || '—'}
                           </span>
@@ -1119,7 +1271,9 @@ export default function PatientDetail() {
               </div>
             </Panel>
           )}
-        </div>
+            </div>{/* cross-fade body */}
+          </div>{/* inner 400px track */}
+        </div>{/* right column */}
 
         {/* ── Drawers / modals ──────────────────────────────────────────────── */}
         {drawerOpen && selected && (

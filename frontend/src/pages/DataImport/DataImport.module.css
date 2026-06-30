@@ -181,7 +181,7 @@
 }
 
 .sectionTitle {
-  font-family: var(--font-heading);
+  font-family: var(--font-serif);
   font-size: 15px;
   font-weight: 600;
   color: var(--text-1);
