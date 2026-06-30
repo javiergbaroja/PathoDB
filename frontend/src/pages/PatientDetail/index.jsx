@@ -194,8 +194,8 @@ function SummaryStat({ label, value, sub, accent }) {
         {label}
       </div>
       <div style={{
-        fontSize: 18, fontFamily: 'var(--font-serif)',
-        color: accent || 'var(--navy)', lineHeight: 1.1,
+        fontSize: 16, fontFamily: 'var(--font-serif)',
+        color: accent || 'var(--navy)', lineHeight: 1.15,
       }}>
         {value}
       </div>
@@ -208,10 +208,10 @@ function SummaryStat({ label, value, sub, accent }) {
 
 const TL_W     = 500
 const TL_PAD   = 36          // horizontal padding inside the SVG canvas
-const TL_AY    = 36          // y of the track centre-line
-const TL_DOT_R = 6           // base dot radius
-const TL_TRACK = 3           // track pill height
-const TL_STEP  = TL_DOT_R * 2 + 5   // vertical spacing between stacking levels
+const TL_AY    = 20          // y of the track centre-line
+const TL_DOT_R = 3.5         // base dot radius
+const TL_TRACK = 2           // track pill height
+const TL_STEP  = TL_DOT_R * 2 + 4   // vertical spacing between stacking levels
 
 function MiniTimeline({ submissions, onDotClick }) {
   const [tooltip,   setTooltip]   = useState(null)   // { sub, clientX, clientY }
@@ -306,8 +306,8 @@ function MiniTimeline({ submissions, onDotClick }) {
         Submission timeline
       </div>
 
-      <div style={{ maxHeight: 90, overflowX: 'auto', overflowY: 'auto' }}>
-      <svg width="100%" viewBox={`0 0 ${TL_W} ${viewH}`} style={{ overflow: 'visible', display: 'block', minWidth: viewH > 90 ? 500 : undefined }}>
+      <div style={{ maxHeight: 130, overflowX: 'auto', overflowY: 'auto' }}>
+      <svg width="100%" viewBox={`0 0 ${TL_W} ${viewH}`} style={{ overflow: 'visible', display: 'block', minWidth: viewH > 70 ? 500 : undefined }}>
 
         {/* ── Track: full background pill ── */}
         <rect
@@ -351,7 +351,7 @@ function MiniTimeline({ submissions, onDotClick }) {
             p.blocks?.some(b => (b.scans?.length ?? 0) > 0)
           )
           const isHovered = sub.id === hoveredId
-          const r = isHovered ? TL_DOT_R + 1.5 : TL_DOT_R
+          const r = isHovered ? TL_DOT_R + 1 : TL_DOT_R
           const fill =
             sub.malignancy_flag === true  ? 'var(--crimson)' :
             sub.malignancy_flag === false ? 'var(--navy)'    :
@@ -369,12 +369,12 @@ function MiniTimeline({ submissions, onDotClick }) {
               {/* Teal scan ring — drawn first so it sits behind the halo */}
               {hasScans && (
                 <circle
-                  cx={x} cy={y} r={r + 5}
-                  fill="none" stroke="#1b998b" strokeWidth={2} opacity={0.7}
+                  cx={x} cy={y} r={r + 3}
+                  fill="none" stroke="#1b998b" strokeWidth={1.5} opacity={0.7}
                 />
               )}
               {/* White halo — separates the dot from the track and other dots */}
-              <circle cx={x} cy={y} r={r + 1.5} fill="white" opacity={0.9} />
+              <circle cx={x} cy={y} r={r + 1} fill="white" opacity={0.9} />
               {/* Main dot */}
               <circle
                 cx={x} cy={y} r={r} fill={fill}
@@ -383,8 +383,8 @@ function MiniTimeline({ submissions, onDotClick }) {
               {/* Hover glow ring */}
               {isHovered && (
                 <circle
-                  cx={x} cy={y} r={r + 3.5}
-                  fill="none" stroke={fill} strokeWidth={1} opacity={0.3}
+                  cx={x} cy={y} r={r + 2.5}
+                  fill="none" stroke={fill} strokeWidth={0.75} opacity={0.3}
                 />
               )}
             </g>
@@ -407,7 +407,7 @@ function MiniTimeline({ submissions, onDotClick }) {
                   {/* white halo */}
                   <circle cx={8} cy={8} r={5}    fill="white" />
                   <circle cx={8} cy={8} r={4}    fill="var(--navy)" />
-                  <circle cx={8} cy={8} r={7.5}  fill="none" stroke="#1b998b" strokeWidth={2} opacity={0.7} />
+                  <circle cx={8} cy={8} r={7.5}  fill="none" stroke="#1b998b" strokeWidth={1.5} opacity={0.7} />
                 </>
               ) : (
                 <>
@@ -643,7 +643,7 @@ export default function PatientDetail() {
   return (
     <Layout title={title} actions={actions}>
       <div style={{
-        display: 'grid', gridTemplateColumns: selected ? '2fr 1fr' : '1fr 340px',
+        display: 'grid', gridTemplateColumns: selected ? '3fr 2fr' : '1fr 340px',
         height: '100%', overflow: 'hidden', position: 'relative',
         transition: 'grid-template-columns 0.2s ease',
       }}>
@@ -987,7 +987,7 @@ export default function PatientDetail() {
         </div>
 
         {/* ── Right: scan detail ────────────────────────────────────────────── */}
-        <div style={{ overflowY: 'auto', padding: '16px 24px 16px 12px' }}>
+        <div style={{ overflowY: 'auto', padding: '16px 20px' }}>
           <SummaryPanel patientId={parseInt(id)} />
           {selected && (
             <div style={{
@@ -1048,7 +1048,7 @@ export default function PatientDetail() {
                   </div>
                 </div>
               ) : (
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2,1fr)', gap: 8, marginBottom: 12 }}>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2,1fr)', gap: 10, marginBottom: 12 }}>
                   {scans.map(sc => (
                     <div key={sc.id} style={{ 
                       border: '1px solid #1b998b33', 
