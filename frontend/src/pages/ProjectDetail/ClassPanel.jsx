@@ -4,6 +4,7 @@ import { useState, useEffect, useRef, memo } from 'react'
 import ProjectModelsPanel, { AI_ROI_CLASS } from './ProjectModelsPanel'
 import { SegmentedControl, ProgressBar } from '../../components/ui'
 import { shortcutGroupsFor, PROJECT_DETAIL_ACTIONS } from '../../lib/viewerKeymap'
+import { useVirtualizer } from '@tanstack/react-virtual'
 
 export default memo(function ClassPanel({
   classes,
@@ -396,6 +397,15 @@ function ListTab({ annotations, classes, selectedAnnIds, onSelect, onDelete, onC
     ...Object.fromEntries((classes || []).map(c => [c.id, c])),
   }
 
+  const scrollRef = useRef(null)
+
+  const rowVirtualizer = useVirtualizer({
+    count: annotations.length,
+    getScrollElement: () => scrollRef.current,
+    estimateSize: () => 46,   // approximate row height in pixels
+    overscan: 8,              // rows rendered just above/below the visible area
+  })
+
   if (annotations.length === 0) {
     return (
       <div style={{ padding: 16, fontSize: 12, color: 'var(--text-dark-3)', textAlign: 'center' }}>
@@ -405,86 +415,91 @@ function ListTab({ annotations, classes, selectedAnnIds, onSelect, onDelete, onC
   }
 
   return (
-    <div style={{ padding: '6px' }}>
-      {annotations.map((ann, i) => {
-        const cls        = classMap[ann.class_id]
-        const color      = cls?.color || ann._color || 'var(--gray-blue)'
-        const isSelected = selectedAnnIds.has(ann.id)
-        const isAiRoi    = ann.class_id === AI_ROI_CLASS.id
-        const typeLabel  = {
-          polygon:   'Poly',
-          rectangle: 'Rect',
-          ellipse:   'Ellipse',
-          point:     'Point',
-          brush:     'Brush',
-        }[ann.annotation_type] || ann.annotation_type
+    <div ref={scrollRef} style={{ padding: '6px', height: '100%', overflowY: 'auto' }}>
+      <div style={{ position: 'relative', height: rowVirtualizer.getTotalSize() }}>
+        {rowVirtualizer.getVirtualItems().map(virtualRow => {
+          const ann         = annotations[virtualRow.index]
+          const i           = virtualRow.index
+          const cls         = classMap[ann.class_id]
+          const color       = cls?.color || ann._color || 'var(--gray-blue)'
+          const isSelected  = selectedAnnIds.has(ann.id)
+          const isAiRoi     = ann.class_id === AI_ROI_CLASS.id
+          const typeLabel   = {
+            polygon:   'Poly',
+            rectangle: 'Rect',
+            ellipse:   'Ellipse',
+            point:     'Point',
+            brush:     'Brush',
+          }[ann.annotation_type] || ann.annotation_type
 
-        return (
-          <div
-            key={ann.id}
-            data-annid={ann.id}
-            onClick={e => onSelect(ann.id, e.shiftKey, e.altKey)}
-            style={{
-              display: 'flex', alignItems: 'center', gap: 8,
-              padding: '6px 8px', borderRadius: 5, marginBottom: 3,
-              background: isSelected
-                ? (isAiRoi ? 'var(--transparent-purple-1)' : 'var(--border-dark)')
-                : 'var(--transparent-white-0)',
-              border: `1px solid ${isSelected
-                ? (isAiRoi ? 'var(--transparent-purple-3)' : 'var(--transparent-white-2)')
-                : 'var(--transparent-white-0)'}`,
-              cursor: 'pointer',
-            }}
-          >
-            <div style={{ width: 10, height: 10, borderRadius: 2, background: color, flexShrink: 0 }} />
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontSize: 11, color: 'var(--transparent-white-7)', fontWeight: isSelected ? 600 : 400 }}>
-                {isAiRoi ? 'AI Model ROI' : (ann.class_name || 'Unclassified')}
+          return (
+            <div
+              key={ann.id}
+              data-annid={ann.id}
+              onClick={e => onSelect(ann.id, e.shiftKey, e.altKey)}
+              style={{
+                position: 'absolute', top: 0, left: 0, right: 0,
+                transform: `translateY(${virtualRow.start}px)`,
+                display: 'flex', alignItems: 'center', gap: 8,
+                padding: '6px 8px', borderRadius: 5, marginBottom: 3,
+                background: isSelected
+                  ? (isAiRoi ? 'var(--transparent-purple-1)' : 'var(--border-dark)')
+                  : 'var(--transparent-white-0)',
+                border: `1px solid ${isSelected
+                  ? (isAiRoi ? 'var(--transparent-purple-3)' : 'var(--transparent-white-2)')
+                  : 'var(--transparent-white-0)'}`,
+                cursor: 'pointer',
+              }}
+            >
+              <div style={{ width: 10, height: 10, borderRadius: 2, background: color, flexShrink: 0 }} />
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 11, color: 'var(--transparent-white-7)', fontWeight: isSelected ? 600 : 400 }}>
+                  {isAiRoi ? 'AI Model ROI' : (ann.class_name || 'Unclassified')}
+                </div>
+                <div style={{ fontSize: 9, color: 'var(--transparent-white-3)', fontFamily: 'monospace' }}>
+                  {typeLabel} #{ann.id ?? i + 1}
+                  {ann.area_px ? ` · ${Math.round(ann.area_px).toLocaleString()}px²` : ''}
+                </div>
               </div>
-              <div style={{ fontSize: 9, color: 'var(--transparent-white-3)', fontFamily: 'monospace' }}>
-                {typeLabel} #{ann.id ?? i + 1}
-                {ann.area_px ? ` · ${Math.round(ann.area_px).toLocaleString()}px²` : ''}
-              </div>
+
+              {!readOnly && isSelected && !isAiRoi && classes?.length > 0 && (
+                <select
+                  onClick={e => e.stopPropagation()}
+                  value={ann.class_id || ''}
+                  onChange={e => {
+                    const cls = classes.find(c => c.id === e.target.value)
+                    onChangeClass(ann.id, e.target.value, cls?.name || '')
+                  }}
+                  style={{
+                    fontSize: 10, background: 'var(--border-dark)',
+                    border: '1px solid var(--transparent-white-2)', borderRadius: 4,
+                    color: 'var(--transparent-white-7)', padding: '1px 4px',
+                  }}
+                >
+                  <option value=''>—</option>
+                  {classes.map(c => (
+                    <option key={c.id} value={c.id}>{c.name}</option>
+                  ))}
+                </select>
+              )}
+
+              {!readOnly && (
+                <button
+                  onClick={e => { e.stopPropagation(); onDelete(ann.id) }}
+                  title='Delete annotation (Del)'
+                  style={{
+                    background: 'none', border: 'none', cursor: 'pointer',
+                    color: 'var(--transparent-crimson60-5)', fontSize: 13, lineHeight: 1,
+                    padding: '0 2px', flexShrink: 0,
+                  }}
+                >
+                  ×
+                </button>
+              )}
             </div>
-
-            {/* Class reassign: hide for AI ROI annotations (system class) */}
-            {!readOnly && isSelected && !isAiRoi && classes?.length > 0 && (
-              <select
-                onClick={e => e.stopPropagation()}
-                value={ann.class_id || ''}
-                onChange={e => {
-                  const cls = classes.find(c => c.id === e.target.value)
-                  onChangeClass(ann.id, e.target.value, cls?.name || '')
-                }}
-                style={{
-                  fontSize: 10, background: 'var(--border-dark)',
-                  border: '1px solid var(--transparent-white-2)', borderRadius: 4,
-                  color: 'var(--transparent-white-7)', padding: '1px 4px',
-                }}
-              >
-                <option value=''>—</option>
-                {classes.map(c => (
-                  <option key={c.id} value={c.id}>{c.name}</option>
-                ))}
-              </select>
-            )}
-
-            {!readOnly && (
-              <button
-                onClick={e => { e.stopPropagation(); onDelete(ann.id) }}
-                title='Delete annotation (Del)'
-                style={{
-                  background: 'none', border: 'none', cursor: 'pointer',
-                  color: 'var(--transparent-crimson60-5)', fontSize: 13, lineHeight: 1,
-                  padding: '0 2px', flexShrink: 0,
-                }}
-              >
-                ×
-              </button>
-            )}
-          </div>
-        )
-      })}
+          )
+        })}
+      </div>
     </div>
   )
 }

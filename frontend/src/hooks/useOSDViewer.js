@@ -6,7 +6,9 @@
 //           block that patches the live viewer object).
 
 import { useEffect, useRef, useCallback } from 'react'
-
+import '../vendor/openseadragon-global.js'
+import '../vendor/openseadragon-scalebar.js'
+ 
 const SCALEBAR_NICE = [10, 20, 50, 100, 200, 500, 1000, 2000, 5000, 10000, 20000, 50000]
 
 function buildOSD({
@@ -56,7 +58,7 @@ function buildOSD({
           getTileUrl: (level, x, y) =>
             `/api/slides/${scanId}/dzi_files/${level}/${x}_${y}.jpeg?token=${token}`,
         },
-        prefixUrl: 'https://cdnjs.cloudflare.com/ajax/libs/openseadragon/4.1.0/images/',
+        prefixUrl: '/openseadragon-images/',
         animationTime: 0.3, blendTime: 0.1, constrainDuringPan: true,
         maxZoomPixelRatio: 4, minZoomImageRatio: 0.5, visibilityRatio: 1,
         zoomPerScroll: 1.4, showNavigator: true, navigatorPosition: 'BOTTOM_RIGHT',
@@ -147,23 +149,7 @@ function buildOSD({
 }
 
 function loadOSDScripts(cb) {
-  if (window.OpenSeadragon?.Viewer.prototype.scalebar) { cb(); return }
-  if (window.OpenSeadragon) {
-    const s = document.createElement('script')
-    s.src = 'https://cdn.jsdelivr.net/gh/usnistgov/OpenSeadragonScalebar@master/openseadragon-scalebar.js'
-    s.onload = cb
-    document.head.appendChild(s)
-    return
-  }
-  const s1 = document.createElement('script')
-  s1.src = 'https://cdnjs.cloudflare.com/ajax/libs/openseadragon/4.1.0/openseadragon.min.js'
-  s1.onload = () => {
-    const s2 = document.createElement('script')
-    s2.src = 'https://cdn.jsdelivr.net/gh/usnistgov/OpenSeadragonScalebar@master/openseadragon-scalebar.js'
-    s2.onload = cb
-    document.head.appendChild(s2)
-  }
-  document.head.appendChild(s1)
+  cb()
 }
 
 export function useOSDViewer({

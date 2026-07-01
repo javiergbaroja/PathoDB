@@ -35,3 +35,4 @@ data/*/*/*
 etl/etl_worker.py
 etl/*.csv
 probes_not_found.txt
+frontend/public/openseadragon-images/*.png

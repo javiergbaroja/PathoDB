@@ -11,7 +11,8 @@
   "dependencies": {
     "@tanstack/react-query": "^5.100.5",
     "@tanstack/react-query-devtools": "^5.100.5",
-    "@tanstack/react-virtual": "^3.13.24",
+    "@tanstack/react-virtual": "^3.14.5",
+    "openseadragon": "^4.1.0",
     "polygon-clipping": "^0.15.7",
     "rbush": "^4.0.1",
     "react": "^18.2.0",

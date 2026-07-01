@@ -11,6 +11,7 @@ import {
   Btn, JobStatusBadge, ElapsedTimer, SliderRow,
   ProgressBar, SectionLabel, FormLabel, SegmentedControl,
 } from '../../components/ui'
+import { ConfirmDialog, useToast } from '../../components/ui'
 
 // ── GeoJSON serialisers ────────────────────────────────────────────────────────
 
@@ -91,7 +92,6 @@ function ParamRow({ param, value, onChange }) {
 
 const SCOPES = [
   { value: 'whole_slide',    label: 'Whole slide',    alwaysEnabled: true },
-  { value: 'visible_region', label: 'Visible region', alwaysEnabled: true },
   { value: 'roi',            label: 'Drawn ROI',      alwaysEnabled: false },
 ]
 
@@ -342,12 +342,13 @@ function ModelRunArea({ latest, model, submitting, scanInfo, scanId, onRun, onCa
 // ── Past jobs list ─────────────────────────────────────────────────────────────
 
 function PastJobsList({ jobs, catalog, activeOverlays, onToggleOverlay, onDeleteJob, scanId }) {
+  const toast = useToast()
   const past = jobs.filter(j => ['done', 'failed', 'cancelled'].includes(j.status))
   if (!past.length) return null
 
   const handleDownload = async (jobId, isBatch) => {
     try { await api.downloadAnalysisFile(jobId, 'download_file', isBatch ? scanId : null) }
-    catch (e) { alert(`Download failed: ${e.message}`) }
+    catch (e) { toast.error(`Download failed: ${e.message}`) }
   }
 
   return (
@@ -478,6 +479,9 @@ export default function ModelsPanel({
   const [submitError, setSubmitError] = useState('')
   const [modelScope,  setModelScope]  = useState({})
   const [modelParams, setModelParams] = useState({})
+  const [deleteTarget, setDeleteTarget] = useState(null)
+  const [deleting,     setDeleting]     = useState(false)
+  const toast = useToast()
 
   const categories = ['All', ...Array.from(new Set(catalog.map(m => m.category)))]
   const visible    = categoryTab === 'All' ? catalog : catalog.filter(m => m.category === categoryTab)
@@ -501,11 +505,7 @@ export default function ModelsPanel({
       ;(model.params || []).forEach(p => { params[p.key] = paramsFor(model.id)[p.key] ?? p.default })
 
       let roi_json = null
-      if (scope === 'roi')            roi_json = polygonsToGeoJSON(polygons)
-      else if (scope === 'visible_region') {
-        roi_json = viewportToGeoJSON(viewer)
-        if (!roi_json) throw new Error('Could not read viewport bounds — try again')
-      }
+      if (scope === 'roi') roi_json = polygonsToGeoJSON(polygons)
 
       await api.submitAnalysis(scanId, { model_id: model.id, scope, params, roi_json })
       onJobsChange()
@@ -525,13 +525,24 @@ export default function ModelsPanel({
     } catch {}
   }
 
-  async function handleDelete(job) {
-    if (!window.confirm('Permanently delete this run and all its files?')) return
+  function handleDelete(job) {
+    setDeleteTarget(job)
+  }
+
+  async function confirmDelete() {
+    const job = deleteTarget
+    if (!job) return
+    setDeleting(true)
     try {
       if (activeOverlays[job.id]) onToggleOverlay(job.id)
       await api.deleteAnalysis(job.id)
       onJobsChange()
-    } catch (e) { alert(`Failed to delete job: ${e.message}`) }
+      setDeleteTarget(null)
+    } catch (e) {
+      toast.error(`Failed to delete job: ${e.message}`)
+    } finally {
+      setDeleting(false)
+    }
   }
 
   const runningCount = jobs.filter(j => j.status === 'queued' || j.status === 'running').length
@@ -669,6 +680,16 @@ export default function ModelsPanel({
           )
         })}
       </div>
+
+      <ConfirmDialog
+        isOpen={!!deleteTarget}
+        onClose={() => setDeleteTarget(null)}
+        onConfirm={confirmDelete}
+        title="Delete analysis run"
+        message="Permanently delete this run and all its files? This cannot be undone."
+        confirmLabel="Delete"
+        loading={deleting}
+      />
     </div>
   )
 }
