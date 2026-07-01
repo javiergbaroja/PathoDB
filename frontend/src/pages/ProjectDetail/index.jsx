@@ -6,17 +6,18 @@ import { api } from '../../api'
 import { useOSDViewer } from '../../hooks/useOSDViewer'
 import { useGammaFilter } from '../../hooks/useGammaFilter'
 import { attachRuler } from '../../lib/rulerTool'
-import { useModelsCatalog } from '../../hooks/useSlideData'           // ← NEW
+import { useModelsCatalog } from '../../hooks/useSlideData'
 import AnnotationLayer from './AnnotationLayer'
 import AnnotationToolbar from './AnnotationToolbar'
 import ClassPanel from './ClassPanel'
 import SlideTray from './SlideTray'
 import ImportModal from './ImportModal'
-import { AI_ROI_CLASS } from './ProjectModelsPanel'                   // ← NEW
+import { AI_ROI_CLASS } from './ProjectModelsPanel'
 import ManageClassesModal from '../../components/ManageClassesModal'
 import BatchAIModal from './BatchAIModal'
 import RBush from 'rbush'
 import { getAnnotationBBox } from '../../lib/annotationMath'
+import { toolForEvent, panelForEvent, isEditableTarget } from '../../lib/viewerKeymap'
 
 if (!document.getElementById('pd-styles')) {
   const s = document.createElement('style')
@@ -170,7 +171,7 @@ export default function ProjectDetail() {
       loadedDataRef.current      = rawAnnotations
       const merged = rawAnnotations.map(a => ({
         ...a,
-        _color: classMap[a.class_id]?.color || '#94a3b8',
+        _color: classMap[a.class_id]?.color || 'var(--gray-blue)',
       }))
       localAnnotationsRef.current = merged
       setLocalAnnotations(merged)
@@ -504,9 +505,8 @@ export default function ProjectDetail() {
 
   // ── Keyboard shortcuts ─────────────────────────────────────────────────────
   useEffect(() => {
-    const toolMap = { m: 'select', g: 'polygon', r: 'rectangle', e: 'ellipse', p: 'point', b: 'brush' }
     function handler(ev) {
-      if (['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement?.tagName)) return
+      if (isEditableTarget()) return
       const isMac        = navigator.platform.toUpperCase().indexOf('MAC') >= 0
       const isCmdOrCtrl  = isMac ? ev.metaKey : ev.ctrlKey
       if (isCmdOrCtrl) {
@@ -514,9 +514,10 @@ export default function ProjectDetail() {
         if (ev.key.toLowerCase() === 'y') { ev.preventDefault(); handleRedo(); return }
       }
       const k = ev.key.toLowerCase()
-      if (toolMap[k]) { setActiveTool(prev => prev === toolMap[k] ? null : toolMap[k]); setIsRulerActive(false); return }
-      if (k === 'l') { setIsRulerActive(r => !r); setActiveTool(null) }
-      if (k === 'a') setShowAdjust(s => !s)
+      const tool = toolForEvent(ev)
+      if (tool === 'ruler') { setIsRulerActive(r => !r); setActiveTool(null); return }
+      if (tool)             { setActiveTool(prev => prev === tool ? null : tool); setIsRulerActive(false); return }
+      if (panelForEvent(ev) === 'adjust') setShowAdjust(s => !s)
       if (k === 'h') setShowAnnotations(s => !s)
       if (k === 'o') setFillAnnotations(s => !s)
       if (ev.key === 'Escape') { setActiveTool('select'); setIsRulerActive(false) }
@@ -524,7 +525,7 @@ export default function ProjectDetail() {
     }
     document.addEventListener('keydown', handler)
     return () => document.removeEventListener('keydown', handler)
-  }, [selectedAnnIds]) // eslint-disable-line
+  }, [selectedAnnIds])
 
   // ── Annotation mutation helpers ────────────────────────────────────────────
   function handleDeleteSelected() {
@@ -546,7 +547,7 @@ export default function ProjectDetail() {
     const tempId = `temp_${Date.now()}_${Math.random().toString(36).slice(2)}`
     const newAnn = {
       id: tempId, project_id: Number(projectId), scan_id: activeScanId, ...rest,
-      _color: classMap[rest.class_id]?.color || '#94a3b8',
+      _color: classMap[rest.class_id]?.color || 'var(--gray-blue)',
       created_at: new Date().toISOString(),
     }
     const base = _replaceId
@@ -570,7 +571,7 @@ export default function ProjectDetail() {
     const targetIds = selectedAnnIds.has(annId) ? selectedAnnIds : new Set([annId])
     const next = localAnnotationsRef.current.map(a =>
       targetIds.has(a.id)
-        ? { ...a, class_id: classId, class_name: className, _color: classMap[classId]?.color || '#94a3b8' }
+        ? { ...a, class_id: classId, class_name: className, _color: classMap[classId]?.color || 'var(--gray-blue)' }
         : a
     )
     commitAnnotationChange(next)
@@ -619,8 +620,8 @@ export default function ProjectDetail() {
   const activeScan = projectScans.find(s => s.scan_id === activeScanId)
 
   if (projLoading) return (
-    <div style={{ width:'100vw', height:'100vh', background:'#111827', display:'flex',
-      alignItems:'center', justifyContent:'center', color:'rgba(255,255,255,0.4)', fontSize:14 }}>
+    <div style={{ width:'100vw', height:'100vh', background:'var(--surface-dark)', display:'flex',
+      alignItems:'center', justifyContent:'center', color:'var(--transparent-white-4)', fontSize:14 }}>
       Loading project…
     </div>
   )
@@ -629,19 +630,19 @@ export default function ProjectDetail() {
   // RENDER
   // ─────────────────────────────────────────────────────────────────────────
   return (
-    <div style={{ width:'100vw', height:'100vh', background:'#111827',
+    <div style={{ width:'100vw', height:'100vh', background:'var(--surface-dark)',
       display:'flex', flexDirection:'column', overflow:'hidden' }}>
 
       {/* ── Topbar ─────────────────────────────────────────────────────────── */}
       <div style={{
-        height: 48, flexShrink: 0, background: 'rgba(3,8,25,0.97)',
-        borderBottom: '1px solid rgba(255,255,255,0.07)',
+        height: 48, flexShrink: 0, background: 'var(--surface-dark-card)',
+        borderBottom: '1px solid var(--border-dark)',
         display: 'flex', alignItems: 'center', gap: 10, padding: '0 14px',
       }}>
         <button onClick={handleBackToProjects} title='Back to Projects'
           style={{ display:'flex', alignItems:'center', gap:6, padding:'4px 10px',
-            borderRadius:6, background:'rgba(255,255,255,0.05)',
-            border:'1px solid rgba(255,255,255,0.12)', color:'rgba(255,255,255,0.65)',
+            borderRadius:6, background:'var(--transparent-white-0)',
+            border:'1px solid var(--transparent-white-1)', color:'var(--transparent-white-7)',
             cursor:'pointer', fontSize:12, fontFamily:'sans-serif' }}>
           <svg width='12' height='12' viewBox='0 0 16 16' fill='currentColor'>
             <path d='M15 8a.5.5 0 00-.5-.5H2.707l3.147-3.146a.5.5 0 10-.708-.708l-4 4a.5.5 0 000 .708l4 4a.5.5 0 00.708-.708L2.707 8.5H14.5A.5.5 0 0015 8z'/>
@@ -649,28 +650,28 @@ export default function ProjectDetail() {
           Projects
         </button>
 
-        <div style={{ width:1, height:18, background:'rgba(255,255,255,0.08)' }} />
-        <span style={{ fontFamily:'serif', fontSize:13, color:'rgba(255,255,255,0.4)' }}>PathoDB</span>
-        <span style={{ fontSize:11, color:'rgba(255,255,255,0.25)' }}>·</span>
-        <span style={{ fontSize:13, fontWeight:500, color:'rgba(255,255,255,0.8)' }}>{project?.name}</span>
+        <div style={{ width:1, height:18, background:'var(--transparent-white-1)' }} />
+        <span style={{ fontFamily:'serif', fontSize:13, color:'var(--transparent-white-4)' }}>PathoDB</span>
+        <span style={{ fontSize:11, color:'var(--transparent-white-3)' }}>·</span>
+        <span style={{ fontSize:13, fontWeight:500, color:'var(--transparent-white-8)' }}>{project?.name}</span>
 
         {project?.project_type === 'cell_detection' && (
           <span style={{ fontSize:9, padding:'2px 8px', borderRadius:20,
-            background:'rgba(251,191,36,0.15)', color:'#fbbf24',
+            background:'var(--transparent-amber-2)', color:'var(--viewer-amber)',
             fontWeight:600, textTransform:'uppercase', letterSpacing:'0.06em' }}>
             Cell detection
           </span>
         )}
         {project?.project_type === 'region_annotation' && (
           <span style={{ fontSize:9, padding:'2px 8px', borderRadius:20,
-            background:'rgba(27,153,139,0.18)', color:'#6ee7b7',
+            background:'var(--transparent-teal-2)', color:'var(--viewer-teal-light)',
             fontWeight:600, textTransform:'uppercase', letterSpacing:'0.06em' }}>
             Region annotation
           </span>
         )}
         {readOnly && (
           <span style={{ fontSize:9, padding:'2px 8px', borderRadius:20,
-            background:'rgba(148,163,184,0.15)', color:'#94a3b8',
+            background:'var(--transparent-gray-blue-2)', color:'var(--gray-blue)',
             fontWeight:600, textTransform:'uppercase', letterSpacing:'0.06em' }}>
             Read only
           </span>
@@ -679,23 +680,23 @@ export default function ProjectDetail() {
         <div style={{ flex:1 }} />
 
         {activeTool && (
-          <span style={{ fontSize:10, fontFamily:'monospace', color:'rgba(255,255,255,0.35)',
-            background:'rgba(255,255,255,0.06)', padding:'2px 8px', borderRadius:4 }}>
+          <span style={{ fontSize:10, fontFamily:'monospace', color:'var(--text-dark-3)',
+            background:'var(--transparent-white-0)', padding:'2px 8px', borderRadius:4 }}>
             {activeTool}
           </span>
         )}
 
         {activeScan && (
           <div style={{ display:'flex', alignItems:'center', gap:12 }}>
-            <span style={{ fontSize:11, fontFamily:'monospace', color:'rgba(255,255,255,0.35)' }}>
+            <span style={{ fontSize:11, fontFamily:'monospace', color:'var(--text-dark-3)' }}>
               {activeScan.lis_submission_id}
             </span>
-            <span style={{ fontSize:11, fontFamily:'monospace', color:'rgba(255,255,255,0.55)', fontWeight:600 }}>
+            <span style={{ fontSize:11, fontFamily:'monospace', color:'var(--text-dark-2)', fontWeight:600 }}>
               {activeScan.stain_name}
             </span>
             {zoom && (
-              <span style={{ fontSize:10, fontFamily:'monospace', color:'rgba(255,255,255,0.3)',
-                background:'rgba(255,255,255,0.05)', padding:'1px 6px', borderRadius:3 }}>
+              <span style={{ fontSize:10, fontFamily:'monospace', color:'var(--transparent-white-3)',
+                background:'var(--transparent-white-0)', padding:'1px 6px', borderRadius:3 }}>
                 {zoom}×
               </span>
             )}
@@ -704,23 +705,23 @@ export default function ProjectDetail() {
 
         {saveError && (
           <div style={{ display:'flex', alignItems:'center', gap:5, fontSize:10,
-            color:'#ff8099', background:'rgba(230,0,46,0.12)',
-            border:'1px solid rgba(230,0,46,0.25)', padding:'3px 8px', borderRadius:4 }}>
+            color:'var(--viewer-red)', background:'var(--transparent-crimson-1)',
+            border:'1px solid var(--transparent-crimson-3)', padding:'3px 8px', borderRadius:4 }}>
             ⚠ {saveError}
             <button onClick={() => setSaveError('')}
-              style={{ background:'none', border:'none', color:'#ff8099', cursor:'pointer', fontSize:12, lineHeight:1 }}>×</button>
+              style={{ background:'none', border:'none', color:'var(--viewer-red)', cursor:'pointer', fontSize:12, lineHeight:1 }}>×</button>
           </div>
         )}
         {!saveError && (saving || pendingSave) && (
-          <div style={{ display:'flex', alignItems:'center', gap:5, fontSize:10, color:'#fbbf24' }}>
+          <div style={{ display:'flex', alignItems:'center', gap:5, fontSize:10, color:'var(--viewer-amber)' }}>
             <div style={{ width:7, height:7, borderRadius:'50%',
-              border:'1.5px solid #fbbf24', borderTopColor:'transparent',
+              border:'1.5px solid var(--viewer-amber)', borderTopColor:'transparent',
               animation:'spin 0.7s linear infinite' }} />
             {saving ? 'Saving…' : 'Pending…'}
           </div>
         )}
         {!saveError && !saving && !pendingSave && localAnnotations.length > 0 && (
-          <div style={{ fontSize:10, color:'#1b998b', display:'flex', alignItems:'center', gap:4 }}>
+          <div style={{ fontSize:10, color:'var(--viewer-teal)', display:'flex', alignItems:'center', gap:4 }}>
             <svg width='10' height='10' viewBox='0 0 16 16' fill='currentColor'>
               <path d='M13.854 3.646a.5.5 0 010 .708l-7 7a.5.5 0 01-.708 0l-3.5-3.5a.5.5 0 11.708-.708L6.5 10.293l6.646-6.647a.5.5 0 01.708 0z'/>
             </svg>
@@ -732,8 +733,8 @@ export default function ProjectDetail() {
           <button 
             onClick={() => setShowBatchAIModal(true)}
             style={{ display:'flex', alignItems:'center', gap:5, padding:'5px 12px', 
-              background: 'rgba(167,139,250,0.15)', color: '#a78bfa', 
-              border: '1px solid rgba(167,139,250,0.3)', borderRadius: 6, 
+              background: 'var(--transparent-purple-2)', color: 'var(--purple-80)', 
+              border: '1px solid var(--transparent-purple-3)', borderRadius: 6, 
               fontSize: 11, fontWeight: 600, cursor: 'pointer', fontFamily:'sans-serif' }}
           >
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
@@ -744,8 +745,8 @@ export default function ProjectDetail() {
         {!readOnly && (
           <button onClick={() => setShowImportModal(true)}
             style={{ display:'flex', alignItems:'center', gap:5, padding:'5px 12px',
-              borderRadius:6, background:'rgba(255,255,255,0.05)',
-              border:'1px solid rgba(255,255,255,0.15)', color:'rgba(255,255,255,0.8)',
+              borderRadius:6, background:'var(--transparent-white-0)',
+              border:'1px solid var(--transparent-white-2)', color:'var(--transparent-white-8)',
               cursor:'pointer', fontSize:11, fontFamily:'sans-serif' }}>
             <svg width='12' height='12' viewBox='0 0 16 16' fill='currentColor'>
               <path d='M8 12a.5.5 0 00.5-.5V4.707l2.146 2.147a.5.5 0 00.708-.708l-3-3a.5.5 0 00-.708 0l-3 3a.5.5 0 10.708.708L7.5 4.707V11.5a.5.5 0 00.5.5z'/>
@@ -757,8 +758,8 @@ export default function ProjectDetail() {
 
         <button onClick={() => api.exportProject(projectId)}
           style={{ display:'flex', alignItems:'center', gap:5, padding:'5px 12px',
-            borderRadius:6, background:'rgba(27,153,139,0.15)',
-            border:'1px solid rgba(27,153,139,0.3)', color:'#6ee7b7',
+            borderRadius:6, background:'var(--transparent-teal-2)',
+            border:'1px solid var(--transparent-teal-3)', color:'var(--viewer-teal-light)',
             cursor:'pointer', fontSize:11, fontFamily:'sans-serif' }}>
           <svg width='11' height='11' viewBox='0 0 16 16' fill='currentColor'>
             <path d='M.5 9.9a.5.5 0 01.5.5v2.5a1 1 0 001 1h12a1 1 0 001-1v-2.5a.5.5 0 011 0v2.5a2 2 0 01-2 2H2a2 2 0 01-2-2v-2.5a.5.5 0 01.5-.5z'/>
@@ -799,7 +800,7 @@ export default function ProjectDetail() {
           {!activeScanId && (
             <div style={{ position:'absolute', inset:0, display:'flex',
               alignItems:'center', justifyContent:'center',
-              color:'rgba(255,255,255,0.3)', fontSize:13 }}>
+              color:'var(--transparent-white-3)', fontSize:13 }}>
               Select a slide from the tray
             </div>
           )}
@@ -852,7 +853,7 @@ export default function ProjectDetail() {
           {activeTool && activeTool !== 'select' && !readOnly && (
             <div style={{
               position:'absolute', bottom:16, left:'50%', transform:'translateX(-50%)',
-              background:'rgba(0,0,0,0.75)', color:'rgba(255,255,255,0.7)',
+              background:'var(--transparent-black-8)', color:'var(--transparent-white-7)',
               fontSize:11, padding:'5px 14px', borderRadius:20, pointerEvents:'none',
               fontFamily:'sans-serif',
             }}>
@@ -868,13 +869,13 @@ export default function ProjectDetail() {
           {activeClass?.id === AI_ROI_CLASS.id && activeTool && activeTool !== 'select' && (
             <div style={{
               position: 'absolute', top: 12, left: '50%', transform: 'translateX(-50%)',
-              background: 'rgba(167,139,250,0.15)',
-              border: '1px solid rgba(167,139,250,0.3)',
-              color: '#a78bfa', fontSize: 11,
+              background: 'var(--transparent-purple-2)',
+              border: '1px solid var(--transparent-purple-3)',
+              color: 'var(--purple-80)', fontSize: 11,
               padding: '4px 14px', borderRadius: 20, pointerEvents: 'none',
               fontFamily: 'sans-serif', display: 'flex', alignItems: 'center', gap: 6,
             }}>
-              <div style={{ width: 6, height: 6, borderRadius: 2, background: '#a78bfa' }} />
+              <div style={{ width: 6, height: 6, borderRadius: 2, background: 'var(--purple-80)' }} />
               Drawing AI Model ROI — switch to the AI tab to run analysis
             </div>
           )}

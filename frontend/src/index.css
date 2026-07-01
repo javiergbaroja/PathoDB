@@ -19,6 +19,9 @@
   --crimson:     #E6002E;
   --crimson-h:   #c4001f;
   --crimson-10:  #fde8ec;
+  --crimson-40:  #f9a8b0;
+  --crimson-60:  #ff6464;
+  --crimson-80:  #ff2a2a;
 
   --white:       #ffffff;
 
@@ -32,12 +35,14 @@
   /* ── Secondary accents ─────────────────────────────────── */
   /* Gold */
   --amber:       #fbbf24;
-  --amber-h:     #f59e0b;   /* hover */
+  --amber-h:     #f59e0b;
+  --amber-60:    #ffd700;
   --amber-40:    #fcd34d;
   --amber-20:    #fef3c7;
   
   /* Purple */
   --purple:      #8b5cf6;
+  --purple-80:   #a78bfa;
   --purple-h:    #7c3aed;   /* hover */
   --purple-40:   #c4b5fd;
   --purple-20:   #ede9fe; 
@@ -49,6 +54,7 @@
   --pink-20:     #fce7f3;
 
   /* Blue */
+  --gray-blue:  #94a3b8;
   --blue:       #3b82f6;
   --blue-h:     #2563eb;   /* hover */
   --blue-40:    #93c5fd;
@@ -151,6 +157,61 @@
   --viewer-gold-bg:     rgba(255,215,0,0.12);
   --viewer-red:         #ff8099;
   --viewer-amber:       #fbbf24;
+
+  /* ── Viewer transparency colors ────────────────────────── */
+  --transparent-white-0: rgba(255,255,255,0.05);
+  --transparent-white-1: rgba(255,255,255,0.1);
+  --transparent-white-2: rgba(255,255,255,0.2);
+  --transparent-white-3: rgba(255,255,255,0.3);
+  --transparent-white-4: rgba(255,255,255,0.4);
+  --transparent-white-5: rgba(255,255,255,0.5);
+  --transparent-white-6: rgba(255,255,255,0.6);
+  --transparent-white-7: rgba(255,255,255,0.7);
+  --transparent-white-8: rgba(255,255,255,0.8);
+  --transparent-white-9: rgba(255,255,255,0.9);
+
+  --transparent-black-5: rgba(0,0,0,0.5);
+  --transparent-black-6: rgba(0,0,0,0.6);
+  --transparent-black-7: rgba(0,0,0,0.7);
+  --transparent-black-8: rgba(0,0,0,0.8);
+
+  --transparent-crimson-1: rgba(230,0,46,0.10);
+  --transparent-crimson-2: rgba(230,0,46,0.20);
+  --transparent-crimson-3: rgba(230,0,46,0.30);
+  
+  --transparent-crimson60-5: rgba(255,100,100,0.50);
+
+  --transparent-purple-1: rgba(167,139,250,0.1);
+  --transparent-purple-2: rgba(167,139,250,0.2);
+  --transparent-purple-3: rgba(167,139,250,0.3);
+  --transparent-purple-4: rgba(167,139,250,0.4);
+  --transparent-purple-5: rgba(167,139,250,0.5);
+  --transparent-purple-6: rgba(167,139,250,0.6);
+  --transparent-purple-7: rgba(167,139,250,0.7);
+
+  --transparent-teal-1: rgba(27,153,139,0.1);
+  --transparent-teal-2: rgba(27,153,139,0.2);
+  --transparent-teal-3: rgba(27,153,139,0.3);
+  --transparent-teal-4: rgba(27,153,139,0.4);
+  --transparent-teal-5: rgba(27,153,139,0.5);
+  --transparent-teal-6: rgba(27,153,139,0.6);
+  --transparent-teal-7: rgba(27,153,139,0.7);
+  --transparent-teal-8: rgba(27,153,139,0.8);
+
+  --transparent-gold-1: rgba(255,215,0,0.1);
+  --transparent-gold-2: rgba(255,215,0,0.2);
+  --transparent-gold-3: rgba(255,215,0,0.3);
+  --transparent-gold-4: rgba(255,215,0,0.4);
+  --transparent-gold-5: rgba(255,215,0,0.5);
+  --transparent-gold-6: rgba(255,215,0,0.6);
+
+  --transparent-amber-1: rgba(245,158,11,0.1);
+  --transparent-amber-2: rgba(245,158,11,0.2);
+
+  --transparent-dark-9: rgba(2,5,18,0.9);
+
+  --transparent-gray-blue-1: rgba(148,163,184,0.1);
+  --transparent-gray-blue-2: rgba(148,163,184,0.2);
 }
 
 /* ============================================================

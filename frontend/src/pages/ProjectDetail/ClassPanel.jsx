@@ -3,6 +3,7 @@
 import { useState, useEffect, useRef, memo } from 'react'
 import ProjectModelsPanel, { AI_ROI_CLASS } from './ProjectModelsPanel'
 import { SegmentedControl, ProgressBar } from '../../components/ui'
+import { shortcutGroupsFor, PROJECT_DETAIL_ACTIONS } from '../../lib/viewerKeymap'
 
 export default memo(function ClassPanel({
   classes,
@@ -41,23 +42,23 @@ export default memo(function ClassPanel({
   return (
     <div style={{
       width: 260, flexShrink: 0,
-      background: 'rgba(2,5,18,0.98)',
-      borderLeft: '1px solid rgba(255,255,255,0.07)',
+      background: 'var(--surface-dark-card)',
+      borderLeft: '1px solid var(--border-dark)',
       display: 'flex', flexDirection: 'column',
       overflow: 'hidden',
     }}>
       {/* Header */}
-      <div style={{ padding: '9px 12px', borderBottom: '1px solid rgba(255,255,255,0.05)', flexShrink: 0 }}>
-        <span style={{ fontSize: 9, color: 'rgba(255,255,255,0.5)', textTransform: 'uppercase', letterSpacing: '0.1em', fontWeight: 600 }}>
+      <div style={{ padding: '9px 12px', borderBottom: '1px solid var(--transparent-white-0)', flexShrink: 0 }}>
+        <span style={{ fontSize: 9, color: 'var(--transparent-white-5)', textTransform: 'uppercase', letterSpacing: '0.1em', fontWeight: 600 }}>
           Annotations
         </span>
       </div>
 
       {/* Progress bar */}
-      <div style={{ padding: '8px 12px', borderBottom: '1px solid rgba(255,255,255,0.05)', flexShrink: 0 }}>
+      <div style={{ padding: '8px 12px', borderBottom: '1px solid var(--transparent-white-0)', flexShrink: 0 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
-          <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.4)' }}>Slides annotated</span>
-          <span style={{ fontSize: 10, fontFamily: 'monospace', color: '#6ee7b7' }}>
+          <span style={{ fontSize: 10, color: 'var(--transparent-white-4)' }}>Slides annotated</span>
+          <span style={{ fontSize: 10, fontFamily: 'monospace', color: 'var(--viewer-teal-light)' }}>
             {annotatedScans}/{totalScans}
           </span>
         </div>
@@ -65,16 +66,16 @@ export default memo(function ClassPanel({
           value={annotatedScans}
           max={totalScans || 1}
           height={3}
-          color="#1b998b"
-          style={{ background: 'rgba(255,255,255,0.08)' }}
+          color="var(--viewer-teal)"
+          style={{ background: 'var(--transparent-white-1)' }}
         />
-        <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.35)', marginTop: 4 }}>
+        <div style={{ fontSize: 10, color: 'var(--text-dark-3)', marginTop: 4 }}>
           {annotationCount} annotation{annotationCount !== 1 ? 's' : ''} this slide
         </div>
       </div>
 
       {/* Tabs */}
-      <div style={{ padding: '6px 10px', borderBottom: '1px solid rgba(255,255,255,0.05)', flexShrink: 0 }}>
+      <div style={{ padding: '6px 10px', borderBottom: '1px solid var(--transparent-white-0)', flexShrink: 0 }}>
         <SegmentedControl
           dark
           small
@@ -91,7 +92,7 @@ export default memo(function ClassPanel({
                   {tab !== 'ai' && aiRoiAnnotations.length > 0 && (
                     <span style={{
                       fontSize: 8, fontWeight: 700,
-                      background: '#a78bfa', color: '#0a0f1e',
+                      background: 'var(--purple-80)', color: 'var(--surface-dark-2)',
                       borderRadius: 6, padding: '1px 4px',
                       lineHeight: 1.4,
                     }}>
@@ -147,18 +148,9 @@ export default memo(function ClassPanel({
 
 // ── Classes tab ────────────────────────────────────────────────────────────────
 function ClassTab({ classes, activeClass, setActiveClass, annotations, onSelectAllOfClass, readOnly, aiRoiAnnotations, onSetAiClass, onOpenManageClasses }) {
-  const SHORTCUTS = [
-    { key: 'M', label: 'Select / move' },
-    { key: 'G', label: 'Polygon' },
-    { key: 'R', label: 'Rectangle' },
-    { key: 'E', label: 'Ellipse' },
-    { key: 'B', label: 'Brush' },
-    { key: '⇧+Click', label: 'Multi-select' },
-    { key: 'Alt+Click', label: 'Select all of class' },
-    { key: 'CTRL+Click', label: 'Select overlapping annotation' },
-    { key: 'Del', label: 'Delete selected' },
-    { key: 'Esc', label: 'Deselect / Back' },
-  ]
+  const SHORTCUTS = shortcutGroupsFor(PROJECT_DETAIL_ACTIONS)
+    .flatMap(g => g.items)
+    .map(i => ({ key: i.keys.join('+'), label: i.label }))
 
   const isAiRoiActive = activeClass?.id === AI_ROI_CLASS.id
 
@@ -173,7 +165,7 @@ function ClassTab({ classes, activeClass, setActiveClass, annotations, onSelectA
           onSelectAll={() => onSelectAllOfClass?.(AI_ROI_CLASS.id)}
           readOnly={readOnly}
         />
-        <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.35)', textAlign: 'center', margin: '16px 0' }}>
+        <div style={{ fontSize: 12, color: 'var(--text-dark-3)', textAlign: 'center', margin: '16px 0' }}>
           No classes defined for this project.
         </div>
         <ShortcutLegend shortcuts={SHORTCUTS} />
@@ -183,18 +175,18 @@ function ClassTab({ classes, activeClass, setActiveClass, annotations, onSelectA
 
   return (
     <div style={{ padding: '8px' }}>
-      <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.35)', marginBottom: 8, padding: '0 4px' }}>
+      <div style={{ fontSize: 10, color: 'var(--text-dark-3)', marginBottom: 8, padding: '0 4px' }}>
         {readOnly ? 'Classes' : 'Select a class, then draw on the slide'}
       </div>
 
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8, padding: '0 4px' }}>
-        <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.35)' }}>
+        <div style={{ fontSize: 10, color: 'var(--text-dark-3)' }}>
           {readOnly ? 'Classes' : 'Select a class, then draw on the slide'}
         </div>
         {!readOnly && (
           <button 
             onClick={onOpenManageClasses} 
-            style={{ background: 'none', border: 'none', color: '#6ee7b7', fontSize: 10, cursor: 'pointer', padding: '0 4px', textDecoration: 'underline', textUnderlineOffset: '2px' }}
+            style={{ background: 'none', border: 'none', color: 'var(--viewer-teal-light)', fontSize: 10, cursor: 'pointer', padding: '0 4px', textDecoration: 'underline', textUnderlineOffset: '2px' }}
           >
             Edit
           </button>
@@ -210,7 +202,7 @@ function ClassTab({ classes, activeClass, setActiveClass, annotations, onSelectA
       />
 
       {/* Subtle separator */}
-      <div style={{ height: 1, background: 'rgba(255,255,255,0.05)', margin: '6px 0 8px' }} />
+      <div style={{ height: 1, background: 'var(--transparent-white-0)', margin: '6px 0 8px' }} />
 
       {/* ── Project classes ─────────────────────────────────────────────────── */}
       {classes.map(cls => {
@@ -225,19 +217,19 @@ function ClassTab({ classes, activeClass, setActiveClass, annotations, onSelectA
               style={{
                 flex: 1, display: 'flex', alignItems: 'center', gap: 10,
                 padding: '8px 10px', borderRadius: 6,
-                background: isActive ? `${cls.color}22` : 'rgba(255,255,255,0.03)',
-                border: `1.5px solid ${isActive ? cls.color : 'rgba(255,255,255,0.08)'}`,
+                background: isActive ? `${cls.color}22` : 'var(--transparent-white-0)',
+                border: `1.5px solid ${isActive ? cls.color : 'var(--transparent-white-1)'}`,
                 cursor: readOnly ? 'default' : 'pointer',
                 transition: 'all 0.15s', textAlign: 'left', minWidth: 0,
               }}
             >
               <div style={{
                 width: 14, height: 14, borderRadius: 3, flexShrink: 0,
-                background: cls.color, border: '1px solid rgba(255,255,255,0.2)',
+                background: cls.color, border: '1px solid var(--transparent-white-2)',
               }} />
               <span style={{
                 fontSize: 12,
-                color: isActive ? cls.color : 'rgba(255,255,255,0.7)',
+                color: isActive ? cls.color : 'var(--transparent-white-7)',
                 flex: 1, fontWeight: isActive ? 600 : 400,
                 overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
               }}>
@@ -245,8 +237,8 @@ function ClassTab({ classes, activeClass, setActiveClass, annotations, onSelectA
               </span>
               {count > 0 && (
                 <span style={{
-                  fontSize: 10, color: 'rgba(255,255,255,0.5)', fontFamily: 'monospace',
-                  background: 'rgba(255,255,255,0.08)', padding: '2px 6px', borderRadius: 10,
+                  fontSize: 10, color: 'var(--transparent-white-5)', fontFamily: 'monospace',
+                  background: 'var(--transparent-white-1)', padding: '2px 6px', borderRadius: 10,
                 }}>
                   {count}
                 </span>
@@ -259,14 +251,14 @@ function ClassTab({ classes, activeClass, setActiveClass, annotations, onSelectA
                 title={`Select all ${count} annotations`}
                 style={{
                   width: 32, height: 32, flexShrink: 0, borderRadius: 6,
-                  background: 'rgba(255,255,255,0.05)',
-                  border: '1px solid rgba(255,255,255,0.1)',
-                  color: 'rgba(255,255,255,0.6)', cursor: 'pointer',
+                  background: 'var(--transparent-white-0)',
+                  border: '1px solid var(--transparent-white-1)',
+                  color: 'var(--transparent-white-6)', cursor: 'pointer',
                   display: 'flex', alignItems: 'center', justifyContent: 'center',
                   transition: 'all 0.15s',
                 }}
-                onMouseEnter={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.15)'; e.currentTarget.style.color = '#fff' }}
-                onMouseLeave={e => { e.currentTarget.style.background = 'rgba(255,255,255,0.05)'; e.currentTarget.style.color = 'rgba(255,255,255,0.6)' }}
+                onMouseEnter={e => { e.currentTarget.style.background = 'var(--transparent-white-2)'; e.currentTarget.style.color = 'var(--white)' }}
+                onMouseLeave={e => { e.currentTarget.style.background = 'var(--transparent-white-0)'; e.currentTarget.style.color = 'var(--transparent-white-6)' }}
               >
                 <svg width='14' height='14' viewBox='0 0 16 16' fill='currentColor'>
                   <path d='M4 4h2v1.5H4.5V7H3V5a1 1 0 011-1zM12 4h-2v1.5h1.5V7H13V5a1 1 0 00-1-1zM4 12h2v-1.5H4.5V9H3v2a1 1 0 001 1zM12 12h-2v-1.5h1.5V9H13v2a1 1 0 01-1 1z'/>
@@ -278,7 +270,7 @@ function ClassTab({ classes, activeClass, setActiveClass, annotations, onSelectA
         )
       })}
 
-      <div style={{ marginTop: 16, borderTop: '1px solid rgba(255,255,255,0.05)', paddingTop: 12 }}>
+      <div style={{ marginTop: 16, borderTop: '1px solid var(--transparent-white-0)', paddingTop: 12 }}>
         <ShortcutLegend shortcuts={SHORTCUTS} />
       </div>
     </div>
@@ -296,8 +288,8 @@ function AiRoiClassRow({ isActive, count, onActivate, onSelectAll, readOnly }) {
         style={{
           flex: 1, display: 'flex', alignItems: 'center', gap: 10,
           padding: '8px 10px', borderRadius: 6,
-          background: isActive ? 'rgba(167,139,250,0.13)' : 'rgba(167,139,250,0.04)',
-          border: `1.5px solid ${isActive ? '#a78bfa' : 'rgba(167,139,250,0.2)'}`,
+          background: isActive ? 'var(--transparent-purple-1)' : 'var(--transparent-purple-1)',
+          border: `1.5px solid ${isActive ? 'var(--purple-80)' : 'var(--transparent-purple-2)'}`,
           cursor: readOnly ? 'default' : 'pointer',
           transition: 'all 0.15s', textAlign: 'left', minWidth: 0,
         }}
@@ -305,7 +297,7 @@ function AiRoiClassRow({ isActive, count, onActivate, onSelectAll, readOnly }) {
         {/* Violet square with "AI" glyph */}
         <div style={{
           width: 14, height: 14, borderRadius: 3, flexShrink: 0,
-          background: '#a78bfa', border: '1px solid rgba(255,255,255,0.2)',
+          background: 'var(--purple-80)', border: '1px solid var(--transparent-white-2)',
           display: 'flex', alignItems: 'center', justifyContent: 'center',
         }}>
           <svg width='9' height='9' viewBox='0 0 16 16' fill='white'>
@@ -314,7 +306,7 @@ function AiRoiClassRow({ isActive, count, onActivate, onSelectAll, readOnly }) {
         </div>
         <span style={{
           fontSize: 12,
-          color: isActive ? '#a78bfa' : 'rgba(255,255,255,0.55)',
+          color: isActive ? 'var(--purple-80)' : 'var(--text-dark-2)',
           flex: 1, fontWeight: isActive ? 600 : 400,
           overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
         }}>
@@ -323,9 +315,9 @@ function AiRoiClassRow({ isActive, count, onActivate, onSelectAll, readOnly }) {
         {/* System badge */}
         <span style={{
           fontSize: 8, padding: '1px 5px', borderRadius: 3,
-          background: 'rgba(167,139,250,0.12)',
-          color: 'rgba(167,139,250,0.7)',
-          border: '1px solid rgba(167,139,250,0.18)',
+          background: 'var(--transparent-purple-1)',
+          color: 'var(--transparent-purple-7)',
+          border: '1px solid var(--transparent-purple-2)',
           fontWeight: 600, letterSpacing: '0.04em',
           flexShrink: 0,
         }}>
@@ -333,8 +325,8 @@ function AiRoiClassRow({ isActive, count, onActivate, onSelectAll, readOnly }) {
         </span>
         {count > 0 && (
           <span style={{
-            fontSize: 10, color: '#a78bfa', fontFamily: 'monospace',
-            background: 'rgba(167,139,250,0.12)', padding: '2px 6px', borderRadius: 10,
+            fontSize: 10, color: 'var(--purple-80)', fontFamily: 'monospace',
+            background: 'var(--transparent-purple-1)', padding: '2px 6px', borderRadius: 10,
           }}>
             {count}
           </span>
@@ -347,14 +339,14 @@ function AiRoiClassRow({ isActive, count, onActivate, onSelectAll, readOnly }) {
           title={`Select all ${count} AI ROI regions`}
           style={{
             width: 32, height: 32, flexShrink: 0, borderRadius: 6,
-            background: 'rgba(167,139,250,0.06)',
-            border: '1px solid rgba(167,139,250,0.18)',
-            color: 'rgba(167,139,250,0.7)', cursor: 'pointer',
+            background: 'var(--transparent-purple-1)',
+            border: '1px solid var(--transparent-purple-2)',
+            color: 'var(--transparent-purple-7)', cursor: 'pointer',
             display: 'flex', alignItems: 'center', justifyContent: 'center',
             transition: 'all 0.15s',
           }}
-          onMouseEnter={e => { e.currentTarget.style.background = 'rgba(167,139,250,0.18)'; e.currentTarget.style.color = '#a78bfa' }}
-          onMouseLeave={e => { e.currentTarget.style.background = 'rgba(167,139,250,0.06)'; e.currentTarget.style.color = 'rgba(167,139,250,0.7)' }}
+          onMouseEnter={e => { e.currentTarget.style.background = 'var(--transparent-purple-2)'; e.currentTarget.style.color = 'var(--purple-80)' }}
+          onMouseLeave={e => { e.currentTarget.style.background = 'var(--transparent-purple-1)'; e.currentTarget.style.color = 'var(--transparent-purple-7)' }}
         >
           <svg width='14' height='14' viewBox='0 0 16 16' fill='currentColor'>
             <path d='M4 4h2v1.5H4.5V7H3V5a1 1 0 011-1zM12 4h-2v1.5h1.5V7H13V5a1 1 0 00-1-1zM4 12h2v-1.5H4.5V9H3v2a1 1 0 001 1zM12 12h-2v-1.5h1.5V9H13v2a1 1 0 01-1 1z'/>
@@ -371,7 +363,7 @@ function ShortcutLegend({ shortcuts }) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
       <div style={{
-        fontSize: 9, color: 'rgba(255,255,255,0.25)',
+        fontSize: 9, color: 'var(--transparent-white-3)',
         textTransform: 'uppercase', letterSpacing: '0.08em',
         fontWeight: 600, marginBottom: 4,
       }}>
@@ -381,15 +373,15 @@ function ShortcutLegend({ shortcuts }) {
         <div key={key} style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
           <kbd style={{
             fontSize: 9, fontFamily: 'monospace',
-            background: 'rgba(255,255,255,0.07)',
-            border: '1px solid rgba(255,255,255,0.14)',
+            background: 'var(--border-dark)',
+            border: '1px solid var(--transparent-white-1)',
             borderRadius: 3, padding: '1px 5px',
-            color: 'rgba(255,255,255,0.55)',
+            color: 'var(--text-dark-2)',
             minWidth: 22, textAlign: 'center', flexShrink: 0,
           }}>
             {key}
           </kbd>
-          <span style={{ fontSize: 10, color: 'rgba(255,255,255,0.3)' }}>{label}</span>
+          <span style={{ fontSize: 10, color: 'var(--transparent-white-3)' }}>{label}</span>
         </div>
       ))}
     </div>
@@ -406,7 +398,7 @@ function ListTab({ annotations, classes, selectedAnnIds, onSelect, onDelete, onC
 
   if (annotations.length === 0) {
     return (
-      <div style={{ padding: 16, fontSize: 12, color: 'rgba(255,255,255,0.35)', textAlign: 'center' }}>
+      <div style={{ padding: 16, fontSize: 12, color: 'var(--text-dark-3)', textAlign: 'center' }}>
         No annotations on this slide yet.
       </div>
     )
@@ -416,7 +408,7 @@ function ListTab({ annotations, classes, selectedAnnIds, onSelect, onDelete, onC
     <div style={{ padding: '6px' }}>
       {annotations.map((ann, i) => {
         const cls        = classMap[ann.class_id]
-        const color      = cls?.color || ann._color || '#94a3b8'
+        const color      = cls?.color || ann._color || 'var(--gray-blue)'
         const isSelected = selectedAnnIds.has(ann.id)
         const isAiRoi    = ann.class_id === AI_ROI_CLASS.id
         const typeLabel  = {
@@ -436,20 +428,20 @@ function ListTab({ annotations, classes, selectedAnnIds, onSelect, onDelete, onC
               display: 'flex', alignItems: 'center', gap: 8,
               padding: '6px 8px', borderRadius: 5, marginBottom: 3,
               background: isSelected
-                ? (isAiRoi ? 'rgba(167,139,250,0.1)' : 'rgba(255,255,255,0.07)')
-                : 'rgba(255,255,255,0.02)',
+                ? (isAiRoi ? 'var(--transparent-purple-1)' : 'var(--border-dark)')
+                : 'var(--transparent-white-0)',
               border: `1px solid ${isSelected
-                ? (isAiRoi ? 'rgba(167,139,250,0.3)' : 'rgba(255,255,255,0.15)')
-                : 'rgba(255,255,255,0.05)'}`,
+                ? (isAiRoi ? 'var(--transparent-purple-3)' : 'var(--transparent-white-2)')
+                : 'var(--transparent-white-0)'}`,
               cursor: 'pointer',
             }}
           >
             <div style={{ width: 10, height: 10, borderRadius: 2, background: color, flexShrink: 0 }} />
             <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.7)', fontWeight: isSelected ? 600 : 400 }}>
+              <div style={{ fontSize: 11, color: 'var(--transparent-white-7)', fontWeight: isSelected ? 600 : 400 }}>
                 {isAiRoi ? 'AI Model ROI' : (ann.class_name || 'Unclassified')}
               </div>
-              <div style={{ fontSize: 9, color: 'rgba(255,255,255,0.3)', fontFamily: 'monospace' }}>
+              <div style={{ fontSize: 9, color: 'var(--transparent-white-3)', fontFamily: 'monospace' }}>
                 {typeLabel} #{ann.id ?? i + 1}
                 {ann.area_px ? ` · ${Math.round(ann.area_px).toLocaleString()}px²` : ''}
               </div>
@@ -465,9 +457,9 @@ function ListTab({ annotations, classes, selectedAnnIds, onSelect, onDelete, onC
                   onChangeClass(ann.id, e.target.value, cls?.name || '')
                 }}
                 style={{
-                  fontSize: 10, background: 'rgba(255,255,255,0.07)',
-                  border: '1px solid rgba(255,255,255,0.15)', borderRadius: 4,
-                  color: 'rgba(255,255,255,0.7)', padding: '1px 4px',
+                  fontSize: 10, background: 'var(--border-dark)',
+                  border: '1px solid var(--transparent-white-2)', borderRadius: 4,
+                  color: 'var(--transparent-white-7)', padding: '1px 4px',
                 }}
               >
                 <option value=''>—</option>
@@ -483,7 +475,7 @@ function ListTab({ annotations, classes, selectedAnnIds, onSelect, onDelete, onC
                 title='Delete annotation (Del)'
                 style={{
                   background: 'none', border: 'none', cursor: 'pointer',
-                  color: 'rgba(255,100,100,0.5)', fontSize: 13, lineHeight: 1,
+                  color: 'var(--transparent-crimson60-5)', fontSize: 13, lineHeight: 1,
                   padding: '0 2px', flexShrink: 0,
                 }}
               >

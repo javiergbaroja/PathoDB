@@ -12,6 +12,7 @@ import { useOSDViewer, elementToImage } from '../../hooks/useOSDViewer'
 import { estimateSimilarity, applyTransform, invertTransform, rmsResidual } from '../../lib/registrationMath'
 import { useGammaFilter } from '../../hooks/useGammaFilter'
 import { attachRuler } from '../../lib/rulerTool'
+import { toolForEvent, panelForEvent, viewForEvent, isEditableTarget } from '../../lib/viewerKeymap'
 import {
   useModelsCatalog,
   useSlideInfo,
@@ -27,11 +28,11 @@ if (!document.getElementById('sv-styles')) {
     @keyframes sv-spin { to { transform: rotate(360deg); } }
     .osd-scalebar canvas { width:auto!important;height:auto!important;max-width:none!important;max-height:none!important; }
     .osd-scalebar { transition: width 0.1s linear; }
-    .sv-tool-btn { display:flex;align-items:center;gap:5px;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.14);border-radius:5px;color:rgba(255,255,255,0.7);padding:4px 10px;cursor:pointer;font-size:12px;font-family:sans-serif;transition:all 0.15s; }
-    .sv-tool-btn:hover { background:rgba(255,255,255,0.1);border-color:rgba(255,255,255,0.25); }
-    .sv-tool-btn.active { background:rgba(27,153,139,0.2);border-color:#1b998b;color:#6ee7b7; }
+    .sv-tool-btn { display:flex;align-items:center;gap:5px;background:var(--transparent-white-0);border:1px solid var(--transparent-white-1);border-radius:5px;color:var(--transparent-white-7);padding:4px 10px;cursor:pointer;font-size:12px;font-family:sans-serif;transition:all 0.15s; }
+    .sv-tool-btn:hover { background:var(--transparent-white-1);border-color:var(--transparent-white-3); }
+    .sv-tool-btn.active { background:var(--transparent-teal-2);border-color:var(--viewer-teal);color:var(--viewer-teal-light); }
     .sv-scan-chip { transition:border-color 0.15s,background 0.15s; }
-    .sv-scan-chip:hover:not(.sv-active-l):not(.sv-active-r) { border-color:rgba(255,255,255,0.35)!important; background:rgba(255,255,255,0.06)!important; }
+    .sv-scan-chip:hover:not(.sv-active-l):not(.sv-active-r) { border-color:var(--text-dark-3)!important; background:var(--transparent-white-0)!important; }
   `
   document.head.appendChild(s)
 }
@@ -288,19 +289,19 @@ export default function SlideViewer() {
         el.textContent = label
         Object.assign(el.style, {
           width: '18px', height: '18px', borderRadius: '50%', background: color,
-          color: '#fff', font: '600 11px sans-serif', display: 'flex',
-          alignItems: 'center', justifyContent: 'center', border: '2px solid #fff',
-          boxShadow: '0 0 4px rgba(0,0,0,0.6)', pointerEvents: 'none',
+          color: 'var(--white)', font: '600 11px sans-serif', display: 'flex',
+          alignItems: 'center', justifyContent: 'center', border: '2px solid var(--white)',
+          boxShadow: '0 0 4px var(--transparent-black-6)', pointerEvents: 'none',
         })
         viewer.addOverlay({ element: el, location: viewer.viewport.imageToViewportCoordinates(new OSD.Point(pt.x, pt.y)), placement: 'CENTER' })
         store.current.push(el)
       } catch (_) {}
     }
     landmarks.forEach((lm, i) => {
-      addMarker(L, overlaysLeftRef,  lm.fixed,  String(i + 1), '#1b998b')
-      addMarker(R, overlaysRightRef, lm.moving, String(i + 1), '#1b998b')
+      addMarker(L, overlaysLeftRef,  lm.fixed,  String(i + 1), 'var(--viewer-teal)')
+      addMarker(R, overlaysRightRef, lm.moving, String(i + 1), 'var(--viewer-teal)')
     })
-    if (pendingMarker) addMarker(L, overlaysLeftRef, pendingMarker, '?', '#e69a00')
+    if (pendingMarker) addMarker(L, overlaysLeftRef, pendingMarker, '?', 'var(--amber-h)')
   }, [landmarks, pendingMarker, alignMode, leftScanId, rightScanId])
 
   // ── Ruler tool ─────────────────────────────────────────────────────────────
@@ -317,37 +318,39 @@ export default function SlideViewer() {
   // ── Keyboard shortcuts ─────────────────────────────────────────────────────
   useEffect(() => {
     function handler(e) {
-      if (['INPUT', 'TEXTAREA'].includes(document.activeElement?.tagName)) return
+      if (isEditableTarget()) return            // Finding 11: now also guards <select>
 
-      if (e.key === 'p' || e.key === 'P') {
-        // Polygon tool — mutually exclusive with ruler
+      const tool = toolForEvent(e)              // 'polygon' | 'ruler' | …
+      if (tool === 'polygon') {                 // was `P`, now `G`
         if (isRulerActive) setIsRulerActive(false)
-        setIsPolygonActive(o => !o)
-        return
+        setIsPolygonActive(o => !o); return
       }
-      if (e.key === 'i' || e.key === 'I') { setPanelOpen(o => !o);       return }
-      if (e.key === 'r' || e.key === 'R') {
+      if (tool === 'ruler') {                   // was `R`, now `L`
         if (isPolygonActive) setIsPolygonActive(false)
-        setIsRulerActive(o => !o)
-        return
+        setIsRulerActive(o => !o); return
       }
-      if (e.key === 'b' || e.key === 'B') { setShowBrightness(o => !o);  return }
-      if (e.key === '?')                  { setShowShortcuts(o => !o);    return }
-      if (e.key === 'm' || e.key === 'M') { setShowModels(o => !o);       return }
-      if (e.key === ' ') {
+
+      const panel = panelForEvent(e)            // 'clinical' | 'models' | 'adjust'
+      if (panel === 'clinical') { setPanelOpen(o => !o);       return }  // `I`
+      if (panel === 'models')   { setShowModels(o => !o);      return }  // was `M`, now `A`
+      if (panel === 'adjust')   { setShowBrightness(o => !o);  return }  // was `B`, now `D`
+
+      const view = viewForEvent(e)
+      if (view === 'help') { setShowShortcuts(o => !o); return }
+      if (view === 'home') {
         e.preventDefault()
         osdLeftRef.current?.viewport?.goHome(true)
         osdRightRef.current?.viewport?.goHome(true)
         return
       }
-      if (e.key === 'Escape') {
-        if (alignMode)        { setAlignMode(false); pendingRef.current = null; setPendingMarker(null); return }
-        if (isPolygonActive)  { setIsPolygonActive(false);  return }
-        if (isRulerActive)    { setIsRulerActive(false);     return }
-        if (showBrightness)   { setShowBrightness(false);    return }
-        if (showShortcuts)    { setShowShortcuts(false);      return }
-        if (showModels)       { setShowModels(false);         return }
-        if (rightScanId)      { setRightScanId(null); setCompareMode(false); setIsSynced(false) }
+      if (view === 'cancel') {                  // preserve existing Esc cascade
+        if (alignMode)       { setAlignMode(false); pendingRef.current = null; setPendingMarker(null); return }
+        if (isPolygonActive) { setIsPolygonActive(false); return }
+        if (isRulerActive)   { setIsRulerActive(false);   return }
+        if (showBrightness)  { setShowBrightness(false);  return }
+        if (showShortcuts)   { setShowShortcuts(false);   return }
+        if (showModels)      { setShowModels(false);      return }
+        if (rightScanId)     { setRightScanId(null); setCompareMode(false); setIsSynced(false) }
       }
     }
     document.addEventListener('keydown', handler)
@@ -468,15 +471,15 @@ export default function SlideViewer() {
   const filterStr   = `brightness(${brightness}%) contrast(${contrast}%) url(#sv-gamma)`
 
   const pillStyle = (active) => ({
-    background: active ? '#1b998b' : 'rgba(3,8,25,0.9)',
-    border: `1px solid ${active ? '#1b998b' : 'rgba(255,255,255,0.22)'}`,
+    background: active ? 'var(--viewer-teal)' : 'var(--transparent-dark-9)',
+    border: `1px solid ${active ? 'var(--viewer-teal)' : 'var(--transparent-white-2)'}`,
     color: 'white', padding: '5px 14px', borderRadius: 20, cursor: 'pointer',
     fontSize: 11, fontWeight: 600,
   })
   const miniBtn = (enabled) => ({
-    background: enabled ? 'rgba(27,153,139,0.18)' : 'rgba(255,255,255,0.05)',
-    border: '1px solid rgba(255,255,255,0.18)',
-    color: enabled ? '#6ee7b7' : 'rgba(255,255,255,0.4)',
+    background: enabled ? 'var(--transparent-teal-2)' : 'var(--transparent-white-0)',
+    border: '1px solid var(--transparent-white-2)',
+    color: enabled ? 'var(--viewer-teal-light)' : 'var(--transparent-white-4)',
     padding: '4px 10px', borderRadius: 6, cursor: enabled ? 'pointer' : 'not-allowed',
     fontSize: 11, fontWeight: 600,
   })
@@ -485,7 +488,7 @@ export default function SlideViewer() {
   // RENDER
   // ─────────────────────────────────────────────────────────────────────────
   return (
-    <div style={{ width: '100vw', height: '100vh', background: '#111827', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+    <div style={{ width: '100vw', height: '100vh', background: 'var(--surface-dark)', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
 
       {/* Topbar */}
       <Toolbar
@@ -509,17 +512,17 @@ export default function SlideViewer() {
 
             {/* ── LEFT VIEWER ── */}
             <div
-              style={{ flex: 1, position: 'relative', overflow: 'hidden', borderRight: compareMode ? '1px solid rgba(255,255,255,0.12)' : 'none' }}
+              style={{ flex: 1, position: 'relative', overflow: 'hidden', borderRight: compareMode ? '1px solid var(--transparent-white-1)' : 'none' }}
               onDragOver={e => e.preventDefault()}
               onDrop={e => handleDrop(e, 'left')}
             >
               {loading && (
-                <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10, color: 'rgba(255,255,255,0.45)', fontSize: 13, zIndex: 2 }}>
+                <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10, color: 'var(--transparent-white-5)', fontSize: 13, zIndex: 2 }}>
                   <Spinner /> Loading…
                 </div>
               )}
               {error && (
-                <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 2, color: '#ff8099', padding: 20, fontSize: 13, textAlign: 'center' }}>
+                <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 2, color: 'var(--viewer-red)', padding: 20, fontSize: 13, textAlign: 'center' }}>
                   {error}
                 </div>
               )}
@@ -538,7 +541,7 @@ export default function SlideViewer() {
               />
 
               {isDragging && (
-                <div style={{ position: 'absolute', inset: 8, border: '2px dashed #1b998b', background: 'rgba(27,153,139,0.07)', borderRadius: 8, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#1b998b', fontWeight: 600, fontSize: 13, pointerEvents: 'none', zIndex: 50 }}>
+                <div style={{ position: 'absolute', inset: 8, border: '2px dashed var(--viewer-teal)', background: 'var(--transparent-teal-1)', borderRadius: 8, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--viewer-teal)', fontWeight: 600, fontSize: 13, pointerEvents: 'none', zIndex: 50 }}>
                   Replace left scan
                 </div>
               )}
@@ -562,7 +565,7 @@ export default function SlideViewer() {
                 </div>
 
                 {alignMode && (
-                  <div style={{ background: 'rgba(3,8,25,0.96)', border: '1px solid rgba(255,255,255,0.18)', borderRadius: 10, padding: '10px 12px', width: 310, color: 'rgba(255,255,255,0.85)', fontSize: 12, fontFamily: 'sans-serif', boxShadow: '0 6px 24px rgba(0,0,0,0.5)' }}>
+                  <div style={{ background: 'var(--surface-dark-card)', border: '1px solid var(--transparent-white-2)', borderRadius: 10, padding: '10px 12px', width: 310, color: 'var(--transparent-white-9)', fontSize: 12, fontFamily: 'sans-serif', boxShadow: '0 6px 24px var(--transparent-black-5)' }}>
                     <div style={{ fontWeight: 700, marginBottom: 6 }}>Align slides</div>
                     <div style={{ opacity: 0.75, lineHeight: 1.45, marginBottom: 8 }}>
                       Click a feature on the <b>left</b>, then the same feature on the <b>right</b>. Add at least 2 pairs (3+ gives a tighter fit). Or use <b>Auto-align</b>.
@@ -570,7 +573,7 @@ export default function SlideViewer() {
                     <div style={{ marginBottom: 8 }}>
                       Landmark pairs: <b>{landmarks.length}</b>{pendingMarker ? ' — now click the match on the right' : ''}
                     </div>
-                    {regError && <div style={{ color: '#ffb4a2', marginBottom: 8, lineHeight: 1.4 }}>{regError}</div>}
+                    {regError && <div style={{ color: 'var(--viewer-red)', marginBottom: 8, lineHeight: 1.4 }}>{regError}</div>}
                     <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
                       <button onClick={applyLandmarks} disabled={landmarks.length < 2} style={miniBtn(landmarks.length >= 2)}>Apply</button>
                       <button onClick={handleAutoAlign} disabled={autoBusy} style={miniBtn(!autoBusy)}>{autoBusy ? 'Auto…' : 'Auto-align'}</button>
@@ -587,25 +590,25 @@ export default function SlideViewer() {
             {compareMode && (
               <div style={{ flex: 1, position: 'relative', overflow: 'hidden' }} onDragOver={e => e.preventDefault()} onDrop={e => handleDrop(e, 'right')}>
                 {!rightScanId ? (
-                  <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 10, color: 'rgba(255,255,255,0.50)', fontSize: 13 }}>
+                  <div style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 10, color: 'var(--transparent-white-5)', fontSize: 13 }}>
                     <svg width="28" height="28" viewBox="0 0 16 16" fill="currentColor" style={{ opacity: 0.3 }}><path d="M4.5 3a2.5 2.5 0 015 0v9a1.5 1.5 0 01-3 0V5a.5.5 0 011 0v7a.5.5 0 001 0V3a1.5 1.5 0 00-3 0v9a2.5 2.5 0 005 0V5a.5.5 0 011 0v7a3.5 3.5 0 11-7 0V3z"/></svg>
                     Drag a scan from the filmstrip to compare
-                    {isDragging && <div style={{ position: 'absolute', inset: 8, border: '2px dashed #e69a00', background: 'rgba(230,154,0,0.07)', borderRadius: 8, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#e69a00', fontWeight: 600, pointerEvents: 'none', zIndex: 50 }}>Drop here</div>}
+                    {isDragging && <div style={{ position: 'absolute', inset: 8, border: '2px dashed var(--amber-h)', background: 'var(--transparent-amber-1)', borderRadius: 8, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--amber-h)', fontWeight: 600, pointerEvents: 'none', zIndex: 50 }}>Drop here</div>}
                   </div>
                 ) : (
                   <>
                     <div style={{ width: '100%', height: '100%', filter: filterStr }}>
                       <div ref={rightViewerRef} style={{ width: '100%', height: '100%' }} />
                     </div>
-                    {isDragging && <div style={{ position: 'absolute', inset: 8, border: '2px dashed #e69a00', background: 'rgba(230,154,0,0.07)', borderRadius: 8, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#e69a00', fontWeight: 600, fontSize: 13, pointerEvents: 'none', zIndex: 50 }}>Replace right scan</div>}
+                    {isDragging && <div style={{ position: 'absolute', inset: 8, border: '2px dashed var(--amber-h)', background: 'var(--transparent-amber-1)', borderRadius: 8, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--amber-h)', fontWeight: 600, fontSize: 13, pointerEvents: 'none', zIndex: 50 }}>Replace right scan</div>}
                   </>
                 )}
-                <button onClick={() => { setRightScanId(null); setCompareMode(false); setIsSynced(false) }} style={{ position: 'absolute', top: 12, right: 12, background: 'rgba(0,0,0,0.65)', border: '1px solid rgba(255,255,255,0.15)', color: 'rgba(255,255,255,0.7)', width: 26, height: 26, borderRadius: '50%', cursor: 'pointer', zIndex: 60, fontSize: 13, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>✕</button>
+                <button onClick={() => { setRightScanId(null); setCompareMode(false); setIsSynced(false) }} style={{ position: 'absolute', top: 12, right: 12, background: 'var(--transparent-black-7)', border: '1px solid var(--transparent-white-2)', color: 'var(--transparent-white-7)', width: 26, height: 26, borderRadius: '50%', cursor: 'pointer', zIndex: 60, fontSize: 13, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>✕</button>
               </div>
             )}
 
             {/* Filmstrip toggle pill */}
-            <button onClick={() => setFilmstripVisible(o => !o)} style={{ position: 'absolute', bottom: 0, left: '50%', transform: 'translateX(-50%)', background: 'rgba(3,8,25,0.92)', border: '1px solid rgba(255,255,255,0.07)', borderBottom: 'none', borderRadius: '6px 6px 0 0', color: 'rgba(255,255,255,0.4)', padding: '3px 16px', fontSize: 10, cursor: 'pointer', textTransform: 'uppercase', letterSpacing: '0.08em', fontWeight: 600, zIndex: 10 }}>
+            <button onClick={() => setFilmstripVisible(o => !o)} style={{ position: 'absolute', bottom: 0, left: '50%', transform: 'translateX(-50%)', background: 'var(--transparent-dark-9)', border: '1px solid var(--border-dark)', borderBottom: 'none', borderRadius: '6px 6px 0 0', color: 'var(--transparent-white-4)', padding: '3px 16px', fontSize: 10, cursor: 'pointer', textTransform: 'uppercase', letterSpacing: '0.08em', fontWeight: 600, zIndex: 10 }}>
               {filmstripVisible ? '▾ Scans' : '▴ Scans'}
             </button>
           </div>
@@ -614,14 +617,14 @@ export default function SlideViewer() {
           {filmstripVisible && (
             <div
               onMouseDown={e => { e.preventDefault(); resizingRef.current = true; resizeStartY.current = e.clientY; resizeStartH.current = filmstripHeight }}
-              style={{ height: 6, background: 'rgba(255,255,255,0.02)', cursor: 'row-resize', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, borderTop: '1px solid rgba(255,255,255,0.05)' }}
+              style={{ height: 6, background: 'var(--transparent-white-0)', cursor: 'row-resize', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, borderTop: '1px solid var(--transparent-white-0)' }}
             >
-              <div style={{ width: 28, height: 2, background: 'rgba(255,255,255,0.1)', borderRadius: 2 }} />
+              <div style={{ width: 28, height: 2, background: 'var(--transparent-white-1)', borderRadius: 2 }} />
             </div>
           )}
 
           {/* Filmstrip */}
-          <div style={{ height: filmstripVisible ? filmstripHeight : 0, overflow: 'hidden', flexShrink: 0, background: '#0a0f1e', borderTop: filmstripVisible ? '1px solid rgba(255,255,255,0.05)' : 'none', transition: 'height 0.2s ease' }}>
+          <div style={{ height: filmstripVisible ? filmstripHeight : 0, overflow: 'hidden', flexShrink: 0, background: 'var(--surface-dark-2)', borderTop: filmstripVisible ? '1px solid var(--transparent-white-0)' : 'none', transition: 'height 0.2s ease' }}>
             <Filmstrip
               scans={relatedScans}
               leftScanId={leftScanId}
@@ -672,6 +675,6 @@ export default function SlideViewer() {
 
 function Spinner() {
   return (
-    <div style={{ width: 26, height: 26, borderRadius: '50%', border: '2px solid rgba(255,255,255,0.08)', borderTopColor: '#1b998b', animation: 'sv-spin 0.7s linear infinite' }} />
+    <div style={{ width: 26, height: 26, borderRadius: '50%', border: '2px solid var(--transparent-white-1)', borderTopColor: 'var(--viewer-teal)', animation: 'sv-spin 0.7s linear infinite' }} />
   )
 }

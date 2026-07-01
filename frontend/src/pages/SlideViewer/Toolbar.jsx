@@ -2,6 +2,7 @@
 import { useViewerStore } from '../../store/viewerStore'
 import { STAIN_COLORS } from '../../constants/stains'
 import { ImageAdjustPopover, ToolBtn } from '../../components/ui'
+import { shortcutGroupsFor, SLIDE_VIEWER_ACTIONS } from '../../lib/viewerKeymap'
 
 export default function Toolbar({ handleBack, leftInfo, rightInfo, compareMode, leftZoom, rightZoom, handleCompareToggle }) {
   const {
@@ -56,7 +57,7 @@ export default function Toolbar({ handleBack, leftInfo, rightInfo, compareMode, 
         <div style={{ display: 'flex', alignItems: 'center', gap: 5, flexShrink: 0 }}>
 
           {/* Ruler */}
-          <ToolBtn active={isRulerActive} onClick={handleRulerClick} title="Ruler (R)">
+          <ToolBtn active={isRulerActive} onClick={handleRulerClick} title="Ruler (L)">
             <svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor"><path d="M.5 1a.5.5 0 00-.5.5v13a.5.5 0 00.5.5H2a.5.5 0 00.5-.5V13H3a.5.5 0 000-1h-.5v-1H4a.5.5 0 000-1H2.5V9H3a.5.5 0 000-1h-.5V7H4a.5.5 0 000-1H2.5V5H3a.5.5 0 000-1h-.5v-1H4a.5.5 0 000-1H2.5V1.5A.5.5 0 002 1H.5zm7 0a.5.5 0 00-.5.5v13a.5.5 0 00.5.5h7a.5.5 0 00.5-.5v-13A.5.5 0 0015.5 1h-7z"/></svg>
           </ToolBtn>
 
@@ -64,7 +65,7 @@ export default function Toolbar({ handleBack, leftInfo, rightInfo, compareMode, 
           <ToolBtn
             active={isPolygonActive}
             onClick={handlePolygonClick}
-            title="Draw polygon ROI (P)"
+            title="Draw polygon ROI (G)"
             accentColor="var(--viewer-gold)"
           >
             <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round">
@@ -93,7 +94,7 @@ export default function Toolbar({ handleBack, leftInfo, rightInfo, compareMode, 
 
           {/* Brightness / Contrast */}
           <div style={{ position: 'relative' }}>
-            <ToolBtn active={showBrightness} onClick={() => setShowBrightness(o => !o)} title="Brightness / contrast (B)">
+            <ToolBtn active={showBrightness} onClick={() => setShowBrightness(o => !o)} title="Brightness / contrast (D)">
               <svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor"><path d="M8 11a3 3 0 110-6 3 3 0 010 6zm0 1a4 4 0 100-8 4 4 0 000 8zM8 0a.5.5 0 01.5.5v2a.5.5 0 01-1 0v-2A.5.5 0 018 0zm0 13a.5.5 0 01.5.5v2a.5.5 0 01-1 0v-2A.5.5 0 018 13zm8-5a.5.5 0 01-.5.5h-2a.5.5 0 010-1h2a.5.5 0 01.5.5zM3 8a.5.5 0 01-.5.5h-2a.5.5 0 010-1h2A.5.5 0 013 8zm10.657-5.657a.5.5 0 010 .707l-1.414 1.415a.5.5 0 11-.707-.708l1.414-1.414a.5.5 0 01.707 0zm-9.193 9.193a.5.5 0 010 .707L3.05 13.657a.5.5 0 01-.707-.707l1.414-1.414a.5.5 0 01.707 0zm9.193 2.121a.5.5 0 01-.707 0l-1.414-1.414a.5.5 0 00.707-.707l1.414 1.414a.5.5 0 010 .707zM4.464 4.465a.5.5 0 01-.707 0L2.343 3.05a.5.5 0 11.707-.707l1.414 1.414a.5.5 0 010 .708z"/></svg>
             </ToolBtn>
             {showBrightness && (
@@ -114,7 +115,7 @@ export default function Toolbar({ handleBack, leftInfo, rightInfo, compareMode, 
           </ToolBtn>
 
           {/* Models */}
-          <ToolBtn active={showModels} onClick={() => setShowModels(o => !o)} title="Analysis models (M)">
+          <ToolBtn active={showModels} onClick={() => setShowModels(o => !o)} title="Analysis models (A))">
             <svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor"><path d="M2 2a2 2 0 012-2h8a2 2 0 012 2v12a2 2 0 01-2 2H4a2 2 0 01-2-2V2zm2 0v12h8V2H4zm1 2h2a.5.5 0 010 1H5a.5.5 0 010-1zm0 2h6a.5.5 0 010 1H5a.5.5 0 010-1zm0 2h6a.5.5 0 010 1H5a.5.5 0 010-1zm0 2h4a.5.5 0 010 1H5a.5.5 0 010-1z"/></svg>
           </ToolBtn>
 
@@ -151,26 +152,28 @@ function StainBadge({ name, category, side, zoom }) {
 }
 
 function ShortcutsOverlay({ onClose }) {
-  const rows = [
-    ['P',     'Draw polygon ROI'],
-    ['R',     'Toggle ruler'],
-    ['B',     'Brightness / contrast'],
-    ['M',     'Analysis models panel'],
-    ['I',     'Clinical info panel'],
-    ['Space', 'Reset view (home)'],
-    ['Esc',   'Close active tool / split'],
-    ['?',     'This help'],
-  ]
+  const groups = shortcutGroupsFor(SLIDE_VIEWER_ACTIONS)
   return (
     <div onClick={onClose} style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.55)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 200 }}>
       <div onClick={e => e.stopPropagation()} style={{ background: 'rgba(3,8,25,0.98)', border: '1px solid var(--border-dark)', borderRadius: 'var(--radius-xl)', padding: '18px 22px', minWidth: 240 }}>
         <div style={{ fontSize: 10, fontWeight: 600, color: 'var(--text-dark-2)', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 14 }}>Keyboard shortcuts</div>
-        {rows.map(([key, desc]) => (
-          <div key={key} style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 9 }}>
-            <kbd style={{ fontSize: 11, fontFamily: 'var(--font-mono)', background: 'rgba(255,255,255,0.07)', border: '1px solid var(--border-dark)', borderRadius: 'var(--radius-sm)', padding: '2px 8px', color: 'var(--text-dark-1)', minWidth: 52, textAlign: 'center' }}>{key}</kbd>
-            <span style={{ fontSize: 12, color: 'var(--text-dark-2)' }}>{desc}</span>
+
+        {groups.map(group => (
+          <div key={group.title} style={{ marginBottom: 12 }}>
+            <div style={{ fontSize: 9, fontWeight: 600, color: 'var(--text-dark-3)', textTransform: 'uppercase', letterSpacing: '0.1em', marginBottom: 8 }}>{group.title}</div>
+            {group.items.map(item => (
+              <div key={item.label} style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 9 }}>
+                <span style={{ display: 'flex', gap: 4 }}>
+                  {item.keys.map(k => (
+                    <kbd key={k} style={{ fontSize: 11, fontFamily: 'var(--font-mono)', background: 'rgba(255,255,255,0.07)', border: '1px solid var(--border-dark)', borderRadius: 'var(--radius-sm)', padding: '2px 8px', color: 'var(--text-dark-1)', minWidth: 24, textAlign: 'center' }}>{k}</kbd>
+                  ))}
+                </span>
+                <span style={{ fontSize: 12, color: 'var(--text-dark-2)' }}>{item.label}</span>
+              </div>
+            ))}
           </div>
         ))}
+
         <button onClick={onClose} style={{ marginTop: 6, width: '100%', background: 'rgba(255,255,255,0.04)', border: '1px solid var(--border-dark)', borderRadius: 'var(--radius-sm)', color: 'var(--text-dark-3)', fontSize: 11, padding: '5px 0', cursor: 'pointer' }}>Close</button>
       </div>
     </div>

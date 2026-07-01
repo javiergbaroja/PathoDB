@@ -314,7 +314,7 @@ function StatChip({ value, label, color }) {
       display: 'flex', alignItems: 'center', gap: 4,
       fontSize: 10, color: color || 'rgba(255,255,255,0.4)',
       background: 'rgba(255,255,255,0.05)',
-      border: '1px solid rgba(255,255,255,0.08)',
+      border: '1px solid rgba(255,255,255,0.05)',
       borderRadius: 20, padding: '2px 8px',
     }}>
       <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 600, color: color || 'rgba(255,255,255,0.7)' }}>

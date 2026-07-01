@@ -52,8 +52,8 @@ function ParamRow({ param, value, onChange }) {
               onClick={() => onChange(opt)}
               style={{
                 flex: 1, fontSize: 10, padding: '3px 0', borderRadius: 3, cursor: 'pointer',
-                border: `1px solid ${value === opt ? 'rgba(27,153,139,0.4)' : 'rgba(255,255,255,0.1)'}`,
-                background: value === opt ? 'rgba(27,153,139,0.15)' : 'transparent',
+                border: `1px solid ${value === opt ? 'var(--transparent-teal-4)' : 'var(--transparent-white-1)'}`,
+                background: value === opt ? 'var(--transparent-teal-2)' : 'transparent',
                 color: value === opt ? 'var(--viewer-teal-light)' : 'var(--text-dark-2)',
               }}
             >
@@ -106,13 +106,13 @@ function ScopeSelector({ modelId, scope, hasPolygons, polygonCount, onScopeChang
 
           let bg, border, color, cursor
           if (!enabled) {
-            bg = 'rgba(255,255,255,0.02)'; border = '1px solid rgba(255,255,255,0.06)'
-            color = 'rgba(255,255,255,0.20)'; cursor = 'not-allowed'
+            bg = 'var(--transparent-white-0)'; border = '1px solid var(--transparent-white-0)'
+            color = 'var(--transparent-white-2)'; cursor = 'not-allowed'
           } else if (isActive) {
-            bg = 'rgba(27,153,139,0.15)'; border = '1px solid rgba(27,153,139,0.4)'
+            bg = 'var(--transparent-teal-2)'; border = '1px solid var(--transparent-teal-4)'
             color = 'var(--viewer-teal-light)'; cursor = 'pointer'
           } else {
-            bg = 'rgba(255,255,255,0.04)'; border = '1px solid rgba(255,255,255,0.1)'
+            bg = 'var(--transparent-white-0)'; border = '1px solid var(--transparent-white-1)'
             color = 'var(--text-dark-2)'; cursor = 'pointer'
           }
 
@@ -132,16 +132,16 @@ function ScopeSelector({ modelId, scope, hasPolygons, polygonCount, onScopeChang
             >
               <div style={{
                 width: 6, height: 6, borderRadius: '50%', flexShrink: 0,
-                background: isActive ? 'var(--viewer-teal-light)' : enabled ? 'rgba(255,255,255,0.2)' : 'rgba(255,255,255,0.08)',
+                background: isActive ? 'var(--viewer-teal-light)' : enabled ? 'var(--transparent-white-2)' : 'var(--transparent-white-1)',
               }} />
               <span style={{ flex: 1 }}>{label}</span>
 
               {value === 'roi' && hasPolygons && (
                 <span style={{
                   fontSize: 9, fontWeight: 600,
-                  color: isActive ? 'var(--viewer-gold)' : 'rgba(255,215,0,0.45)',
-                  background: isActive ? 'var(--viewer-gold-bg)' : 'rgba(255,215,0,0.06)',
-                  border: `1px solid ${isActive ? 'rgba(255,215,0,0.35)' : 'rgba(255,215,0,0.12)'}`,
+                  color: isActive ? 'var(--viewer-gold)' : 'var(--transparent-gold-5)',
+                  background: isActive ? 'var(--viewer-gold-bg)' : 'var(--transparent-gold-1)',
+                  border: `1px solid ${isActive ? 'var(--transparent-gold-4)' : 'var(--viewer-gold-bg)'}`,
                   padding: '1px 5px', borderRadius: 3,
                 }}>
                   {polygonCount} polygon{polygonCount > 1 ? 's' : ''}
@@ -159,7 +159,7 @@ function ScopeSelector({ modelId, scope, hasPolygons, polygonCount, onScopeChang
       </div>
 
       {scope === 'roi' && hasPolygons && (
-        <div style={{ marginTop: 5, fontSize: 9, color: 'rgba(255,215,0,0.55)', lineHeight: 1.5 }}>
+        <div style={{ marginTop: 5, fontSize: 9, color: 'var(--transparent-gold-6)', lineHeight: 1.5 }}>
           Polygons will be cleared after the job is submitted.
         </div>
       )}
@@ -207,7 +207,7 @@ function ModelRunArea({ latest, model, submitting, scanInfo, scanId, onRun, onCa
       return (
         <div>
           <div style={{ fontSize: 10, color: 'var(--viewer-teal-light)', marginBottom: 2 }}>✓ This slide complete</div>
-          <div style={{ fontSize: 9, color: 'rgba(255,255,255,0.3)', marginBottom: 8 }}>
+          <div style={{ fontSize: 9, color: 'var(--transparent-white-3)', marginBottom: 8 }}>
             Batch still running…
           </div>
           {isBatchViz && (
@@ -216,8 +216,8 @@ function ModelRunArea({ latest, model, submitting, scanInfo, scanId, onRun, onCa
                 onClick={() => onToggleOverlay(latest.id)}
                 style={{
                   flex: 1, fontSize: 10, padding: '5px 0', borderRadius: 4, cursor: 'pointer',
-                  border: `1px solid ${isActive ? 'rgba(230,0,46,0.25)' : 'rgba(27,153,139,0.25)'}`,
-                  background: isActive ? 'rgba(230,0,46,0.1)' : 'rgba(27,153,139,0.1)',
+                  border: `1px solid ${isActive ? 'var(--transparent-crimson-3)' : 'var(--transparent-teal-3)'}`,
+                  background: isActive ? 'var(--transparent-crimson-1)' : 'var(--transparent-teal-1)',
                   color: isActive ? 'var(--viewer-red)' : 'var(--viewer-teal-light)',
                 }}
               >
@@ -229,7 +229,7 @@ function ModelRunArea({ latest, model, submitting, scanInfo, scanId, onRun, onCa
                 style={{
                   display: 'flex', alignItems: 'center', justifyContent: 'center',
                   width: 28, height: 28, borderRadius: 4,
-                  background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.1)',
+                  background: 'var(--transparent-white-0)', border: '1px solid var(--transparent-white-1)',
                   color: 'var(--viewer-teal-light)', cursor: 'pointer', flexShrink: 0,
                 }}
               >
@@ -244,8 +244,8 @@ function ModelRunArea({ latest, model, submitting, scanInfo, scanId, onRun, onCa
             onClick={onCancel}
             style={{
               width: '100%', padding: '5px 0', borderRadius: 5,
-              border: '1px solid rgba(255,255,255,0.12)',
-              background: 'rgba(255,255,255,0.04)',
+              border: '1px solid var(--transparent-white-1)',
+              background: 'var(--transparent-white-0)',
               color: 'var(--text-dark-2)', fontSize: 10, cursor: 'pointer',
             }}
           >
@@ -286,8 +286,8 @@ function ModelRunArea({ latest, model, submitting, scanInfo, scanId, onRun, onCa
           onClick={onCancel}
           style={{
             width: '100%', padding: '6px 0', borderRadius: 5,
-            border: '1px solid rgba(255,255,255,0.12)',
-            background: 'rgba(255,255,255,0.04)',
+            border: '1px solid var(--transparent-white-1)',
+            background: 'var(--transparent-white-0)',
             color: 'var(--text-dark-2)', fontSize: 11, cursor: 'pointer',
           }}
         >
@@ -306,7 +306,7 @@ function ModelRunArea({ latest, model, submitting, scanInfo, scanId, onRun, onCa
           disabled={submitting}
           style={{
             width: '100%', padding: '6px 0', borderRadius: 5, border: 'none',
-            background: 'rgba(27,153,139,0.15)', color: 'var(--viewer-teal-light)',
+            background: 'var(--transparent-teal-2)', color: 'var(--viewer-teal-light)',
             fontSize: 11, cursor: 'pointer', marginBottom: 4,
           }}
         >
@@ -328,8 +328,8 @@ function ModelRunArea({ latest, model, submitting, scanInfo, scanId, onRun, onCa
         disabled={submitting}
         style={{
           width: '100%', padding: '7px 0', borderRadius: 5, border: 'none',
-          background: submitting ? 'rgba(255,255,255,0.06)' : 'var(--viewer-teal)',
-          color: submitting ? 'rgba(255,255,255,0.30)' : 'var(--white)',
+          background: submitting ? 'var(--transparent-white-0)' : 'var(--viewer-teal)',
+          color: submitting ? 'var(--transparent-white-3)' : 'var(--white)',
           fontSize: 12, fontWeight: 500, cursor: submitting ? 'default' : 'pointer',
         }}
       >
@@ -351,7 +351,7 @@ function PastJobsList({ jobs, catalog, activeOverlays, onToggleOverlay, onDelete
   }
 
   return (
-    <div style={{ marginTop: 10, borderTop: '1px solid rgba(255,255,255,0.05)', paddingTop: 8 }}>
+    <div style={{ marginTop: 10, borderTop: '1px solid var(--transparent-white-0)', paddingTop: 8 }}>
       <div style={{ fontSize: 9, color: 'var(--text-dark-2)', textTransform: 'uppercase', letterSpacing: '0.08em', fontWeight: 600, marginBottom: 5 }}>
         Previous runs
       </div>
@@ -376,7 +376,7 @@ function PastJobsList({ jobs, catalog, activeOverlays, onToggleOverlay, onDelete
                   display: 'inline-flex', alignItems: 'center',
                   padding: '2px 8px', borderRadius: 'var(--radius-full)',
                   fontSize: 'var(--text-xs)', fontWeight: 500, whiteSpace: 'nowrap',
-                  background: 'rgba(167,139,250,0.15)', color: '#a78bfa',
+                  background: 'var(--transparent-purple-2)', color: 'var(--purple-80)',
                 }}>
                   Annotations
                 </span>
@@ -397,8 +397,8 @@ function PastJobsList({ jobs, catalog, activeOverlays, onToggleOverlay, onDelete
                         onClick={() => onToggleOverlay(job.id)}
                         style={{
                           fontSize: 10, padding: '2px 8px', borderRadius: 3, cursor: 'pointer',
-                          border: `1px solid ${isActive ? 'rgba(230,0,46,0.25)' : 'rgba(27,153,139,0.25)'}`,
-                          background: isActive ? 'rgba(230,0,46,0.1)' : 'rgba(27,153,139,0.1)',
+                          border: `1px solid ${isActive ? 'var(--transparent-crimson-3)' : 'var(--transparent-teal-3)'}`,
+                          background: isActive ? 'var(--transparent-crimson-1)' : 'var(--transparent-teal-1)',
                           color: isActive ? 'var(--viewer-red)' : 'var(--viewer-teal-light)',
                         }}
                       >
@@ -413,8 +413,8 @@ function PastJobsList({ jobs, catalog, activeOverlays, onToggleOverlay, onDelete
                       style={{
                         display: 'flex', alignItems: 'center', justifyContent: 'center',
                         width: 22, height: 22, borderRadius: 3,
-                        background: 'rgba(255,255,255,0.03)',
-                        border: '1px solid rgba(255,255,255,0.08)',
+                        background: 'var(--transparent-white-0)',
+                        border: '1px solid var(--transparent-white-1)',
                         color: 'var(--viewer-teal-light)', cursor: 'pointer',
                       }}
                     >
@@ -437,9 +437,9 @@ function PastJobsList({ jobs, catalog, activeOverlays, onToggleOverlay, onDelete
                   style={{
                     display: 'flex', alignItems: 'center', justifyContent: 'center',
                     width: 22, height: 22, borderRadius: 3,
-                    background: 'rgba(255,255,255,0.03)',
-                    border: '1px solid rgba(255,255,255,0.08)',
-                    color: 'rgba(255,255,255,0.4)', cursor: 'pointer',
+                    background: 'var(--transparent-white-0)',
+                    border: '1px solid var(--transparent-white-1)',
+                    color: 'var(--transparent-white-4)', cursor: 'pointer',
                   }}
                 >✕</button>
               </div>
@@ -448,7 +448,7 @@ function PastJobsList({ jobs, catalog, activeOverlays, onToggleOverlay, onDelete
             {job.status === 'done' && (
               <ErrorBoundary
                 fallback={
-                  <div style={{ padding: 8, border: '1px dashed rgba(230,0,46,0.3)', borderRadius: 4, color: 'var(--viewer-red)', fontSize: 10, background: 'rgba(230,0,46,0.05)', marginTop: 6 }}>
+                  <div style={{ padding: 8, border: '1px dashed var(--transparent-crimson-3)', borderRadius: 4, color: 'var(--viewer-red)', fontSize: 10, background: 'var(--transparent-crimson-1)', marginTop: 6 }}>
                     ⚠ Failed to load analysis visualization.
                   </div>
                 }
@@ -545,10 +545,10 @@ export default function ModelsPanel({
       display: 'flex', flexDirection: 'column', overflow: 'hidden',
     }}>
       {/* Header */}
-      <div style={{ padding: '9px 12px', borderBottom: '1px solid rgba(255,255,255,0.05)', display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+      <div style={{ padding: '9px 12px', borderBottom: '1px solid var(--transparent-white-0)', display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
         <SectionLabel style={{ flex: 1, color: 'var(--text-dark-2)' }}>Analysis models</SectionLabel>
         {runningCount > 0 && (
-          <span style={{ fontSize: 9, color: 'var(--viewer-amber)', background: 'rgba(251,191,36,0.12)', padding: '2px 7px', borderRadius: 3, fontWeight: 600 }}>
+          <span style={{ fontSize: 9, color: 'var(--viewer-amber)', background: 'var(--transparent-amber-1)', padding: '2px 7px', borderRadius: 3, fontWeight: 600 }}>
             {runningCount} running
           </span>
         )}
@@ -568,7 +568,7 @@ export default function ModelsPanel({
       {/* Model list */}
       <div style={{ flex: 1, overflowY: 'auto', padding: '0 8px' }}>
         {submitError && (
-          <div style={{ margin: '4px 2px 6px', padding: '6px 8px', background: 'rgba(230,0,46,0.12)', border: '1px solid rgba(230,0,46,0.25)', borderRadius: 5, fontSize: 10, color: 'var(--viewer-red)' }}>
+          <div style={{ margin: '4px 2px 6px', padding: '6px 8px', background: 'var(--transparent-crimson-1)', border: '1px solid var(--transparent-crimson-3)', borderRadius: 5, fontSize: 10, color: 'var(--viewer-red)' }}>
             {submitError}
           </div>
         )}
@@ -582,7 +582,7 @@ export default function ModelsPanel({
             <div
               key={model.id}
               style={{
-                border: `1px solid ${isOpen ? 'rgba(27,153,139,0.35)' : 'rgba(255,255,255,0.07)'}`,
+                border: `1px solid ${isOpen ? 'var(--transparent-teal-4)' : 'var(--border-dark)'}`,
                 borderRadius: 7, marginBottom: 6, overflow: 'hidden',
                 transition: 'var(--transition-base)',
               }}
@@ -603,7 +603,7 @@ export default function ModelsPanel({
                 </div>
                 <div style={{ display: 'flex', gap: 4, alignItems: 'center', flexShrink: 0 }}>
                   <JobStatusBadge status={latest?.status} />
-                  <span style={{ fontSize: 9, color: 'var(--text-dark-2)', background: 'rgba(255,255,255,0.05)', padding: '2px 5px', borderRadius: 3 }}>
+                  <span style={{ fontSize: 9, color: 'var(--text-dark-2)', background: 'var(--transparent-white-0)', padding: '2px 5px', borderRadius: 3 }}>
                     ~{model.estimated_minutes}m
                   </span>
                 </div>
@@ -611,7 +611,7 @@ export default function ModelsPanel({
 
               {/* Expanded body */}
               {isOpen && (
-                <div style={{ borderTop: '1px solid rgba(255,255,255,0.05)', padding: '10px 10px 12px' }}>
+                <div style={{ borderTop: '1px solid var(--transparent-white-0)', padding: '10px 10px 12px' }}>
                   <p style={{ fontSize: 11, color: 'var(--text-dark-2)', lineHeight: 1.55, margin: '0 0 10px' }}>
                     {model.description}
                   </p>
@@ -619,7 +619,7 @@ export default function ModelsPanel({
                   {/* Stain compat badges */}
                   <div style={{ display: 'flex', gap: 4, marginBottom: 10 }}>
                     {(model.stain_compatibility || []).map(s => (
-                      <span key={s} style={{ fontSize: 9, padding: '2px 6px', borderRadius: 3, background: 'rgba(255,255,255,0.06)', color: 'var(--text-dark-2)', border: '1px solid rgba(255,255,255,0.1)' }}>
+                      <span key={s} style={{ fontSize: 9, padding: '2px 6px', borderRadius: 3, background: 'var(--transparent-white-0)', color: 'var(--text-dark-2)', border: '1px solid var(--transparent-white-1)' }}>
                         {s}
                       </span>
                     ))}

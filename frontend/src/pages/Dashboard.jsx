@@ -459,7 +459,7 @@ function QuickActions() {
         <div style={{
           flexShrink: 0, width: 34, height: 34,
           borderRadius: 'var(--radius-md)',
-          background: 'rgba(255,255,255,0.1)',
+          background: 'var(--transparent-padding-2)',
           border: '1px solid rgba(255,255,255,0.12)',
           display: 'flex', alignItems: 'center', justifyContent: 'center',
           color: 'var(--teal-light)',
