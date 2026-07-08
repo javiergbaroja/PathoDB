@@ -12,8 +12,9 @@ export const TOOLS = {
 };
 
 export const CATEGORY_COLORS = {
-  Segmentation: '#6ee7b7',
-  Detection:    '#a78bfa',
-  Scoring:      '#fbbf24',
+  Segmentation: 'var(--teal-light)',
+  Detection:    'var(--purple-80)',
+  'Feature Extraction': 'var(--blue-40)',
+  Scoring:      'var(--amber)',
   other:        '#94a3b8',
 }

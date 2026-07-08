@@ -2,11 +2,12 @@
 import React, { useState, useEffect } from 'react'
 import { api } from '../../api' // Ensure this path correctly points to your api.js
 
-import DetectionSummary from './DetectionSummary'
-import ScoringSummary from './ScoringSummary'
-import SegmentationSummary from './SegmentationSummary'
+import DetectionSummary          from './DetectionSummary'
+import ScoringSummary            from './ScoringSummary'
+import SegmentationSummary       from './SegmentationSummary'
 import MultiClassDetectionSummary from './MultiClassDetectionSummary'
-import MetastasisSummary from './MetastasisSummary'
+import MetastasisSummary         from './MetastasisSummary'
+import FeatureExtractionSummary  from './FeatureExtractionSummary'
 
 export default function JobOutcomeDispatcher({ jobId, model, scanId = null }) {
   const [outcome, setOutcome] = useState(null)
@@ -45,7 +46,7 @@ export default function JobOutcomeDispatcher({ jobId, model, scanId = null }) {
     </button>
   )
 
-  // Route the data to the correct UI component based on the model's schema
+  // Route the data to the correct UI component based on the model's result_type
   switch (model?.result_type) {
     case 'segmentation':
       return <SegmentationSummary outcome={outcome} />
@@ -63,6 +64,9 @@ export default function JobOutcomeDispatcher({ jobId, model, scanId = null }) {
     case 'counting':
     case 'detection':
       return <DetectionSummary outcome={outcome} />
+
+    case 'feature_extraction':
+      return <FeatureExtractionSummary outcome={outcome} />
 
     default:
       return <DetectionSummary outcome={outcome} />

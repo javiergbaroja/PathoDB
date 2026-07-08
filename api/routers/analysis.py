@@ -1406,7 +1406,8 @@ def submit_batch_job(
         job.slurm_job_id = int(result.stdout.strip().split(";")[0])
         
         # 5. CONDITIONALLY SUBMIT CPU WATCHER JOB
-        if is_auto_ingest:
+        needs_watcher = is_auto_ingest and model.get("result_type") != "feature_extraction"
+        if needs_watcher:
             # Note: Adjust this path depending on exactly where you saved run_watcher.sh!
             watcher_sh = Path(__file__).resolve().parents[1] / "workers" / "run_watcher.sh"
             watcher_log = result_dir / "watcher_%j.out"

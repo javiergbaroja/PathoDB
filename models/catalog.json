@@ -95,5 +95,44 @@
         "step": 2
       }
     ]
+  },
+    {
+    "id": "virchow2",
+    "name": "Virchow2",
+    "description": "Paige AI foundation model for whole-slide image feature extraction.\nExtracts tile-level embeddings (1280-dim CLS + register mean) at the specified resolution and saves them as a compressed .npz file per slide.\nOutputs are suitable for downstream MIL classification, clustering, and retrieval tasks.",
+    "category": "Feature Extraction",
+    "supports_batch": true,
+    "stain_compatibility": [
+      "HE",
+      "IHC"
+    ],
+    "estimated_minutes": 20,
+    "result_type": "feature_extraction",
+    "classes": [],
+    "params": [
+      {
+        "key": "tile_size",
+        "label": "Tile size (px)",
+        "type": "int",
+        "default": 224,
+        "options": [
+          224,
+          336,
+          448
+        ]
+      },
+      {
+        "key": "resolution",
+        "label": "Resolution (µm/px)",
+        "type": "float",
+        "default": 1.0,
+        "options": [
+          0.25,
+          0.5,
+          1,
+          2
+        ]
+      }
+    ]
   }
 ]

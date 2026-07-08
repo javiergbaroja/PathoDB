@@ -3,6 +3,7 @@ PathoDB API — Auth Router
 Login, refresh, logout, and user management (admin).
 """
 from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from ..database import get_db
@@ -16,6 +17,30 @@ from ..auth import (
 from pydantic import BaseModel
 
 router = APIRouter(prefix="/auth", tags=["auth"])
+
+def _grant_researcher_role(db: Session, username: str) -> None:
+    """
+    Grant the pathodb_researcher role to a newly created PostgreSQL login user.
+ 
+    Called immediately after a new User row is committed.  Safe to call even if
+    the DB login does not exist yet (e.g. external auth) — the GRANT will then
+    be a no-op until the login is created.
+ 
+    We validate `username` against pg_roles before interpolating to prevent
+    any possible injection through the username field.
+    """
+    exists = db.execute(
+        text("SELECT 1 FROM pg_roles WHERE rolname = :u"),
+        {"u": username}
+    ).first()
+    if not exists:
+        # DB login for this app user does not exist — nothing to grant.
+        # This is normal if the app connects as a single shared DB user (jgbaroja).
+        return
+    # Identifier cannot be passed as a bind parameter in GRANT statements;
+    # we've already verified the name exists in pg_roles above.
+    db.execute(text(f'GRANT pathodb_researcher TO "{username}"'))
+    db.commit()
 
 
 @router.post("/login", response_model=TokenResponse)
@@ -73,7 +98,9 @@ def register(req: RegisterRequest, db: Session = Depends(get_db)):
     db.add(new_user)
     db.commit()
     db.refresh(new_user)
+    _grant_researcher_role(db, new_user.username)
     return new_user
+
 
 # ─── User management (admin only) ─────────────────────────────────────────────
 
@@ -112,6 +139,7 @@ def create_user(
     db.add(user)
     db.commit()
     db.refresh(user)
+    _grant_researcher_role(db, user.username)
     return user
 
 

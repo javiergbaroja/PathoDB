@@ -26,7 +26,11 @@ router = APIRouter(prefix="/cohorts", tags=["cohorts"])
 # ─── B-number era resolution (exact match) ────────────────────────────────────
 
 B_PATTERN = re.compile(r'^[Bb]\.?(\d{4})\.(\d+)(?:/(\d+))?$')
-VIEWER_FORMATS = {'SVS', 'NDPI', 'TIF', 'TIFF', 'MRXS', 'SCN', 'VSI', 'BIF'}
+# Looser detector: anchors on the prefix only, so compound/range forms like
+# "B2025.8819/001-8819/002" (Era 3) and "B2012.321-333" (Era 2) are not
+# rejected at the entry guard of _resolve_b_number_exact.
+B_BASE_PATTERN = re.compile(r'^[Bb]\.?(\d{4})\.(\d+)', re.IGNORECASE)
+VIEWER_FORMATS = {'MRXS', 'NDPI', 'TIF', 'TIFF', 'SVS', 'SCN', 'VSI', 'BIF'}
 
 
 def _resolve_b_number_exact(b_str: str, db: Session):
@@ -36,8 +40,15 @@ def _resolve_b_number_exact(b_str: str, db: Session):
     Era 1 (< Sept 2011):   submission ID = B{year}.{num}  — exact match
     Era 2 (Sept 2011-2017): b_case = probe ID = B{year}.{num} — match probe exactly
     Era 3 (>= Sept 2017):  submission ID = B{year}.{num}/{probes} — match with trailing /
+
+    All eras first attempt a direct equality match on lis_submission_id so that
+    compound/range forms like "B2025.8819/001-8819/002" or "B2012.321-333" —
+    stored verbatim in the DB but unparseable by the strict B_PATTERN — resolve
+    correctly. B_BASE_PATTERN (no end-anchor) is used here so those strings
+    pass the entry guard.
     """
-    m = B_PATTERN.match(b_str.strip())
+    b_str = b_str.strip()
+    m = B_BASE_PATTERN.match(b_str)
     if not m:
         return []
 
@@ -57,6 +68,21 @@ def _resolve_b_number_exact(b_str: str, db: Session):
         # Era 1: submission ID is exactly B{year}.{num}
         subs = db.query(Submission).filter(
             Submission.lis_submission_id == b_exact
+        ).all()
+        for sub in subs:
+            patient = db.get(Patient, sub.patient_id)
+            if patient:
+                _add(patient, sub)
+
+    def _via_submission_literal():
+        # Exact match on the raw input string — handles compound/range forms
+        # stored verbatim in lis_submission_id (e.g. "B2012.321-333",
+        # "B2025.8819/001-8819/002"). Skipped when b_str == b_exact because
+        # _via_submission_exact already covers that case.
+        if b_str == b_exact:
+            return
+        subs = db.query(Submission).filter(
+            Submission.lis_submission_id == b_str
         ).all()
         for sub in subs:
             patient = db.get(Patient, sub.patient_id)
@@ -86,19 +112,20 @@ def _resolve_b_number_exact(b_str: str, db: Session):
                 _add(patient, sub)
 
     if year < 2011:
-        strategies = ['submission_exact']
+        strategies = ['submission_literal', 'submission_exact']
     elif year == 2011:
-        strategies = ['submission_exact', 'probe_exact']
+        strategies = ['submission_literal', 'submission_exact', 'probe_exact']
     elif year < 2017:
-        strategies = ['probe_exact']
+        strategies = ['submission_literal', 'probe_exact']
     elif year == 2017:
-        strategies = ['probe_exact', 'submission_slash']
+        strategies = ['submission_literal', 'probe_exact', 'submission_slash']
     else:
-        strategies = ['submission_slash']
+        strategies = ['submission_literal', 'submission_slash']
 
     for strategy in strategies:
-        if strategy == 'submission_exact': _via_submission_exact()
-        elif strategy == 'probe_exact':    _via_probe_exact()
+        if strategy == 'submission_literal': _via_submission_literal()
+        elif strategy == 'submission_exact': _via_submission_exact()
+        elif strategy == 'probe_exact':      _via_probe_exact()
         elif strategy == 'submission_slash': _via_submission_slash()
 
     return results
