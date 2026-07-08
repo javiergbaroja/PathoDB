@@ -1305,8 +1305,9 @@ export default function PatientDetail() {
           sub={selected.sub}
           existingScans={scans}
           existingScan={editScan}
+          submissionProbes={sortedSubmissions.find(s => s.id === selected.sub.id)?.probes ?? []}
           onClose={() => setEditScan(null)}
-          onSuccess={() => { setEditScan(null); refreshScans() }}
+          onSuccess={() => { setEditScan(null); refreshScans(); invalidate() }}
         />
       )}
 

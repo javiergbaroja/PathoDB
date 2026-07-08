@@ -6,7 +6,7 @@ import { api } from '../../api'
 
 const FILE_FORMATS = ['SVS', 'CZI', 'NDPI', 'SCN', 'TIF', 'MRXS', 'VSI', 'BIF', 'OTHER']
 
-export default function RegisterScanModal({ block, probe, sub, existingScans, onClose, onSuccess, existingScan }) {
+export default function RegisterScanModal({ block, probe, sub, existingScans, onClose, onSuccess, existingScan, submissionProbes = [] }) {
   const [stains, setStains] = useState([])
   const [error,  setError]  = useState('')
   const isEditing = !!existingScan
@@ -16,24 +16,31 @@ export default function RegisterScanModal({ block, probe, sub, existingScans, on
     formState: { isSubmitting, errors },
   } = useForm({
     defaultValues: isEditing
-      ? { stain_name: existingScan.stain_name ?? '', file_format: existingScan.file_format ?? 'SVS', magnification: existingScan.magnification ?? '' }
+      ? { stain_name: existingScan.stain_name ?? '', file_format: existingScan.file_format ?? 'SVS', magnification: existingScan.magnification ?? '', block_id: block.id }
       : { stain_name: '', file_path: '', file_format: 'SVS', magnification: '' },
   })
 
   useEffect(() => { api.getStains().then(setStains).catch(() => {}) }, [])
 
   const stainName = watch('stain_name')
+  const selectedBlockId = Number(watch('block_id'))
+  const isMoving = isEditing && selectedBlockId && selectedBlockId !== block.id
   const existingStains = new Set(existingScans.map(s => s.stain_name).filter(Boolean))
-  const isDuplicate = stainName && existingStains.has(stainName)
+  // The duplicate-stain hint only applies to the current block. We don't have the
+  // destination block's scans loaded, so suppress it while reassigning.
+  const isDuplicate = stainName && !isMoving && existingStains.has(stainName)
 
   async function onSubmit(form) {
     setError('')
     try {
       if (isEditing) {
+        const nextBlockId = Number(form.block_id)
         await api.updateScan(existingScan.id, {
           stain_name:    form.stain_name   || null,
           file_format:   form.file_format  || null,
           magnification: form.magnification ? parseFloat(form.magnification) : null,
+          // Only send block_id when the scan is actually being moved.
+          ...(nextBlockId && nextBlockId !== block.id ? { block_id: nextBlockId } : {}),
         })
       } else {
         await api.registerScan({
@@ -82,6 +89,27 @@ export default function RegisterScanModal({ block, probe, sub, existingScans, on
               </div>
             )}
           </FormField>
+
+          {isEditing && submissionProbes.length > 0 && (
+            <FormField label="Block" htmlFor="scan-block">
+              <FormSelect id="scan-block" {...register('block_id')}>
+                {submissionProbes.map(p => (
+                  <optgroup key={p.id} label={`Probe ${p.lis_probe_id}`}>
+                    {(p.blocks ?? []).map(b => (
+                      <option key={b.id} value={b.id}>
+                        Block {b.block_label}{b.id === block.id ? ' (current)' : ''}
+                      </option>
+                    ))}
+                  </optgroup>
+                ))}
+              </FormSelect>
+              {isMoving && (
+                <div style={{ marginTop: 5, fontSize: 12, color: 'var(--text-2)' }}>
+                  This scan will move out of Block {block.block_label} into the selected block.
+                </div>
+              )}
+            </FormField>
+          )}
 
           {!isEditing && (
             <FormField label="File path *" htmlFor="scan-path" error={errors.file_path?.message}>

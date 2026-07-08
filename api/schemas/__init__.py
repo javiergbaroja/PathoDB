@@ -340,6 +340,7 @@ class ScanUpdate(BaseModel):
     stain_name:   Optional[str]   = None
     file_format:  Optional[str]   = None
     magnification: Optional[float] = None
+    block_id:     Optional[int]   = None
     
 
 class EtlJobResponse(BaseModel):

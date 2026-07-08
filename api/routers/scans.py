@@ -240,6 +240,24 @@ def update_scan(
         sc.stain_id = stain.id
     if req.file_format   is not None: sc.file_format   = req.file_format.upper()
     if req.magnification is not None: sc.magnification = req.magnification
+
+    # Reassign to a different block — only within the scan's own submission.
+    if req.block_id is not None and req.block_id != sc.block_id:
+        target = (
+            db.query(Block)
+            .options(joinedload(Block.probe))
+            .filter(Block.id == req.block_id)
+            .first()
+        )
+        if not target:
+            raise HTTPException(404, f"Target block {req.block_id} not found")
+        if target.probe.submission_id != sc.block.probe.submission_id:
+            raise HTTPException(
+                400,
+                "A scan can only be reassigned to a block in the same submission.",
+            )
+        sc.block_id = target.id
+
     db.commit()
     db.refresh(sc)
     return _scan_to_response(sc)
