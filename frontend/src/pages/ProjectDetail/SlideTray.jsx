@@ -22,7 +22,7 @@ function formatHierarchy(scan) {
 }
 
 // 1. Wrap the entire component in React.memo to block parent re-renders during panning/zooming
-const SlideTray = memo(function SlideTray({ scans, activeScanId, onSelect, token, saving }) {
+const SlideTray = memo(function SlideTray({ scans, activeScanId, onSelect, token, saving, onScanNoteChange, readOnly = false }) {
   // --- Filter State ---
   const [showFilters, setShowFilters] = useState(false)
   const [annotationFilter, setAnnotationFilter] = useState('all') 
@@ -75,21 +75,21 @@ const SlideTray = memo(function SlideTray({ scans, activeScanId, onSelect, token
   return (
     <div style={{
       width: 200, flexShrink: 0,
-      background: 'rgba(2,5,18,0.98)',
-      borderRight: '1px solid rgba(255,255,255,0.07)',
+      background: 'var(--surface-dark-card)',
+      borderRight: '1px solid var(--transparent-white-1)',
       display: 'flex', flexDirection: 'column',
       overflow: 'hidden',
     }}>
       {/* Header */}
       <div style={{
-        padding: '9px 12px', borderBottom: '1px solid rgba(255,255,255,0.05)',
+        padding: '9px 12px', borderBottom: '1px solid var(--transparent-white-0)',
         display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexShrink: 0,
       }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-          <span style={{ fontSize: 9, color: 'rgba(255,255,255,0.5)', textTransform: 'uppercase', letterSpacing: '0.1em', fontWeight: 600 }}>
+          <span style={{ fontSize: 9, color: 'var(--transparent-white-5)', textTransform: 'uppercase', letterSpacing: '0.1em', fontWeight: 600 }}>
             Slides
           </span>
-          <span style={{ fontSize: 9, color: 'rgba(255,255,255,0.3)', fontFamily: 'monospace' }}>
+          <span style={{ fontSize: 9, color: 'var(--transparent-white-3)', fontFamily: 'monospace' }}>
             {filteredScans.length}{filteredScans.length !== scans.length ? `/${scans.length}` : ''}
           </span>
         </div>
@@ -97,9 +97,9 @@ const SlideTray = memo(function SlideTray({ scans, activeScanId, onSelect, token
         <button 
           onClick={() => setShowFilters(s => !s)}
           style={{
-            background: showFilters ? 'rgba(27,153,139,0.2)' : 'transparent',
-            border: `1px solid ${showFilters ? 'rgba(27,153,139,0.5)' : 'rgba(255,255,255,0.1)'}`,
-            color: showFilters ? '#6ee7b7' : 'rgba(255,255,255,0.5)',
+            background: showFilters ? 'var(--transparent-teal-2)' : 'transparent',
+            border: `1px solid ${showFilters ? 'var(--transparent-teal-5)' : 'var(--transparent-white-1)'}`,
+            color: showFilters ? 'var(--viewer-teal-light)' : 'var(--transparent-white-5)',
             borderRadius: 4, padding: '2px 6px', fontSize: 9, cursor: 'pointer',
             display: 'flex', alignItems: 'center', gap: 4, transition: 'all 0.15s'
           }}
@@ -114,45 +114,45 @@ const SlideTray = memo(function SlideTray({ scans, activeScanId, onSelect, token
       {/* Expandable Filter Panel */}
       {showFilters && (
         <div style={{
-          padding: '10px 12px', borderBottom: '1px solid rgba(255,255,255,0.05)',
-          background: 'rgba(0,0,0,0.2)', flexShrink: 0, display: 'flex', flexDirection: 'column', gap: 10
+          padding: '10px 12px', borderBottom: '1px solid var(--transparent-white-0)',
+          background: 'var(--transparent-black-2)', flexShrink: 0, display: 'flex', flexDirection: 'column', gap: 10
         }}>
           <div>
-            <div style={{ fontSize: 9, color: 'rgba(255,255,255,0.4)', textTransform: 'uppercase', marginBottom: 4 }}>Search</div>
+            <div style={{ fontSize: 9, color: 'var(--transparent-white-4)', textTransform: 'uppercase', marginBottom: 4 }}>Search</div>
             <input
               type="text"
               placeholder="Filename, probe, block..."
               value={searchQuery}
               onChange={e => setSearchQuery(e.target.value)}
               style={{
-                width: '100%', background: 'rgba(255,255,255,0.05)', color: 'rgba(255,255,255,0.8)',
-                border: '1px solid rgba(255,255,255,0.1)', borderRadius: 4, padding: '4px 6px', fontSize: 10, outline: 'none'
+                width: '100%', background: 'var(--transparent-white-0)', color: 'var(--transparent-white-8)',
+                border: '1px solid var(--transparent-white-1)', borderRadius: 4, padding: '4px 6px', fontSize: 10, outline: 'none'
               }}
             />
           </div>
 
           <div>
-            <div style={{ fontSize: 9, color: 'rgba(255,255,255,0.4)', textTransform: 'uppercase', marginBottom: 4 }}>Status</div>
+            <div style={{ fontSize: 9, color: 'var(--transparent-white-4)', textTransform: 'uppercase', marginBottom: 4 }}>Status</div>
             <select
               value={annotationFilter}
               onChange={e => setAnnotationFilter(e.target.value)}
               style={{
-                width: '100%', background: 'rgba(255,255,255,0.05)', color: 'rgba(255,255,255,0.8)',
-                border: '1px solid rgba(255,255,255,0.1)', borderRadius: 4, padding: '3px 4px', fontSize: 10, outline: 'none'
+                width: '100%', background: 'var(--transparent-white-0)', color: 'var(--transparent-white-8)',
+                border: '1px solid var(--transparent-white-1)', borderRadius: 4, padding: '3px 4px', fontSize: 10, outline: 'none'
               }}
             >
-              <option value="all" style={{ background: '#111827', color: '#fff' }}>All Slides</option>
-              <option value="annotated" style={{ background: '#111827', color: '#fff' }}>Annotated Only</option>
-              <option value="pending" style={{ background: '#111827', color: '#fff' }}>Pending Only</option>
+              <option value="all" style={{ background: 'var(--surface-dark)', color: 'var(--white)' }}>All Slides</option>
+              <option value="annotated" style={{ background: 'var(--surface-dark)', color: 'var(--white)' }}>Annotated Only</option>
+              <option value="pending" style={{ background: 'var(--surface-dark)', color: 'var(--white)' }}>Pending Only</option>
             </select>
           </div>
 
           {uniqueStains.length > 0 && (
             <div>
-              <div style={{ fontSize: 9, color: 'rgba(255,255,255,0.4)', textTransform: 'uppercase', marginBottom: 4 }}>Stains</div>
+              <div style={{ fontSize: 9, color: 'var(--transparent-white-4)', textTransform: 'uppercase', marginBottom: 4 }}>Stains</div>
               <div style={{ maxHeight: 100, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 4 }}>
                 {uniqueStains.map(stain => (
-                  <label key={stain} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 10, color: 'rgba(255,255,255,0.7)', cursor: 'pointer' }}>
+                  <label key={stain} style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 10, color: 'var(--transparent-white-7)', cursor: 'pointer' }}>
                     <input
                       type="checkbox"
                       checked={selectedStains.includes(stain)}
@@ -160,7 +160,7 @@ const SlideTray = memo(function SlideTray({ scans, activeScanId, onSelect, token
                         if (e.target.checked) setSelectedStains(prev => [...prev, stain])
                         else setSelectedStains(prev => prev.filter(s => s !== stain))
                       }}
-                      style={{ accentColor: '#1b998b', margin: 0, cursor: 'pointer' }}
+                      style={{ accentColor: 'var(--viewer-teal)', margin: 0, cursor: 'pointer' }}
                     />
                     <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{stain}</span>
                   </label>
@@ -172,15 +172,15 @@ const SlideTray = memo(function SlideTray({ scans, activeScanId, onSelect, token
       )}
 
       {/* Legend */}
-      <div style={{ padding: '6px 12px', borderBottom: '1px solid rgba(255,255,255,0.05)', flexShrink: 0, display: 'flex', gap: 10 }}>
-        <LegendItem color="#1b998b" label="Annotated" />
-        <LegendItem color="rgba(255,255,255,0.2)" label="Pending" />
+      <div style={{ padding: '6px 12px', borderBottom: '1px solid var(--transparent-white-0)', flexShrink: 0, display: 'flex', gap: 10 }}>
+        <LegendItem color="var(--viewer-teal)" label="Annotated" />
+        <LegendItem color="var(--transparent-white-2)" label="Pending" />
       </div>
 
       {/* 4. Virtualized Scroll Area */}
       <div ref={parentRef} style={{ flex: 1, overflowY: 'auto', position: 'relative' }}>
         {filteredScans.length === 0 ? (
-          <div style={{ padding: 20, textAlign: 'center', fontSize: 11, color: 'rgba(255,255,255,0.3)' }}>
+          <div style={{ padding: 20, textAlign: 'center', fontSize: 11, color: 'var(--transparent-white-3)' }}>
             No slides match your filters.
           </div>
         ) : (
@@ -211,15 +211,15 @@ const SlideTray = memo(function SlideTray({ scans, activeScanId, onSelect, token
                     transform: `translateY(${virtualRow.start}px)`,
                     display: 'flex', flexDirection: 'column', gap: 0,
                     padding: '0', cursor: 'pointer',
-                    borderBottom: '1px solid rgba(255,255,255,0.04)',
-                    background: isActive ? 'rgba(27,153,139,0.12)' : 'transparent',
-                    borderLeft: `3px solid ${isActive ? '#1b998b' : 'transparent'}`,
+                    borderBottom: '1px solid var(--transparent-white-0)',
+                    background: isActive ? 'var(--transparent-teal-1)' : 'transparent',
+                    borderLeft: `3px solid ${isActive ? 'var(--viewer-teal)' : 'transparent'}`,
                     // We only transition colors here, NOT transforms, to avoid jitter while scrolling
                     transition: 'background 0.12s, border 0.12s',
                   }}
                 >
                   {/* Thumbnail */}
-                  <div style={{ height: 90, background: '#0d1623', position: 'relative', overflow: 'hidden' }}>
+                  <div style={{ height: 90, background: 'var(--surface-dark-2)', position: 'relative', overflow: 'hidden' }}>
                     <img
                       src={`/api/slides/${scan.scan_id}/thumbnail?width=200&token=${token}`}
                       alt={scan.stain_name || 'Slide'}
@@ -230,13 +230,13 @@ const SlideTray = memo(function SlideTray({ scans, activeScanId, onSelect, token
                     <div style={{
                       position: 'absolute', top: 5, right: 5,
                       width: 10, height: 10, borderRadius: '50%',
-                      background: hasAnns ? '#1b998b' : 'rgba(255,255,255,0.2)',
-                      border: '1.5px solid rgba(0,0,0,0.4)',
+                      background: hasAnns ? 'var(--viewer-teal)' : 'var(--transparent-white-2)',
+                      border: '1.5px solid var(--transparent-black-4)',
                     }} />
                     <div style={{
                       position: 'absolute', top: 5, left: 5,
                       fontSize: 9, fontFamily: 'monospace',
-                      background: 'rgba(0,0,0,0.65)', color: 'rgba(255,255,255,0.6)',
+                      background: 'var(--transparent-black-7)', color: 'var(--transparent-white-6)',
                       padding: '1px 4px', borderRadius: 3,
                     }}>
                       {idx + 1}
@@ -245,23 +245,65 @@ const SlideTray = memo(function SlideTray({ scans, activeScanId, onSelect, token
 
                   {/* Meta */}
                   <div style={{ padding: '5px 8px' }}>
-                    <div style={{ fontSize: 10, fontWeight: 600, color: isActive ? '#6ee7b7' : 'rgba(255,255,255,0.65)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                      {scan.stain_name || 'Unknown stain'}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                      <span style={{ flex: 1, fontSize: 10, fontWeight: 600, color: isActive ? 'var(--viewer-teal-light)' : 'var(--transparent-white-7)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {scan.stain_name || 'Unknown stain'}
+                      </span>
+                      {!isActive && scan.scan_note && (
+                        <span
+                          title={scan.scan_note}
+                          style={{ fontSize: 7, color: 'var(--viewer-teal-light)', opacity: 0.6, flexShrink: 0, lineHeight: 1 }}
+                        >
+                          ●
+                        </span>
+                      )}
                     </div>
-                    
-                    <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.45)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontFamily: 'monospace', marginTop: 2 }}>
+
+                    <div style={{ fontSize: 10, color: 'var(--transparent-white-5)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontFamily: 'monospace', marginTop: 2 }}>
                       {formatHierarchy(scan)}
                     </div>
 
                     {scan.topo_description && (
-                      <div style={{ fontSize: 10, color: 'rgba(255,255,255,0.3)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginTop: 1, fontStyle: 'italic' }}>
+                      <div style={{ fontSize: 10, color: 'var(--transparent-white-3)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginTop: 1, fontStyle: 'italic' }}>
                         {scan.topo_description}
                       </div>
                     )}
 
-                    <div style={{ fontSize: 10, color: hasAnns ? '#1b998b' : 'rgba(255,255,255,0.2)', marginTop: 4 }}>
+                    <div style={{ fontSize: 10, color: hasAnns ? 'var(--viewer-teal)' : 'var(--transparent-white-2)', marginTop: 4 }}>
                       {hasAnns ? `${scan.annotation_count} annotation${scan.annotation_count !== 1 ? 's' : ''}` : 'No annotations'}
                     </div>
+
+                    {/* Slide note — shown only on the active card */}
+                    {isActive && onScanNoteChange && (
+                      <div onClick={e => e.stopPropagation()} style={{ marginTop: 6 }}>
+                        <div style={{ fontSize: 8, color: 'var(--transparent-white-3)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 3 }}>
+                          Slide note
+                        </div>
+                        <textarea
+                          placeholder='Add a note for this slide…'
+                          disabled={readOnly}
+                          value={scan.scan_note || ''}
+                          rows={2}
+                          style={{
+                            width: '100%',
+                            boxSizing: 'border-box',
+                            resize: 'none',
+                            fontSize: 10,
+                            fontFamily: 'var(--font-sans)',
+                            lineHeight: 1.5,
+                            background: 'var(--transparent-white-0)',
+                            border: '1px solid var(--transparent-white-1)',
+                            borderRadius: 4,
+                            color: readOnly ? 'var(--transparent-white-3)' : 'var(--transparent-white-7)',
+                            padding: '4px 6px',
+                            outline: 'none',
+                          }}
+                          onChange={e => onScanNoteChange(scan.scan_id, e.target.value)}
+                          onFocus={e => { if (!readOnly) e.target.style.borderColor = 'var(--viewer-teal)' }}
+                          onBlur={e => { e.target.style.borderColor = 'var(--transparent-white-1)' }}
+                        />
+                      </div>
+                    )}
                   </div>
                 </div>
               )
@@ -272,11 +314,11 @@ const SlideTray = memo(function SlideTray({ scans, activeScanId, onSelect, token
 
       {saving && (
         <div style={{
-          padding: '8px 12px', borderTop: '1px solid rgba(255,255,255,0.05)',
-          fontSize: 10, color: '#fbbf24', display: 'flex', alignItems: 'center', gap: 6,
+          padding: '8px 12px', borderTop: '1px solid var(--transparent-white-0)',
+          fontSize: 10, color: 'var(--amber)', display: 'flex', alignItems: 'center', gap: 6,
           flexShrink: 0,
         }}>
-          <div style={{ width: 8, height: 8, borderRadius: '50%', border: '1.5px solid #fbbf24', borderTopColor: 'transparent', animation: 'spin 0.7s linear infinite' }} />
+          <div style={{ width: 8, height: 8, borderRadius: '50%', border: '1.5px solid var(--amber)', borderTopColor: 'transparent', animation: 'spin 0.7s linear infinite' }} />
           Saving…
         </div>
       )}
@@ -290,7 +332,7 @@ function LegendItem({ color, label }) {
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
       <div style={{ width: 8, height: 8, borderRadius: '50%', background: color }} />
-      <span style={{ fontSize: 9, color: 'rgba(255,255,255,0.4)' }}>{label}</span>
+      <span style={{ fontSize: 9, color: 'var(--transparent-white-4)' }}>{label}</span>
     </div>
   )
 }

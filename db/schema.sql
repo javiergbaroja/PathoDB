@@ -310,6 +310,10 @@ ALTER TABLE projects ADD CONSTRAINT projects_source_type_check
 -- DROP NOT NULL is a no-op if the column is already nullable, so this is safe to re-run.
 ALTER TABLE scans ALTER COLUMN block_id DROP NOT NULL;
 
+ALTER TABLE project_scans
+  ADD COLUMN IF NOT EXISTS notes             TEXT,
+  ADD COLUMN IF NOT EXISTS notes_updated_at  TIMESTAMPTZ;
+  
 -- 3. Create the TMA Cores mapping table
 CREATE TABLE IF NOT EXISTS tma_cores (
     id                  SERIAL      PRIMARY KEY,

@@ -577,6 +577,34 @@ export default function ProjectDetail() {
     commitAnnotationChange(next)
   }
 
+  function handleNoteChange(annId, noteText) {
+    if (readOnly) return
+    const next = localAnnotationsRef.current.map(a =>
+      a.id === annId ? { ...a, notes: noteText } : a
+    )
+    localAnnotationsRef.current = next
+    setLocalAnnotations(next)
+    triggerSave()
+  }
+
+  const scanNoteTimerRef = useRef(null)
+
+  function handleScanNoteChange(scanId, noteText) {
+    if (readOnly) return
+    // Optimistically reflect the change in the query cache so the textarea stays responsive
+    queryClient.setQueryData(['project-scans', projectId], (prev = []) =>
+      prev.map(s => s.scan_id === scanId ? { ...s, scan_note: noteText } : s)
+    )
+    clearTimeout(scanNoteTimerRef.current)
+    scanNoteTimerRef.current = setTimeout(async () => {
+      try {
+        await api.updateScanNote(Number(projectId), scanId, noteText)
+      } catch (e) {
+        console.error('[ProjectDetail] scan note save failed:', e)
+      }
+    }, 800)
+  }
+
   function handleAnnotationUpdated(annId, newGeometry) {
     if (readOnly) return
     const ann = localAnnotationsRef.current.find(a => a.id === annId)
@@ -778,6 +806,8 @@ export default function ProjectDetail() {
           onSelect={setActiveScanId}
           token={token}
           saving={saving}
+          onScanNoteChange={handleScanNoteChange}
+          readOnly={readOnly}
         />
 
         <AnnotationToolbar
@@ -910,6 +940,7 @@ export default function ProjectDetail() {
           }}
           onDeleteAnnotation={handleDeleteAnnotation}
           onChangeClass={handleChangeClass}
+          onNoteChange={handleNoteChange}
           readOnly={readOnly}
           annotationCount={localAnnotations.length}
           totalScans={progress?.total_scans     || projectScans.length}

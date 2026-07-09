@@ -77,6 +77,9 @@ export const deleteAnnotation  = (projectId, scanId, annId) => request('DELETE',
 export const bulkSaveAnnotations = (projectId, scanId, annotations) =>
   request('PUT', `/projects/${projectId}/scans/${scanId}/annotations`, { annotations })
 
+export const updateScanNote = (projectId, scanId, notes) =>
+  request('PATCH', `/projects/${projectId}/scans/${scanId}/note`, { notes })
+
 export async function importAnnotations(projectId, scanId, formData) {
   const token = getToken()
   const headers = {}

@@ -26,6 +26,7 @@ import {
   getProjectScans,
   shareProject, updateShare, revokeShare,
   getAnnotations, createAnnotation, updateAnnotation, deleteAnnotation, bulkSaveAnnotations, importAnnotations,
+  updateScanNote,
 } from './projects'
 
 export const api = {
@@ -56,6 +57,7 @@ export const api = {
   getProjectScans,
   shareProject, updateShare, revokeShare,
   getAnnotations, createAnnotation, updateAnnotation, deleteAnnotation, bulkSaveAnnotations, importAnnotations,
+  updateScanNote,
   // Health
   health: () => request('GET', '/health'),
 

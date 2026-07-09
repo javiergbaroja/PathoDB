@@ -15,6 +15,7 @@ export default memo(function ClassPanel({
   onSelectAnnotation,
   onDeleteAnnotation,
   onChangeClass,
+  onNoteChange,
   onSelectAllOfClass,
   readOnly,
   annotationCount,
@@ -129,6 +130,7 @@ export default memo(function ClassPanel({
             onSelect={onSelectAnnotation}
             onDelete={onDeleteAnnotation}
             onChangeClass={onChangeClass}
+            onNoteChange={onNoteChange}
             readOnly={readOnly}
           />
         )}
@@ -390,7 +392,7 @@ function ShortcutLegend({ shortcuts }) {
 }
 
 // ── List tab ──────────────────────────────────────────────────────────────────
-function ListTab({ annotations, classes, selectedAnnIds, onSelect, onDelete, onChangeClass, readOnly }) {
+function ListTab({ annotations, classes, selectedAnnIds, onSelect, onDelete, onChangeClass, onNoteChange, readOnly }) {
   // Build classMap including the system AI ROI class so it renders correctly
   const classMap = {
     [AI_ROI_CLASS.id]: AI_ROI_CLASS,
@@ -402,8 +404,9 @@ function ListTab({ annotations, classes, selectedAnnIds, onSelect, onDelete, onC
   const rowVirtualizer = useVirtualizer({
     count: annotations.length,
     getScrollElement: () => scrollRef.current,
-    estimateSize: () => 46,   // approximate row height in pixels
-    overscan: 8,              // rows rendered just above/below the visible area
+    // Selected rows expand to show the note textarea — use measureElement for accuracy.
+    estimateSize: (i) => selectedAnnIds.has(annotations[i]?.id) ? 110 : 46,
+    overscan: 8,
   })
 
   if (annotations.length === 0) {
@@ -436,11 +439,13 @@ function ListTab({ annotations, classes, selectedAnnIds, onSelect, onDelete, onC
             <div
               key={ann.id}
               data-annid={ann.id}
+              ref={rowVirtualizer.measureElement}
+              data-index={virtualRow.index}
               onClick={e => onSelect(ann.id, e.shiftKey, e.altKey)}
               style={{
                 position: 'absolute', top: 0, left: 0, right: 0,
                 transform: `translateY(${virtualRow.start}px)`,
-                display: 'flex', alignItems: 'center', gap: 8,
+                display: 'flex', flexDirection: 'column',
                 padding: '6px 8px', borderRadius: 5, marginBottom: 3,
                 background: isSelected
                   ? (isAiRoi ? 'var(--transparent-purple-1)' : 'var(--border-dark)')
@@ -451,50 +456,92 @@ function ListTab({ annotations, classes, selectedAnnIds, onSelect, onDelete, onC
                 cursor: 'pointer',
               }}
             >
-              <div style={{ width: 10, height: 10, borderRadius: 2, background: color, flexShrink: 0 }} />
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ fontSize: 11, color: 'var(--transparent-white-7)', fontWeight: isSelected ? 600 : 400 }}>
-                  {isAiRoi ? 'AI Model ROI' : (ann.class_name || 'Unclassified')}
+              {/* ── Top row: dot · label/meta · class picker · delete ── */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <div style={{ width: 10, height: 10, borderRadius: 2, background: color, flexShrink: 0 }} />
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                    <span style={{ fontSize: 11, color: 'var(--transparent-white-7)', fontWeight: isSelected ? 600 : 400 }}>
+                      {isAiRoi ? 'AI Model ROI' : (ann.class_name || 'Unclassified')}
+                    </span>
+                    {!isSelected && ann.notes && (
+                      <span
+                        title={ann.notes}
+                        style={{ fontSize: 7, color: 'var(--viewer-teal-light)', lineHeight: 1, opacity: 0.8 }}
+                      >
+                        ●
+                      </span>
+                    )}
+                  </div>
+                  <div style={{ fontSize: 9, color: 'var(--transparent-white-3)', fontFamily: 'monospace' }}>
+                    {typeLabel} #{ann.id ?? i + 1}
+                    {ann.area_px ? ` · ${Math.round(ann.area_px).toLocaleString()}px²` : ''}
+                  </div>
                 </div>
-                <div style={{ fontSize: 9, color: 'var(--transparent-white-3)', fontFamily: 'monospace' }}>
-                  {typeLabel} #{ann.id ?? i + 1}
-                  {ann.area_px ? ` · ${Math.round(ann.area_px).toLocaleString()}px²` : ''}
-                </div>
+
+                {!readOnly && isSelected && !isAiRoi && classes?.length > 0 && (
+                  <select
+                    onClick={e => e.stopPropagation()}
+                    value={ann.class_id || ''}
+                    onChange={e => {
+                      const cls = classes.find(c => c.id === e.target.value)
+                      onChangeClass(ann.id, e.target.value, cls?.name || '')
+                    }}
+                    style={{
+                      fontSize: 10, background: 'var(--border-dark)',
+                      border: '1px solid var(--transparent-white-2)', borderRadius: 4,
+                      color: 'var(--transparent-white-7)', padding: '1px 4px',
+                    }}
+                  >
+                    <option value=''>—</option>
+                    {classes.map(c => (
+                      <option key={c.id} value={c.id}>{c.name}</option>
+                    ))}
+                  </select>
+                )}
+
+                {!readOnly && (
+                  <button
+                    onClick={e => { e.stopPropagation(); onDelete(ann.id) }}
+                    title='Delete annotation (Del)'
+                    style={{
+                      background: 'none', border: 'none', cursor: 'pointer',
+                      color: 'var(--transparent-crimson60-5)', fontSize: 13, lineHeight: 1,
+                      padding: '0 2px', flexShrink: 0,
+                    }}
+                  >
+                    ×
+                  </button>
+                )}
               </div>
 
-              {!readOnly && isSelected && !isAiRoi && classes?.length > 0 && (
-                <select
-                  onClick={e => e.stopPropagation()}
-                  value={ann.class_id || ''}
-                  onChange={e => {
-                    const cls = classes.find(c => c.id === e.target.value)
-                    onChangeClass(ann.id, e.target.value, cls?.name || '')
-                  }}
-                  style={{
-                    fontSize: 10, background: 'var(--border-dark)',
-                    border: '1px solid var(--transparent-white-2)', borderRadius: 4,
-                    color: 'var(--transparent-white-7)', padding: '1px 4px',
-                  }}
-                >
-                  <option value=''>—</option>
-                  {classes.map(c => (
-                    <option key={c.id} value={c.id}>{c.name}</option>
-                  ))}
-                </select>
-              )}
-
-              {!readOnly && (
-                <button
-                  onClick={e => { e.stopPropagation(); onDelete(ann.id) }}
-                  title='Delete annotation (Del)'
-                  style={{
-                    background: 'none', border: 'none', cursor: 'pointer',
-                    color: 'var(--transparent-crimson60-5)', fontSize: 13, lineHeight: 1,
-                    padding: '0 2px', flexShrink: 0,
-                  }}
-                >
-                  ×
-                </button>
+              {/* ── Note strip — only when selected and not an AI ROI ── */}
+              {isSelected && !isAiRoi && (
+                <div onClick={e => e.stopPropagation()} style={{ marginTop: 6 }}>
+                  <textarea
+                    placeholder='Add a note…'
+                    disabled={readOnly}
+                    value={ann.notes || ''}
+                    onChange={e => onNoteChange && onNoteChange(ann.id, e.target.value)}
+                    rows={2}
+                    style={{
+                      width: '100%',
+                      boxSizing: 'border-box',
+                      resize: 'none',
+                      fontSize: 10,
+                      fontFamily: 'var(--font-sans)',
+                      lineHeight: 1.5,
+                      background: 'var(--transparent-white-0)',
+                      border: '1px solid var(--transparent-white-2)',
+                      borderRadius: 4,
+                      color: readOnly ? 'var(--transparent-white-3)' : 'var(--transparent-white-7)',
+                      padding: '4px 6px',
+                      outline: 'none',
+                    }}
+                    onFocus={e => { if (!readOnly) e.target.style.borderColor = 'var(--viewer-teal)' }}
+                    onBlur={e => { e.target.style.borderColor = 'var(--transparent-white-2)' }}
+                  />
+                </div>
               )}
             </div>
           )

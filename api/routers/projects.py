@@ -73,6 +73,9 @@ class AnnotationUpdate(BaseModel):
     geometry:   Optional[dict] = None
     notes:      Optional[str] = None
 
+class ScanNoteUpdate(BaseModel):
+    notes: Optional[str] = None
+
 class BulkAnnotationItem(AnnotationCreate):
     # Stable identifier sent back by the client. Integers reference an existing
     # DB row (update in place, preserving provenance); anything else (temp ids,
@@ -518,6 +521,7 @@ def list_project_scans(project_id: int, db: Session = Depends(get_db),
             "topo_description":  probe.topo_description  if probe else None,
             "lis_submission_id": sub.lis_submission_id   if sub   else None,
             "annotation_count":  ann_counts.get(sc.id, 0),
+            "scan_note":         ps.notes,
         })
     return result
 
@@ -655,6 +659,26 @@ def delete_annotation(project_id: int, scan_id: int, ann_id: int,
     ann = db.get(Annotation, ann_id)
     if not ann or ann.project_id != project_id: raise HTTPException(404, "Annotation not found")
     db.delete(ann); db.commit()
+
+
+@router.patch("/{project_id}/scans/{scan_id}/note")
+def update_scan_note(project_id: int, scan_id: int, req: ScanNoteUpdate,
+                     db: Session = Depends(get_db), user: User = Depends(get_current_active_user)):
+    """Update the free-text note attached to a slide within a project context."""
+    proj = db.get(Project, project_id)
+    if not proj: raise HTTPException(404, "Project not found")
+    _check_access(proj, user, require_edit=True)
+
+    ps = db.query(ProjectScan).filter(
+        ProjectScan.project_id == project_id,
+        ProjectScan.scan_id    == scan_id,
+    ).first()
+    if not ps: raise HTTPException(404, "Scan is not part of this project")
+
+    ps.notes            = req.notes
+    ps.notes_updated_at = datetime.now(timezone.utc)
+    db.commit()
+    return {"scan_id": scan_id, "notes": ps.notes}
 
 
 @router.put("/{project_id}/scans/{scan_id}/annotations")

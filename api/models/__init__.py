@@ -230,6 +230,8 @@ class ProjectScan(Base):
     scan_id    = Column(Integer, ForeignKey("scans.id"), nullable=False)
     sort_order = Column(Integer, nullable=False, default=0)
     added_at   = Column(TIMESTAMP(timezone=True), server_default=func.now())
+    notes             = Column(Text,                          nullable=True)
+    notes_updated_at  = Column(TIMESTAMP(timezone=True),      nullable=True)
 
     project = relationship("Project", back_populates="scans")
     scan    = relationship("Scan")

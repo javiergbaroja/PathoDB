@@ -170,6 +170,8 @@
   --transparent-white-8: rgba(255,255,255,0.8);
   --transparent-white-9: rgba(255,255,255,0.9);
 
+  --transparent-black-2: rgba(0,0,0,0.2);
+  --transparent-black-4: rgba(0,0,0,0.4);
   --transparent-black-5: rgba(0,0,0,0.5);
   --transparent-black-6: rgba(0,0,0,0.6);
   --transparent-black-7: rgba(0,0,0,0.7);
