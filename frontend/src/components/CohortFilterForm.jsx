@@ -203,14 +203,14 @@ function FilterModeForm({ filter, onFilterChange, lockReturnLevel }) {
           label="Etiology description"
           selected={filter.etio_description_search}
           onChange={val => onFilterChange('etio_description_search', val)}
-          loadOptions={val => api.lookup('etio_description', val)}
+          loadOptions={val => api.lookup('etiology_description', val)}
           placeholder="e.g. bacterium"
         />
         <MultiSelect
           label="Etiology SNOMED code"
           selected={filter.snomed_etio_codes}
           onChange={val => onFilterChange('snomed_etio_codes', val)}
-          loadOptions={val => api.lookup('snomed_etio_code', val)}
+          loadOptions={val => api.lookup('snomed_etiology_code', val)}
           placeholder="e.g. E10000"
         />
       </div>

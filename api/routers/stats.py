@@ -213,11 +213,11 @@ def lookup_values(
         results = db.query(SnomedCode.description).filter(
             SnomedCode.category == "morphology", SnomedCode.description.ilike(f"%{q}%")
         ).distinct().limit(15).all()
-    elif field == "snomed_etio_code":
+    elif field == "snomed_etiology_code":
         results = db.query(SnomedCode.code).filter(
             SnomedCode.category == "etiology", SnomedCode.code.ilike(f"%{q}%")
         ).distinct().limit(15).all()
-    elif field == "etio_description":
+    elif field == "etiology_description":
         results = db.query(SnomedCode.description).filter(
             SnomedCode.category == "etiology", SnomedCode.description.ilike(f"%{q}%")
         ).distinct().limit(15).all()
