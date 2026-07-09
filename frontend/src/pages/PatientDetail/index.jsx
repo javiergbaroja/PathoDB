@@ -53,7 +53,8 @@ function compareBlocks(a, b) {
 }
 
 function extractYearFromId(lisId) {
-  const m = (lisId || '').match(/B(\d{4})\./i)
+  // Prefix-agnostic: B = histology, Z = cytology (both follow YYYY. numbering).
+  const m = (lisId || '').match(/[A-Z](\d{4})\./i)
   return m ? parseInt(m[1]) : null
 }
 

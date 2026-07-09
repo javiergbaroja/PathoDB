@@ -32,6 +32,7 @@ import { api } from '../api'
 // ─── Constants (exported so Cohorts.jsx can import them) ─────────────────────
 
 export const EMPTY_FILTER = {
+  modality:                null,   // null → both, 'histology' → B, 'cytology' → Z
   snomed_topo_codes:       [],
   topo_description_search: [],
   snomed_morph_codes:           [],
@@ -47,7 +48,7 @@ export const EMPTY_FILTER = {
   submission_date_from:    '',
   submission_date_to:      '',
   malignancy_flag:         null,
-  consent_statuses:        [],
+  consent_statuses:        ['consented', 'informed', 'unknown'],
   has_scan:                null,
   block_info_search:       '',
   return_level:            'scan',
@@ -63,7 +64,7 @@ export const EMPTY_LIST_STATE = {
     topo_description_search: [],
     submission_types:        [],
     malignancy_flag:         null,
-    consent_statuses:        [],
+    consent_statuses:        ['consented', 'informed', 'unknown'],
     has_scan:                null,
     block_info_search:       '',
     submission_date_from:    '',
@@ -144,8 +145,23 @@ function FilterModeForm({ filter, onFilterChange, lockReturnLevel }) {
   const HAS_SCAN_OPTS    = [['', 'Any'], ['true', 'Has scan'], ['false', 'No scan']]
   const MALIGNANCY_OPTS  = [['', 'Any'], ['true', 'Positive'], ['false', 'Negative']]
 
+  const isCytology = filter.modality === 'cytology'
+
   return (
     <>
+      <SectionLabel>Modality</SectionLabel>
+      <SegmentedControl
+        value={filter.modality || 'all'}
+        onChange={v => onFilterChange('modality', v === 'all' ? null : v)}
+        options={[['all', 'All'], ['histology', 'Histology (B)'], ['cytology', 'Cytology (Z)']]}
+      />
+      {isCytology && (
+        <div style={{ marginTop: 6, fontSize: 11, color: 'var(--text-3)', lineHeight: 1.5 }}>
+          Cytology stops at the probe level — there are no blocks or scans, so block/scan
+          return levels and stain/scan filters won't match. Use Patient, Submission or Probe.
+        </div>
+      )}
+
       <SectionLabel>Anatomy &amp; Tissue</SectionLabel>
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
         <MultiSelect
@@ -345,7 +361,7 @@ function ListModeForm({ listState, onListStateChange, lockReturnLevel }) {
         .map(line => line.split(',')[0].trim().replace(/^["']|["']$/g, ''))
         .filter(Boolean)
       const first = ids[0] || ''
-      const looksLikeId = /^[Bb]\.?\d{4}\./.test(first) || /^\d+$/.test(first)
+      const looksLikeId = /^[BbZz]\.?\d{4}\./.test(first) || /^\d+$/.test(first)
       onListStateChange('idText', (looksLikeId ? ids : ids.slice(1)).join('\n'))
     }
     reader.readAsText(file)
@@ -362,14 +378,14 @@ function ListModeForm({ listState, onListStateChange, lockReturnLevel }) {
     <>
       <FormField label="ID type">
         <SegmentedControl
-          options={[['patient_code', 'Patient code'], ['b_number', 'B-number']]}
+          options={[['patient_code', 'Patient code'], ['b_number', 'B/Z-number']]}
           value={idType}
           onChange={val => onListStateChange('idType', val)}
         />
       </FormField>
 
       {idType === 'b_number' && (
-        <FormField label="Scope per B-number">
+        <FormField label="Scope per B/Z-number">
           <SegmentedControl
             options={[['all', 'All submissions from patient'], ['matched', 'Only matched submission']]}
             value={bScope}
@@ -377,8 +393,8 @@ function ListModeForm({ listState, onListStateChange, lockReturnLevel }) {
           />
           <div style={{ fontSize: 'var(--text-sm)', color: 'var(--text-3)', marginTop: 5 }}>
             {bScope === 'all'
-              ? 'Returns all tissue from the patient, regardless of which submission the B-number matched.'
-              : 'Returns only the submission directly matched by this B-number.'}
+              ? 'Returns all tissue from the patient, regardless of which submission the B/Z-number matched.'
+              : 'Returns only the submission directly matched by this B/Z-number.'}
           </div>
         </FormField>
       )}
@@ -391,11 +407,11 @@ function ListModeForm({ listState, onListStateChange, lockReturnLevel }) {
         </FormField>
       )}
 
-      <FormField label={`Paste ${idType === 'b_number' ? 'B-numbers' : 'patient codes'} (one per line)`}>
+      <FormField label={`Paste ${idType === 'b_number' ? 'B/Z-numbers' : 'patient codes'} (one per line)`}>
         <FormTextarea
           value={idText}
           onChange={e => onListStateChange('idText', e.target.value)}
-          placeholder={idType === 'b_number' ? 'B2019.14823\nB2015.00392' : '581561\n795492'}
+          placeholder={idType === 'b_number' ? 'B2019.14823\nZ2021.4837\nB2015.00392' : '581561\n795492'}
           rows={7}
           style={{ fontFamily: 'var(--font-mono)' }}
         />

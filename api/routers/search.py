@@ -1,6 +1,7 @@
 """
 PathoDB API — Search Router
-Exact-match lookup by patient code, B-number, submission ID, or probe ID.
+Exact-match lookup by patient code, accession number (B = histology,
+Z = cytology), submission ID, or probe ID.
 Returns a single best match or an empty list if nothing found.
 """
 import re
@@ -13,7 +14,10 @@ from ..auth import get_current_active_user
 
 router = APIRouter(prefix="/search", tags=["search"])
 
-B_PATTERN = re.compile(r'^[Bb]\.?(\d{4})\.(\d+)(?:/(\d+))?$')
+# Accession numbers share one era-based grammar across modalities:
+#   B = histology, Z = cytology. Group 1 captures the prefix so resolution
+#   stays scoped to the matched modality (a 'Z' query never matches 'B' rows).
+B_PATTERN = re.compile(r'^([BbZz])\.?(\d{4})\.(\d+)(?:/(\d+))?$')
 
 
 def _is_b_number(term: str) -> bool:
@@ -21,14 +25,15 @@ def _is_b_number(term: str) -> bool:
 
 
 def _resolve_b_number(term: str, db: Session) -> list[dict]:
-    """Exact era-aware B-number resolution → list of result dicts."""
+    """Exact era-aware accession-number resolution (B/Z) → list of result dicts."""
     m = B_PATTERN.match(term.strip())
     if not m:
         return []
 
-    year      = int(m.group(1))
-    num_part  = m.group(2)
-    b_exact   = f"B{year}.{num_part}"
+    prefix    = m.group(1).upper()
+    year      = int(m.group(2))
+    num_part  = m.group(3)
+    b_exact   = f"{prefix}{year}.{num_part}"
 
     results = []
     seen_patient_ids = set()
@@ -95,12 +100,12 @@ def universal_search(
 ):
     """
     Exact-match search. Returns matching results or empty list.
-    Priority order: patient code → B-number → submission ID → probe ID.
+    Priority order: accession number (B/Z) → patient code → submission ID → probe ID.
     """
     term    = q.strip()
     results = []
 
-    # ── B-number (era-aware exact) ────────────────────────────────────────────
+    # ── Accession number, era-aware exact (B = histology, Z = cytology) ────────
     if _is_b_number(term):
         return _resolve_b_number(term, db)
 

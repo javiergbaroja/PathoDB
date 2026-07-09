@@ -5,7 +5,7 @@ import Layout from '../components/Layout'
 import { Btn, StatCard, Table, Th, Td, Tr, IdCell, Badge, ErrorMsg, SpinnerPage } from '../components/ui'
 import { api } from '../api'
 
-// ── Collapsed B-number list with expand ──────────────────────────────────────
+// ── Collapsed accession-number (B/Z) list with expand ────────────────────────
 
 function BNumberList({ submissionIds }) {
   const [expanded, setExpanded] = useState(false)

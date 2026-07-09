@@ -36,3 +36,11 @@ etl/etl_worker.py
 etl/*.csv
 probes_not_found.txt
 frontend/public/openseadragon-images/*.png
+debug_topography.ipynb
+.gitignore
+unique_submission_types.csv
+update_snomed.sql
+pairs_topography.csv
+.gitignore
+etl/etl_cytology_submissions.py
+etl/etl_cytology.py

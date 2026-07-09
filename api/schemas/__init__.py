@@ -202,6 +202,9 @@ class HierarchyResponse(PatientResponse):
 # ─── Cohorts ──────────────────────────────────────────────────────────────────
 
 class CohortFilter(BaseModel):
+    # Modality restriction by accession-number prefix on lis_submission_id:
+    #   'histology' → B-numbers, 'cytology' → Z-numbers, None → both.
+    modality: Optional[Literal["histology", "cytology"]] = None
     snomed_topo_codes: Optional[List[str]] = None
     topo_description_search: Optional[Union[str, List[str]]] = None
     snomed_morph_codes: Optional[List[str]] = None

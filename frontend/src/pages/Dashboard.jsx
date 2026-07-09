@@ -366,7 +366,7 @@ function QuickActions() {
   const actions = [
     {
       label: 'Search patients',
-      desc:  'Look up by code, B-number or diagnosis',
+      desc:  'Look up by code, B/Z-number, or diagnosis',
       to:    '/patients',
       icon:  <QAPatientIcon />,
     },

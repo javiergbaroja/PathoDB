@@ -23,23 +23,25 @@ from ..auth import get_current_active_user
 
 router = APIRouter(prefix="/cohorts", tags=["cohorts"])
 
-# ─── B-number era resolution (exact match) ────────────────────────────────────
+# ─── Accession-number era resolution (exact match; B = histology, Z = cytology) ─
 
-B_PATTERN = re.compile(r'^[Bb]\.?(\d{4})\.(\d+)(?:/(\d+))?$')
+B_PATTERN = re.compile(r'^([BbZz])\.?(\d{4})\.(\d+)(?:/(\d+))?$')
 # Looser detector: anchors on the prefix only, so compound/range forms like
 # "B2025.8819/001-8819/002" (Era 3) and "B2012.321-333" (Era 2) are not
 # rejected at the entry guard of _resolve_b_number_exact.
-B_BASE_PATTERN = re.compile(r'^[Bb]\.?(\d{4})\.(\d+)', re.IGNORECASE)
+B_BASE_PATTERN = re.compile(r'^([BbZz])\.?(\d{4})\.(\d+)', re.IGNORECASE)
 VIEWER_FORMATS = {'MRXS', 'NDPI', 'TIF', 'TIFF', 'SVS', 'SCN', 'VSI', 'BIF'}
 
 
 def _resolve_b_number_exact(b_str: str, db: Session):
     """
-    Resolve a B-number to (patient, submission) pairs using exact era-aware matching.
+    Resolve an accession number (B = histology, Z = cytology) to
+    (patient, submission) pairs using exact era-aware matching.
 
-    Era 1 (< Sept 2011):   submission ID = B{year}.{num}  — exact match
-    Era 2 (Sept 2011-2017): b_case = probe ID = B{year}.{num} — match probe exactly
-    Era 3 (>= Sept 2017):  submission ID = B{year}.{num}/{probes} — match with trailing /
+    Era 1 (< Sept 2011):   submission ID = {P}{year}.{num}  — exact match
+    Era 2 (Sept 2011-2017): b_case = probe ID = {P}{year}.{num} — match probe exactly
+    Era 3 (>= Sept 2017):  submission ID = {P}{year}.{num}/{probes} — match with trailing /
+    where {P} is the modality prefix (B or Z).
 
     All eras first attempt a direct equality match on lis_submission_id so that
     compound/range forms like "B2025.8819/001-8819/002" or "B2012.321-333" —
@@ -52,9 +54,10 @@ def _resolve_b_number_exact(b_str: str, db: Session):
     if not m:
         return []
 
-    year      = int(m.group(1))
-    num_part  = m.group(2)
-    b_exact   = f"B{year}.{num_part}"
+    prefix    = m.group(1).upper()
+    year      = int(m.group(2))
+    num_part  = m.group(3)
+    b_exact   = f"{prefix}{year}.{num_part}"
 
     results = []
     seen_sub_ids = set()
@@ -173,8 +176,9 @@ def _format_results(rows, return_level: str, db: Session, f=None) -> list[dict]:
         return results
 
     if return_level == "scan":
-        # 1. Map all blocks to their parent data
-        block_map = {block.id: (block, probe, sub, patient) for block, probe, sub, patient in rows}
+        # 1. Map all blocks to their parent data (skip block-less cytology rows)
+        block_map = {block.id: (block, probe, sub, patient)
+                     for block, probe, sub, patient in rows if block is not None}
         
         # 2. Fetch all scans for these blocks in ONE query, eager-loading the stains
         scan_query = db.query(Scan).options(joinedload(Scan.stain)).filter(Scan.block_id.in_(block_map.keys()))
@@ -299,7 +303,7 @@ def _format_results(rows, return_level: str, db: Session, f=None) -> list[dict]:
                 # Actually count unique blocks
                 sub_block_ids = set()
                 for b, p, s, _ in rows:
-                    if s.id == sub.id:
+                    if s.id == sub.id and b is not None:
                         sub_block_ids.add(b.id)
 
                 results.append({
@@ -343,6 +347,8 @@ def _format_results(rows, return_level: str, db: Session, f=None) -> list[dict]:
                 })
 
         elif return_level == "block":
+            if block is None:
+                continue          # cytology has no blocks — nothing to return here
             key = block.id
             if key not in seen:
                 seen.add(key)
@@ -373,12 +379,31 @@ def _format_results(rows, return_level: str, db: Session, f=None) -> list[dict]:
 
 
 def _apply_filters(db: Session, f: CohortFilter):
-    q = (
-        db.query(Block, Probe, Submission, Patient)
-        .join(Probe,      Block.probe_id       == Probe.id)
-        .join(Submission, Probe.submission_id  == Submission.id)
-        .join(Patient,    Submission.patient_id == Patient.id)
-    )
+    modality = getattr(f, 'modality', None)
+    if modality == 'cytology':
+        # Cytology stops at the probe level — there are no blocks — so anchor on
+        # Probe and LEFT JOIN blocks. Block-less probes then appear (block=None)
+        # for probe/submission/patient return levels; block/scan levels naturally
+        # drop them. Histology (and the default 'both') path is left untouched.
+        q = (
+            db.query(Block, Probe, Submission, Patient)
+            .select_from(Probe)
+            .outerjoin(Block,     Block.probe_id        == Probe.id)
+            .join(Submission,     Probe.submission_id   == Submission.id)
+            .join(Patient,        Submission.patient_id == Patient.id)
+        )
+    else:
+        q = (
+            db.query(Block, Probe, Submission, Patient)
+            .join(Probe,      Block.probe_id       == Probe.id)
+            .join(Submission, Probe.submission_id  == Submission.id)
+            .join(Patient,    Submission.patient_id == Patient.id)
+        )
+    # Modality restriction by accession-number prefix on the submission ID.
+    if modality == 'histology':
+        q = q.filter(Submission.lis_submission_id.ilike('B%'))
+    elif modality == 'cytology':
+        q = q.filter(Submission.lis_submission_id.ilike('Z%'))
     # if f.topo_description_search:
     #     q = q.filter(Probe.topo_description.ilike(f.topo_description_search))
     if f.topo_description_search:

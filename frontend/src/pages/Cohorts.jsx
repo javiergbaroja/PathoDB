@@ -354,7 +354,7 @@ function ActiveFilterChips({ filter, mode, listState, onRemove }) {
 
   if (mode === 'list' && listState.idText.trim()) {
     const count = listState.idText.split('\n').filter(s => s.trim()).length
-    chips.push({ key: '_ids', label: `${count} ${listState.idType === 'b_number' ? 'B-numbers' : 'patient codes'}` })
+    chips.push({ key: '_ids', label: `${count} ${listState.idType === 'b_number' ? 'accession numbers' : 'patient codes'}` })
   }
 
   if (chips.length === 0) return null

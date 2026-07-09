@@ -231,7 +231,7 @@ export default function Layout({ children, title, actions }) {
               <input
                 ref={inputRef}
                 type="text"
-                placeholder="Patient code, B-number, submission or probe ID  (/)"
+                placeholder="Patient code, submission or probe ID  (/)"
                 value={query}
                 onChange={handleChange}
                 onKeyDown={handleKey}

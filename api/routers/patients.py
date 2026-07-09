@@ -1,7 +1,7 @@
 """
 PathoDB API — Patients Router
-B-number matching reverted to substring (non-exact) as of patch 4.
-Bold highlighting is handled on the frontend side.
+Accession-number matching (B = histology, Z = cytology) reverted to substring
+(non-exact) as of patch 4. Bold highlighting is handled on the frontend side.
 """
 import re
 from collections import defaultdict
@@ -30,24 +30,27 @@ router = APIRouter(prefix="/patients", tags=["patients"])
 
 ERA_1_END = date(2011, 9, 1)
 ERA_2_END = date(2017, 9, 1)
-B_PATTERN = re.compile(r'^[Bb]\.?(\d{4})\.(\d+)(?:/(\d+))?$')
+B_PATTERN = re.compile(r'^([BbZz])\.?(\d{4})\.(\d+)(?:/(\d+))?$')
 
 
 def resolve_b_number(b_str: str, db: Session) -> list:
     """
-    Resolve a B-number to matching patients using substring matching.
-    Tries era-appropriate field (submission vs probe) based on year,
-    but uses ILIKE '%value%' so partial matches are included.
+    Resolve an accession number (B = histology, Z = cytology) to matching
+    patients using substring matching. Tries the era-appropriate field
+    (submission vs probe) based on year, but uses ILIKE '%value%' so partial
+    matches are included. The prefix is kept in the search value so a 'Z' query
+    never matches 'B' rows (and vice versa).
     """
     m = B_PATTERN.match(b_str.strip())
     if not m:
         return []
 
-    year      = int(m.group(1))
-    num_part  = m.group(2)
-    probe_num = m.group(3)
+    prefix    = m.group(1).upper()
+    year      = int(m.group(2))
+    num_part  = m.group(3)
+    probe_num = m.group(4)
 
-    b_full   = f"{year}.{num_part}"
+    b_full   = f"{prefix}{year}.{num_part}"
     b_slash  = f"{b_full}/{probe_num}" if probe_num else None
 
     results = set()
