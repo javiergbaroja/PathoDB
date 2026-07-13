@@ -3,7 +3,7 @@
 #SBATCH --mail-user=javier.garcia@unibe.ch
 #SBATCH --job-name="pathodb_embed"
 #SBATCH --output="/storage/research/igmp_dp_workspace/garciabaroja_javier/PW_reports/database/pathodb/logs/pathodb_embed_%j.out"
-#SBATCH --time=4:00:00
+#SBATCH --time=8:00:00
 #SBATCH --mem=90G
 #SBATCH --nodes=1
 #SBATCH --account=invest
@@ -24,9 +24,13 @@
 # ENVIRONMENT OVERRIDES (set before sbatch, or export in your shell)
 #   EMBED_REPORT_TYPE   microscopy | macro | all   (default: all)
 #   EMBED_LIMIT         max reports to process in this run (default: unlimited)
-#   EMBED_BATCH         reports per DB commit       (default: 50)
+#   EMBED_BATCH         chunks embedded/inserted per GPU flush (default: 1024)
 #   EMBEDDING_DEVICE    cuda | cpu                  (default: cuda)
 #   EMBEDDING_MODEL     HuggingFace model id        (default: from .env / config)
+#   EMBEDDING_DIM       vector column dimension     (default: 1024 for bge-m3)
+#   EMBED_REBUILD_INDEX true | false — drop the HNSW index before the load and
+#                       rebuild it after (default: true; much faster for a full
+#                       (re)index). Set false for small incremental top-ups.
 #
 # CPU-ONLY RUN (no GPU queuing):
 #   Remove or comment out the --gres and --partition lines above, then:
@@ -128,7 +132,10 @@ echo ""
     || { echo "ERROR: could not create pgvector extension."; \
          echo "  Ensure the server-side pgvector library is installed and rerun."; exit 1; }
 
-echo "Ensuring report_embeddings table and indexes exist..."
+EMBEDDING_DIM="${EMBEDDING_DIM:-1024}"
+EMBED_REBUILD_INDEX="${EMBED_REBUILD_INDEX:-true}"
+
+echo "Ensuring report_embeddings table (dim=${EMBEDDING_DIM}) and indexes exist..."
 "$PG_BIN/psql" -p "$PGPORT" -d "$PGDB" --set ON_ERROR_STOP=1 <<SQL
 CREATE TABLE IF NOT EXISTS report_embeddings (
     id            SERIAL      PRIMARY KEY,
@@ -136,17 +143,36 @@ CREATE TABLE IF NOT EXISTS report_embeddings (
     submission_id INTEGER     NOT NULL REFERENCES submissions (id),
     chunk_index   INTEGER     NOT NULL DEFAULT 0,
     chunk_text    TEXT        NOT NULL,
-    embedding     vector(768),
+    embedding     vector(${EMBEDDING_DIM}),
     created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
     UNIQUE (report_id, chunk_index)
 );
+
+-- Migrate the vector column if the stored dimension differs from the target
+-- (e.g. switching embedding models). Vectors from a different model live in a
+-- different space, so existing rows are dropped and the corpus is re-embedded.
+-- For pgvector, atttypmod holds the declared dimension directly.
+DO \$\$
+DECLARE cur_dim int;
+BEGIN
+    SELECT atttypmod INTO cur_dim
+    FROM   pg_attribute
+    WHERE  attrelid = 'report_embeddings'::regclass AND attname = 'embedding';
+    IF cur_dim IS DISTINCT FROM ${EMBEDDING_DIM} THEN
+        RAISE NOTICE 'Migrating embedding column dim % -> %, truncating for re-embed',
+                     cur_dim, ${EMBEDDING_DIM};
+        DROP INDEX IF EXISTS idx_report_embeddings_vec;
+        TRUNCATE report_embeddings;
+        ALTER TABLE report_embeddings
+            ALTER COLUMN embedding TYPE vector(${EMBEDDING_DIM});
+    END IF;
+END
+\$\$;
 
 CREATE INDEX IF NOT EXISTS idx_report_embeddings_report_id
     ON report_embeddings (report_id);
 CREATE INDEX IF NOT EXISTS idx_report_embeddings_submission
     ON report_embeddings (submission_id);
-CREATE INDEX IF NOT EXISTS idx_report_embeddings_vec
-    ON report_embeddings USING hnsw (embedding vector_cosine_ops);
 
 -- Grant DML to the app user so embed_reports.py can INSERT/SELECT
 
@@ -157,6 +183,24 @@ GRANT USAGE, SELECT
 SQL
 echo "  report_embeddings: OK"
 
+# ── Defer the HNSW index for a full (re)build ────────────────────────────────
+# Maintaining the HNSW graph on every INSERT is far slower (and yields worse
+# recall) than bulk-loading first and building the index once at the end. For
+# incremental top-ups keep the existing index (EMBED_REBUILD_INDEX=false).
+if [ "$EMBED_REBUILD_INDEX" = "true" ]; then
+    echo "  Dropping HNSW + FTS indexes for bulk load (rebuilt after ingest)..."
+    "$PG_BIN/psql" -p "$PGPORT" -d "$PGDB" --set ON_ERROR_STOP=1 \
+        -c "DROP INDEX IF EXISTS idx_report_embeddings_vec;
+            DROP INDEX IF EXISTS idx_report_embeddings_fts;"
+else
+    echo "  Keeping HNSW + FTS indexes (incremental mode)..."
+    "$PG_BIN/psql" -p "$PGPORT" -d "$PGDB" --set ON_ERROR_STOP=1 \
+        -c "CREATE INDEX IF NOT EXISTS idx_report_embeddings_vec
+                ON report_embeddings USING hnsw (embedding vector_cosine_ops);
+            CREATE INDEX IF NOT EXISTS idx_report_embeddings_fts
+                ON report_embeddings USING gin (to_tsvector('english', chunk_text));"
+fi
+
 
 # ── Install Python dependencies ───────────────────────────────────────────────
 # echo ""
@@ -165,13 +209,16 @@ echo "  report_embeddings: OK"
 
 # ── Configure embedding run ───────────────────────────────────────────────────
 export EMBEDDING_DEVICE="${EMBEDDING_DEVICE:-cuda}"
+# Keep the Python config's vector dim aligned with the column built above.
+export EMBEDDING_DIM
 REPORT_TYPE="${EMBED_REPORT_TYPE:-all}"
 
 EXTRA_ARGS=()
 if [ -n "${EMBED_LIMIT:-}" ]; then
     EXTRA_ARGS+=(--limit "$EMBED_LIMIT")
 fi
-EXTRA_ARGS+=(--report-batch "${EMBED_BATCH:-50}")
+embed_batch=1024
+EXTRA_ARGS+=(--embed-batch "${EMBED_BATCH:-$embed_batch}")
 
 echo ""
 echo "──────────────────────────────────────────────"
@@ -179,8 +226,10 @@ echo "  Embedding configuration"
 echo "──────────────────────────────────────────────"
 echo "  Report type     : $REPORT_TYPE"
 echo "  Device          : $EMBEDDING_DEVICE"
-echo "  Model           : ${EMBEDDING_MODEL:-BAAI/bge-base-en-v1.5}"
-echo "  Batch (reports) : ${EMBED_BATCH:-50}"
+echo "  Model           : ${EMBEDDING_MODEL:-BAAI/bge-m3}"
+echo "  Vector dim      : $EMBEDDING_DIM"
+echo "  Batch (chunks)  : ${EMBED_BATCH:-$embed_batch}"
+echo "  Rebuild index   : $EMBED_REBUILD_INDEX"
 if [ -n "${EMBED_LIMIT:-}" ]; then
     echo "  Limit           : $EMBED_LIMIT reports"
 fi
@@ -232,6 +281,25 @@ echo ""
 python3 api/workers/embed_reports.py \
     --report-type "$REPORT_TYPE" \
     "${EXTRA_ARGS[@]}"
+
+# ── Build the HNSW index (once, after the bulk load) ──────────────────────────
+if [ "$EMBED_REBUILD_INDEX" = "true" ]; then
+    echo ""
+    echo "Building HNSW index over report_embeddings (this can take a while)..."
+    # maintenance_work_mem + parallel workers dramatically speed the build.
+    # max_parallel_maintenance_workers is bounded by --cpus-per-task above.
+    "$PG_BIN/psql" -p "$PGPORT" -d "$PGDB" --set ON_ERROR_STOP=1 <<SQL
+SET maintenance_work_mem = '8GB';
+SET max_parallel_maintenance_workers = 7;
+CREATE INDEX IF NOT EXISTS idx_report_embeddings_vec
+    ON report_embeddings USING hnsw (embedding vector_cosine_ops);
+-- Lexical arm of hybrid retrieval. 'english' must match config.rag_fts_config
+-- and stay a constant literal so the planner can use this expression index.
+CREATE INDEX IF NOT EXISTS idx_report_embeddings_fts
+    ON report_embeddings USING gin (to_tsvector('english', chunk_text));
+SQL
+    echo "  HNSW + FTS indexes: OK"
+fi
 
 # ── Post-run summary ──────────────────────────────────────────────────────────
 echo ""

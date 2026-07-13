@@ -23,6 +23,7 @@ from ..auth import get_current_active_user
 from ..config import get_settings
 from ..models import User, ChatSession, ChatMessage, AgentAudit
 from ..agent.stream import sse, parse_tool_content, DONE
+from ..agent.trace import RunTrace
 
 log = logging.getLogger("pathodb_agent")
 settings = get_settings()
@@ -34,9 +35,20 @@ _SSE_HEADERS = {"X-Accel-Buffering": "no", "Cache-Control": "no-cache"}
 
 # ─── Schemas ──────────────────────────────────────────────────────────────────
 
+class ChatContext(BaseModel):
+    """What the user is currently looking at, sent by the frontend so the agent
+    can resolve 'this slide'/'this patient' without the user copying IDs."""
+    route: Optional[str] = None
+    scan_id: Optional[int] = None
+    patient_code: Optional[str] = None
+    patient_id: Optional[int] = None
+    project_id: Optional[int] = None
+    cohort_id: Optional[int] = None
+
 class ChatRequest(BaseModel):
     session_id: int
     message: str
+    context: Optional[ChatContext] = None
 
 class ConfirmRequest(BaseModel):
     session_id: int
@@ -69,15 +81,63 @@ def _audit(db: Session, user: User, session_id: Optional[int], event_type: str,
     except Exception:
         db.rollback()
 
-def _build_graph(db: Session, user: User):
+def _persist_trace(db: Session, user: User, session_id: Optional[int], trace):
+    """Store a per-run trace as an agent_audit row (event_type='run_trace')."""
+    try:
+        _audit(db, user, session_id, "run_trace", payload=trace.to_dict())
+    except Exception:
+        pass
+
+
+def _build_graph(db: Session, user: User, context=None):
     """Compile the agent graph or raise 503 if the stack/deps are unavailable."""
     try:
         from ..agent.graph import build_agent_graph
-        return build_agent_graph(db, user)
+        return build_agent_graph(db, user, context)
     except ImportError as e:
         raise HTTPException(503, f"Agent dependencies not installed: {e}")
     except Exception as e:
         raise HTTPException(503, f"Agent unavailable: {e}")
+
+
+def _rehydrate_if_needed(graph, config, db: Session, session_id: int) -> list:
+    """Seed prior conversation turns when the durable checkpoint is empty.
+
+    Live sessions keep their full state (including tool messages) in the
+    checkpointer, so this returns []. Sessions created before the Postgres
+    checkpointer existed — or after a checkpoint reset — have chat_message rows
+    but no checkpoint; those are replayed from chat_message as plain
+    user/assistant turns so multi-turn context is not lost. Runs once per
+    session: after the first turn writes a checkpoint, this short-circuits.
+    """
+    from langchain_core.messages import HumanMessage, AIMessage
+    try:
+        state = graph.get_state(config)
+        if state and state.values.get("messages"):
+            return []
+    except Exception:
+        pass  # no checkpoint yet / checkpointer error → replay from chat_message
+
+    rows = (db.query(ChatMessage)
+            .filter(ChatMessage.session_id == session_id)
+            .order_by(ChatMessage.id).all())
+    # The final row is the user message /chat just inserted; the caller appends
+    # it separately, so drop it here to avoid duplicating the current turn.
+    if rows and rows[-1].role == "user":
+        rows = rows[:-1]
+
+    out: list = []
+    for m in rows:
+        content = (m.content or "").strip()
+        if not content:
+            continue
+        if m.role == "user":
+            out.append(HumanMessage(content=content))
+        elif m.role == "assistant":
+            out.append(AIMessage(content=content))
+    if out:
+        log.info("Rehydrated %d prior message(s) for session %s", len(out), session_id)
+    return out
 
 
 # ─── Session endpoints ──────────────────────────────────────────────────────
@@ -121,27 +181,95 @@ async def health(_: User = Depends(get_current_active_user)):
     return out
 
 
+@router.get("/traces")
+def list_traces(limit: int = 50, session_id: Optional[int] = None,
+                db: Session = Depends(get_db),
+                user: User = Depends(get_current_active_user)):
+    """Recent per-run agent traces for the current user (plan, latencies, token
+    counts, tool successes/failures, retrieval hits). Backed by agent_audit."""
+    q = (db.query(AgentAudit)
+         .filter(AgentAudit.user_id == user.id, AgentAudit.event_type == "run_trace"))
+    if session_id is not None:
+        q = q.filter(AgentAudit.session_id == session_id)
+    rows = q.order_by(AgentAudit.id.desc()).limit(min(limit, 200)).all()
+    return [{"id": r.id, "session_id": r.session_id,
+             "created_at": r.created_at.isoformat() if r.created_at else None,
+             **(r.payload or {})} for r in rows]
+
+
 # ─── Streaming core ───────────────────────────────────────────────────────────
 
-async def _run_stream(graph, graph_input, config, db, session_id, user):
-    """Translate a LangGraph run into SSE events and persist the assistant turn."""
+async def _run_stream(graph, graph_input, config, db, session_id, user, question=None):
+    """Translate a LangGraph run into SSE events and persist the assistant turn.
+
+    SSE event types the frontend can render (each is one JSON object):
+      {"stage": "routing"|"planning"|"synthesizing"|"answering"|"gathering more"}
+                          — coarse progress markers.
+      {"plan": "1. …\n2. …"}         — the agent's step-by-step approach (thought
+                                        process); emit once after planning.
+      {"reasoning": "…"}             — prose the agent writes while deciding
+                                        between tool calls (its working-out).
+      {"thinking": "…"}              — chain-of-thought tokens from a thinking
+                                        model (reasoning_content); streamed, only
+                                        present when a thinking model is configured.
+      {"tool_call": {"name","args"}} — a tool the agent is invoking.
+      {"tool_result": {"name","summary"}} — that tool's result summary.
+      {"citations": [...]}           — grounded record links.
+      {"token": "…"}                 — final-answer tokens (the user-facing reply).
+      {"confirmation_request": {...}}— HITL gate for a state-changing action.
+      {"done_turn": {...}} / DONE    — end of turn.
+    plan/reasoning/thinking are the "show your work" channels — render them in an
+    expandable trace panel, separate from the final answer tokens.
+    """
     parts: list[str] = []
     citations: list[dict] = []
     interrupted = False
     pending = None
+    trace = RunTrace(model=settings.vllm_model,
+                     question_chars=len(question) if question else 0)
     try:
         async for mode, chunk in graph.astream(graph_input, config, stream_mode=["messages", "updates"]):
             if mode == "messages":
                 msg, meta = chunk
+                node = meta.get("langgraph_node")
                 content = getattr(msg, "content", "") or ""
-                if content and meta.get("langgraph_node") == "synthesizer":   # <-- CHANGE 1
+                # Background "thinking" (chain-of-thought). A thinking model served
+                # with vLLM --reasoning-parser emits it as reasoning_content, which
+                # langchain surfaces in additional_kwargs. Stream it on a separate
+                # 'thinking' channel so the UI can show an expandable thought
+                # process (dormant unless a thinking model is configured).
+                rc = (getattr(msg, "additional_kwargs", {}) or {}).get("reasoning_content")
+                if rc and node in ("planner", "agent", "synthesizer"):
+                    yield sse({"thinking": rc})
+                if content and node in ("synthesizer", "direct_answer"):
+                    trace.on_first_token()
                     parts.append(content)
                     yield sse({"token": content})
             elif mode == "updates":
                 for node, update in (chunk or {}).items():
-                    if node == "planner":                                      # <-- CHANGE 2a
+                    if node == "router":
+                        yield sse({"stage": "routing"})
+                    elif node == "sufficiency":
+                        if (update or {}).get("suff_verdict") == "retry":
+                            yield sse({"stage": "gathering more"})
+                    elif node == "direct_answer":
+                        trace.on_synth_messages((update or {}).get("messages", []))
+                        yield sse({"stage": "answering"})
+                    elif node == "planner":
+                        plan_text = ""
+                        for m in (update or {}).get("messages", []):
+                            c = getattr(m, "content", "") or ""
+                            trace.on_plan(c)
+                            plan_text = c or plan_text
                         yield sse({"stage": "planning"})
-                    elif node == "synthesizer":                                # <-- CHANGE 2b
+                        if plan_text:
+                            # Drop the internal "RESEARCH PLAN (...):" preamble so the
+                            # UI shows just the numbered steps as the agent's approach.
+                            disp = (plan_text.split(":", 1)[1].strip()
+                                    if plan_text.startswith("RESEARCH PLAN") else plan_text)
+                            yield sse({"plan": disp})
+                    elif node == "synthesizer":
+                        trace.on_synth_messages((update or {}).get("messages", []))
                         yield sse({"stage": "synthesizing"})
                     elif node == "__interrupt__":
                         intr = update[0] if isinstance(update, (list, tuple)) else update
@@ -151,7 +279,14 @@ async def _run_stream(graph, graph_input, config, db, session_id, user):
                                tool_name=(pending or {}).get("action"), payload=pending)
                         yield sse({"confirmation_request": pending})
                     elif node == "agent":
+                        trace.on_agent_messages((update or {}).get("messages", []))
                         for m in (update or {}).get("messages", []):
+                            # Any prose the agent writes while deciding = its
+                            # step-by-step reasoning; surface it on a 'reasoning'
+                            # channel (distinct from the final answer 'token's).
+                            c = (getattr(m, "content", "") or "").strip()
+                            if c:
+                                yield sse({"reasoning": c})
                             for tc in (getattr(m, "tool_calls", None) or []):
                                 _audit(db, user, session_id, "tool_call",
                                        tool_name=tc.get("name"), payload=tc.get("args"))
@@ -159,6 +294,7 @@ async def _run_stream(graph, graph_input, config, db, session_id, user):
                     elif node == "tools":
                         for m in (update or {}).get("messages", []):
                             data = parse_tool_content(getattr(m, "content", "") or "")
+                            trace.on_tool_result(getattr(m, "name", None), data)
                             yield sse({"tool_result": {"name": getattr(m, "name", None),
                                                        "summary": data.get("summary")}})
                             if data.get("citations"):
@@ -166,11 +302,16 @@ async def _run_stream(graph, graph_input, config, db, session_id, user):
                                 yield sse({"citations": data["citations"]})
     except Exception as e:  # pragma: no cover - runtime/LLM dependent
         log.error("Agent stream failed: %s", e, exc_info=True)
+        trace.error = str(e)
+        _persist_trace(db, user, session_id, trace)
         yield sse({"error": str(e)})
         yield DONE
         return
 
     final_text = "".join(parts).strip()
+    trace.answer_chars = len(final_text)
+    trace.interrupted = interrupted
+    _persist_trace(db, user, session_id, trace)
     if final_text or citations:
         try:
             db.add(ChatMessage(session_id=session_id, role="assistant",
@@ -197,15 +338,20 @@ async def chat(req: ChatRequest, db: Session = Depends(get_db),
 
     db.add(ChatMessage(session_id=req.session_id, role="user", content=req.message))
     db.commit()
-    _audit(db, user, req.session_id, "query", payload={"chars": len(req.message)})
+    _audit(db, user, req.session_id, "query",
+           payload={"chars": len(req.message),
+                    "context": req.context.model_dump(exclude_none=True) if req.context else None})
 
-    graph = _build_graph(db, user)
+    graph = _build_graph(db, user, req.context)
     from langchain_core.messages import HumanMessage
     config = {"configurable": {"thread_id": str(req.session_id)},
               "recursion_limit": settings.agent_max_iterations * 2}
-    graph_input = {"messages": [HumanMessage(content=req.message)]}
+    messages = _rehydrate_if_needed(graph, config, db, req.session_id)
+    messages.append(HumanMessage(content=req.message))
+    graph_input = {"messages": messages}
     return StreamingResponse(
-        _run_stream(graph, graph_input, config, db, req.session_id, user),
+        _run_stream(graph, graph_input, config, db, req.session_id, user,
+                    question=req.message),
         media_type="text/event-stream", headers=_SSE_HEADERS)
 
 

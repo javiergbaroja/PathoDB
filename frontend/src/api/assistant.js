@@ -55,6 +55,10 @@ function consumeSSE(path, body, handlers = {}) {
           try { p = JSON.parse(raw) } catch { continue }
           if (p.error)                { handlers.onError?.(p.error); return }
           if (p.token)                handlers.onToken?.(p.token)
+          if (p.stage)                handlers.onStage?.(p.stage)
+          if (p.plan)                 handlers.onPlan?.(p.plan)
+          if (p.thinking)             handlers.onThinking?.(p.thinking)
+          if (p.reasoning)            handlers.onReasoning?.(p.reasoning)
           if (p.tool_call)            handlers.onToolCall?.(p.tool_call)
           if (p.tool_result)          handlers.onToolResult?.(p.tool_result)
           if (p.citations)            handlers.onCitations?.(p.citations)

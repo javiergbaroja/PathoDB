@@ -363,7 +363,8 @@ CREATE INDEX IF NOT EXISTS idx_slide_registrations_moving ON slide_registrations
 -- =============================================================================
 -- REPORT EMBEDDINGS  (RAG over pathology reports — requires pgvector)
 -- Populated by api/workers/embed_reports.py. embedding dimension must match
--- Settings.embedding_dim (default 768 = BAAI/bge-base-en-v1.5).
+-- Settings.embedding_dim (default 1024 = BAAI/bge-m3). slurm_embed.sh migrates
+-- this column (drop index + truncate + re-embed) when the dim changes.
 -- =============================================================================
 CREATE EXTENSION IF NOT EXISTS vector;
 
@@ -373,7 +374,7 @@ CREATE TABLE IF NOT EXISTS report_embeddings (
     submission_id INTEGER     NOT NULL REFERENCES submissions (id),  -- denormalized for citation/scoping
     chunk_index   INTEGER     NOT NULL DEFAULT 0,
     chunk_text    TEXT        NOT NULL,
-    embedding     vector(768),
+    embedding     vector(1024),
     created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
     UNIQUE (report_id, chunk_index)
 );
@@ -381,6 +382,11 @@ CREATE INDEX IF NOT EXISTS idx_report_embeddings_report_id  ON report_embeddings
 CREATE INDEX IF NOT EXISTS idx_report_embeddings_submission ON report_embeddings (submission_id);
 CREATE INDEX IF NOT EXISTS idx_report_embeddings_vec
     ON report_embeddings USING hnsw (embedding vector_cosine_ops);
+-- Lexical arm of hybrid retrieval (api/agent/rag.py). The config here ('english')
+-- MUST match config.rag_fts_config, and must be a constant literal so the
+-- expression stays immutable and the planner can use this index.
+CREATE INDEX IF NOT EXISTS idx_report_embeddings_fts
+    ON report_embeddings USING gin (to_tsvector('english', chunk_text));
 
 DO $$
 BEGIN

@@ -16,7 +16,11 @@ from sqlalchemy.orm import Session
 
 from ..config import get_settings
 from ..models import User, Patient
-from ..routers import enrich_snomed_codes
+# NOTE: enrich_snomed_codes is imported lazily inside get_tools() rather than at
+# module load. It lives in api.routers.patients, and api.routers.__init__ eagerly
+# imports the assistant router -> agent.graph -> this module; a top-level import
+# here would form a circular import whenever the agent is imported before the
+# routers package is fully initialized (e.g. the eval harness, scripts, tests).
 
 log = logging.getLogger("pathodb_agent")
 
@@ -31,9 +35,351 @@ def _err(msg: str) -> str:
     return _dumps({"summary": str(msg), "citations": []})
 
 
+# HoVer-NeXt cell taxonomy (see models/catalog.json). Grouped for immune /
+# tumor-infiltration metrics. Kept here as the single source of truth for the
+# detection adapter and the spatial-feature tool.
+_LYMPHOID_CELLS = {"lymphocyte", "plasma-cell"}
+_IMMUNE_CELLS = {"lymphocyte", "plasma-cell", "neutrophil", "eosinophil"}
+_EPITHELIAL_CELL = "epithelial-cell"
+
+
+def _detection_metrics(class_counts: dict, total: Optional[int] = None) -> dict:
+    """Derive immune / lymphoid / epithelial ratios from HoVer-NeXt counts."""
+    counts = {k: v for k, v in (class_counts or {}).items() if isinstance(v, (int, float))}
+    total = total or sum(counts.values())
+    immune = sum(counts.get(c, 0) for c in _IMMUNE_CELLS)
+    lymphoid = sum(counts.get(c, 0) for c in _LYMPHOID_CELLS)
+    epithelial = counts.get(_EPITHELIAL_CELL, 0)
+    return {
+        "total_cells": total,
+        "immune_fraction": round(immune / total, 4) if total else None,
+        "lymphoid_fraction": round(lymphoid / total, 4) if total else None,
+        "lymphoid_to_epithelial_ratio": round(lymphoid / epithelial, 4) if epithelial else None,
+    }
+
+
+def _summarize_outcome(outcome: Optional[dict], model_id: str) -> dict:
+    """Reduce a result.json `outcome` block to a compact, model-aware summary.
+
+    Adapts to the two known result shapes and degrades gracefully for anything
+    else (returning only scalar outcome fields, never nested geometry). Never
+    touches the `files`/`overlays` blocks — those are GeoJSON/raster paths, not
+    interpretable output.
+    """
+    if not isinstance(outcome, dict):
+        return {"headline": "No structured outcome in result."}
+    status = outcome.get("status")
+
+    # metassist_v2 — lymph-node metastasis detection
+    if "positive_ln_count" in outcome or "ln_count" in outcome:
+        pm = outcome.get("primary_metric") or {}
+        measure = pm.get("value")
+        if (not measure or measure == "N/A") and outcome.get("measurement_um"):
+            measure = f"{outcome['measurement_um']} um"
+        headline = status or "result"
+        if measure and measure != "N/A":
+            headline += f" ({pm.get('label', 'measurement')}: {measure})"
+        return {
+            "headline": headline,
+            "status": status,
+            "lymph_nodes_total": outcome.get("ln_count"),
+            "lymph_nodes_positive": outcome.get("positive_ln_count"),
+            "measurement_um": outcome.get("measurement_um"),
+            "primary_metric": pm or None,
+        }
+
+    # crc_tissue_seg — tissue-class composition
+    if "composition_pct" in outcome:
+        comp = outcome.get("composition_pct") or {}
+        ranked = sorted(((k, v) for k, v in comp.items() if isinstance(v, (int, float))),
+                        key=lambda kv: kv[1], reverse=True)
+        headline = "tissue composition — " + ", ".join(f"{k} {v:.1f}%" for k, v in ranked[:4])
+        return {
+            "headline": headline,
+            "status": status,
+            "composition_pct": {k: round(v, 2) for k, v in ranked},
+            "total_tissue_pixels": outcome.get("total_tissue_pixels"),
+        }
+
+    # hover_next — multiclass nuclei detection/classification
+    if "class_counts" in outcome:
+        counts = outcome.get("class_counts") or {}
+        m = _detection_metrics(counts, outcome.get("total_cells"))
+        headline = f"{m['total_cells']} cells"
+        if m["immune_fraction"] is not None:
+            headline += f", immune {m['immune_fraction']:.1%}"
+        return {
+            "headline": headline,
+            "status": status,
+            "class_counts": counts,
+            **m,
+        }
+
+    # Unknown model — surface scalar fields only, no invented interpretation.
+    scalars = {k: v for k, v in outcome.items()
+               if v is None or isinstance(v, (str, int, float, bool))}
+    return {"headline": status or "result available", **scalars}
+
+
+def _find_result_json(job, results_dir: str):
+    """Locate a job's result.json (result_path first, then results_dir/<id>/)."""
+    from pathlib import Path
+    candidates = []
+    if job.result_path:
+        candidates.append(Path(job.result_path) / "result.json")
+    candidates.append(Path(results_dir) / str(job.id) / "result.json")
+    return next((p for p in candidates if p.exists()), None)
+
+
+def _slide_base_mpp(scan_path: Optional[str]) -> Optional[float]:
+    """Level-0 microns-per-pixel for a WSI (mean of X/Y), or None if unreadable.
+
+    HoVer-NeXt GeoJSON coordinates are in level-0 slide pixel space
+    (models/hover_next/infer.py scales inference coords by level_downsampling),
+    so this is the scale that converts a neighbour radius in µm to pixels.
+    """
+    if not scan_path:
+        return None
+    try:
+        import os
+        if not os.path.exists(scan_path):
+            return None
+        import openslide  # handles MIRAX/.mrxs etc.; heavy → import lazily
+        sl = openslide.open_slide(scan_path)
+        mx = sl.properties.get(openslide.PROPERTY_NAME_MPP_X)
+        my = sl.properties.get(openslide.PROPERTY_NAME_MPP_Y)
+        sl.close()
+        if mx is None or my is None:
+            return None
+        return 0.5 * (float(mx) + float(my))
+    except Exception:
+        return None
+
+
+def _tumor_mask_from_crc_geojson(geojson_path: str, tumor_class: str = "Tumor",
+                                 max_dim: int = 6000):
+    """Rasterize the Tumor-class polygons of a CRC segmentation GeoJSON into a
+    binary mask (faithful to utils.geometry.decode_geojson_to_mask, but cv2-only
+    so we don't need shapely).
+
+    The GeoJSON is self-describing: top-level `mask_shape` [H,W],
+    `level_downsampling` (coords are level-0 slide pixels → divide to reach mask
+    space) and `category_dict`. To bound memory for distance_transform_edt on
+    huge slides, the mask is built at a reduced resolution when needed; the
+    effective downsample (level-0 px per mask px) is returned alongside.
+
+    Returns (mask uint8 HxW, effective_downsample) or (None, None).
+    """
+    import json as _json
+    import math
+    import numpy as np
+    import cv2
+
+    with open(geojson_path) as f:
+        gj = _json.load(f)
+    shape = gj.get("mask_shape")
+    ds = gj.get("level_downsampling")
+    if not shape or not ds:
+        return None, None
+    H, W = int(shape[0]), int(shape[1])
+    scale = max(1, math.ceil(max(H, W) / max_dim))
+    eff_ds = float(ds) * scale
+    out_h, out_w = math.ceil(H / scale), math.ceil(W / scale)
+
+    mask = np.zeros((out_h, out_w), dtype=np.uint8)
+    outers, holes = [], []
+    for feat in gj.get("features", []):
+        props = feat.get("properties") or {}
+        name = (props.get("classification") or {}).get("name") or props.get("type")
+        if name != tumor_class:
+            continue
+        coords = (feat.get("geometry") or {}).get("coordinates")
+        if not coords:
+            continue
+        if isinstance(coords[0][0], (int, float)):     # bare ring → wrap as polygon
+            coords = [coords]
+        outer = (np.asarray(coords[0], dtype=np.float64) / eff_ds).astype(np.int32)
+        if len(np.unique(outer, axis=0)) > 3:
+            outers.append(outer)
+        for hole in coords[1:]:
+            h = (np.asarray(hole, dtype=np.float64) / eff_ds).astype(np.int32)
+            if len(np.unique(h, axis=0)) > 3:
+                holes.append(h)
+    if outers:
+        cv2.fillPoly(mask, outers, 1)
+    if holes:
+        cv2.fillPoly(mask, holes, 0)
+    return mask, eff_ds
+
+
+def _tumor_infiltration_features(cells_geojson: str, tumor_mask, eff_ds: float,
+                                 mpp: float, front_width_um: float,
+                                 max_cells: int) -> dict:
+    """Cross HoVer-NeXt cells with a CRC tumor mask: intratumoral vs
+    extratumoral lymphoid load, and invasion-front vs tumor-center gradient
+    (front = tumor pixels within front_width_um of the tumor boundary, via a
+    distance transform). Cell coords and the mask are both keyed to level-0
+    slide pixels through eff_ds.
+    """
+    import ijson
+    import numpy as np
+    from scipy.ndimage import distance_transform_edt
+
+    if tumor_mask is None or not tumor_mask.any():
+        return {"error": "No Tumor region found in the segmentation GeoJSON."}
+
+    from scipy.ndimage import label
+
+    H, W = tumor_mask.shape
+    um_per_px = eff_ds * mpp
+    # Distance (in reduced-mask px) from each tumor pixel to the tumor boundary.
+    dist_in = distance_transform_edt(tumor_mask)
+    front_px = front_width_um / um_per_px
+    # Tumor morphology — lets the caller interpret the front/center split (e.g. a
+    # fragmented tumor whose max depth < front_width has no distinct "center").
+    max_depth_um = float(dist_in.max()) * um_per_px
+    _, n_components = label(tumor_mask)
+    tumor_area_mm2 = round(int(tumor_mask.sum()) * (um_per_px / 1000.0) ** 2, 3)
+
+    xs, ys, grp = [], [], []       # grp: 0=lymphoid, 1=epithelial, 2=other
+    capped = False
+    with open(cells_geojson, "rb") as fh:
+        for feat in ijson.items(fh, "features.item"):
+            geom = feat.get("geometry") or {}
+            if geom.get("type") != "Point":
+                continue
+            name = ((feat.get("properties") or {}).get("classification") or {}).get("name")
+            xy = geom.get("coordinates")
+            if not name or not xy or len(xy) < 2:
+                continue
+            if len(xs) >= max_cells:
+                capped = True
+                break
+            xs.append(float(xy[0])); ys.append(float(xy[1]))
+            grp.append(0 if name in _LYMPHOID_CELLS else 1 if name == _EPITHELIAL_CELL else 2)
+
+    if not xs:
+        return {"error": "No classified point cells found in the detection GeoJSON."}
+
+    xi = np.clip((np.asarray(xs) / eff_ds).astype(np.int64), 0, W - 1)
+    yi = np.clip((np.asarray(ys) / eff_ds).astype(np.int64), 0, H - 1)
+    grp = np.asarray(grp)
+    in_tumor = tumor_mask[yi, xi] == 1
+    lymphoid = grp == 0
+    dist = dist_in[yi, xi]
+    front = in_tumor & (dist <= front_px)
+    center = in_tumor & ~front
+
+    def _stats(sel) -> dict:
+        tot = int(sel.sum())
+        lym = int((sel & lymphoid).sum())
+        return {"cells": tot, "lymphoid": lym,
+                "lymphoid_fraction": round(lym / tot, 4) if tot else None}
+
+    intra, extra = _stats(in_tumor), _stats(~in_tumor)
+    intra_f = intra["lymphoid_fraction"]
+    extra_f = extra["lymphoid_fraction"]
+    return {
+        "cells_processed": len(xs),
+        "approximate": capped,
+        "tumor": {
+            "components": int(n_components),
+            "area_mm2": tumor_area_mm2,
+            "max_depth_um": round(max_depth_um),
+        },
+        "intratumoral": intra,
+        "extratumoral": extra,
+        "invasion_front": {"width_um": front_width_um, **_stats(front)},
+        "tumor_center": _stats(center),
+        "tumor_epithelial_cells": int((in_tumor & (grp == 1)).sum()),
+        # >1 → lymphoid relatively enriched inside the tumor; <1 → immune exclusion
+        "intratumoral_vs_extratumoral_lymphoid_ratio":
+            round(intra_f / extra_f, 3) if intra_f and extra_f else None,
+    }
+
+
+def _cell_spatial_features(geojson_path: str, neighbor_radius_px: Optional[float],
+                           max_cells: int) -> dict:
+    """Compute SPARK-style spatial single-cell features from a HoVer-NeXt cell
+    GeoJSON (a FeatureCollection of classified Points).
+
+    Streams the file (ijson) so large slides don't blow memory. Per-class counts
+    and fractions are computed over ALL cells (exact, cheap Counter). Only the
+    epithelial + lymphoid *coordinates* needed for the spatial metric are stored,
+    each capped at max_cells (flagged `spatial_approximate` if hit). Returns
+    immune/lymphoid ratios and a tumor-infiltration metric (fraction of
+    epithelial cells with a lymphoid cell within neighbor_radius_px — in level-0
+    slide pixel space; the caller converts µm→px via the slide mpp). Ratios are
+    scale-invariant; absolute densities are out of scope here.
+    """
+    import ijson
+    from collections import Counter
+
+    counts: Counter = Counter()
+    epi: list = []             # epithelial (tumor-proxy) coords
+    lymph: list = []           # lymphoid coords (lymphocyte + plasma-cell)
+    spatial_capped = False
+    try:
+        with open(geojson_path, "rb") as fh:
+            for feat in ijson.items(fh, "features.item"):
+                geom = feat.get("geometry") or {}
+                if geom.get("type") != "Point":
+                    continue
+                name = ((feat.get("properties") or {}).get("classification") or {}).get("name")
+                if not name:
+                    continue
+                counts[name] += 1                       # exact over the full slide
+                xy = geom.get("coordinates")
+                if not xy or len(xy) < 2:
+                    continue
+                if name == _EPITHELIAL_CELL:
+                    if len(epi) < max_cells:
+                        epi.append((float(xy[0]), float(xy[1])))
+                    else:
+                        spatial_capped = True
+                elif name in _LYMPHOID_CELLS:
+                    if len(lymph) < max_cells:
+                        lymph.append((float(xy[0]), float(xy[1])))
+                    else:
+                        spatial_capped = True
+    except Exception as e:
+        return {"error": f"Failed to parse cell GeoJSON: {e}"}
+
+    total = sum(counts.values())
+    if total == 0:
+        return {"error": "No classified point cells found in GeoJSON."}
+
+    feats = {
+        "counts": dict(counts),
+        "fractions": {c: round(counts[c] / total, 4) for c in counts},
+        **_detection_metrics(dict(counts), total),
+    }
+
+    # Spatial tumor infiltration: lymphoid cells near epithelial (tumor) cells.
+    # Skipped when no radius is given (e.g. slide mpp was unavailable upstream).
+    import numpy as np
+    from scipy.spatial import cKDTree
+    if epi and lymph and neighbor_radius_px:
+        tree = cKDTree(np.asarray(lymph))
+        near = tree.query_ball_point(np.asarray(epi), r=neighbor_radius_px,
+                                     return_length=True)
+        feats["spatial"] = {
+            "neighbor_radius_px": neighbor_radius_px,
+            "epithelial_cells": len(epi),
+            "epithelial_infiltrated_fraction": round(float((near > 0).mean()), 4),
+            "mean_lymphoid_neighbors_per_epithelial": round(float(near.mean()), 3),
+            "approximate": spatial_capped,
+        }
+    return feats
+
+
 def get_tools(db: Session, user: User) -> list:
     """Build the per-request tool set. Lazily imports langchain_core."""
     from langchain_core.tools import tool
+    # Lazy (see module-top note): safe here because get_tools runs at graph-build
+    # time, by which point both the routers package and this module are fully
+    # imported — no partial-init cycle.
+    from ..routers.patients import enrich_snomed_codes
 
     settings = get_settings()
     max_rows = settings.agent_max_tool_rows
@@ -62,14 +408,17 @@ def get_tools(db: Session, user: User) -> list:
         magnification_min: Optional[float] = None,
         magnification_max: Optional[float] = None,
         max_rows: int = 50,
+        sort: Optional[str] = None,
     ) -> str:
         """...
         return_level is one of patient, submission, probe, block, scan.
         Dates are ISO (YYYY-MM-DD). Validate topography/morphology/etiology/stain
         values with lookup_filter_values first. Cannot express negative-stain or
         count constraints.
+        `sort`: 'recent' orders results by report_date (newest first), 'oldest'
+        (newest last). Combine with max_rows to answer 'the N most recent …'.
         """
-        from ..routers.cohorts import _run_cohort_query
+        from ..routers.cohorts import _get_results_for_cohort
         from ..schemas import CohortFilter
         raw = dict(
             return_level=return_level,
@@ -77,8 +426,11 @@ def get_tools(db: Session, user: User) -> list:
             snomed_topo_codes=snomed_topo_codes,
             snomed_morph_codes=snomed_morph_codes,
             morph_description_search=[morph_description_search] if morph_description_search else None,
-            snomed_etiology_codes=snomed_etiology_codes,
-            etiology_description_search=[etiology_description_search] if etiology_description_search else None,
+            # CohortFilter's fields are snomed_etio_codes / etio_description_search;
+            # the tool params keep the 'etiology' spelling (matching lookup_filter_values),
+            # so map them here — otherwise pydantic (extra='ignore') silently drops them.
+            snomed_etio_codes=snomed_etiology_codes,
+            etio_description_search=[etiology_description_search] if etiology_description_search else None,
             submission_types=submission_types,
             malignancy_flag=malignancy_flag,
             submission_date_from=submission_date_from,
@@ -92,12 +444,33 @@ def get_tools(db: Session, user: User) -> list:
         )
         try:
             f = CohortFilter(**{k: v for k, v in raw.items() if v is not None})
-            rows = _run_cohort_query(f, db)
+            rows, _not_found = _get_results_for_cohort(f, db)
             total = len(rows)
-            sample = rows[:max_rows]
+            # Optional recency sort by report_date. Sort the FULL result set
+            # before slicing so "the N most recent" returns the right N. Dated
+            # rows come first (ordered by direction); rows without a report_date
+            # (e.g. some non-submission levels) always sort last.
+            if sort in ("recent", "oldest"):
+                dated = [r for r in rows if r.get("report_date")]
+                undated = [r for r in rows if not r.get("report_date")]
+                dated.sort(key=lambda r: r["report_date"], reverse=(sort == "recent"))
+                rows = dated + undated
+            ordered = (" (newest first)" if sort == "recent"
+                       else " (oldest first)" if sort == "oldest" else "")
+            # Slim each row: cohort results are for identifying/counting cases,
+            # so DROP the full report bodies (report_macro / report_microscopy) —
+            # 50 rows of full reports is tens of thousands of tokens and blows the
+            # context window when the agent loops. Keep a boolean flag; the agent
+            # uses get_report_text for the actual text of a specific submission.
+            sample = []
+            for r in rows[:max_rows]:
+                row = {k: v for k, v in r.items()
+                       if k not in ("report_macro", "report_microscopy")}
+                row["has_report"] = bool(r.get("report_macro") or r.get("report_microscopy"))
+                sample.append(row)
             return _dumps({
-                "summary": f"{total} result(s) at {return_level} level"
-                           + (f" (showing first {max_rows})" if total > max_rows else ""),
+                "summary": f"{total} result(s) at {return_level} level{ordered}"
+                           + (f" (showing {max_rows})" if total > max_rows else ""),
                 "total": total, "results": sample, "citations": [],
             })
         except Exception as e:
@@ -117,12 +490,105 @@ def get_tools(db: Session, user: User) -> list:
                        "values": values, "citations": []})
 
     @tool
+    def lookup_snomed(query: str, category: Optional[str] = None) -> str:
+        """Resolve the SNOMED codes PathoDB uses. Give a CODE (e.g. 'M-81403') to
+        get its meaning, or a TERM to find matching codes. The term can be a
+        precise entity ('adenocarcinoma') OR a broad/umbrella concept ('solid
+        tumor', 'inflammation'): exact substring matches are returned as
+        match='exact', and codes that are semantically RELATED (by meaning, not
+        wording) as match='related'. So an umbrella query like 'solid tumor'
+        surfaces carcinoma/adenocarcinoma/sarcoma even though no description
+        contains that phrase. Optional `category` limits to 'morphology',
+        'etiology', or 'topography'. Distinct from lookup_filter_values, which
+        autocompletes filter values for building a query_cohort filter."""
+        from ..models import SnomedCode
+        term = (query or "").strip()
+        if not term:
+            return _err("Provide a SNOMED code or a term to look up.")
+        base = db.query(SnomedCode)
+        if category:
+            cat = category.strip().lower()
+            if cat not in ("morphology", "etiology", "topography"):
+                return _err("category must be morphology, etiology, or topography")
+            base = base.filter(SnomedCode.category == cat)
+        else:
+            cat = None
+        # A code contains digits; a term does not. Search the likely column first,
+        # then fall back to the other so either direction resolves.
+        looks_like_code = any(ch.isdigit() for ch in term)
+        primary = SnomedCode.code if looks_like_code else SnomedCode.description
+        secondary = SnomedCode.description if looks_like_code else SnomedCode.code
+        rows = base.filter(primary.ilike(f"%{term}%")).limit(max_rows).all()
+        if not rows:
+            rows = base.filter(secondary.ilike(f"%{term}%")).limit(max_rows).all()
+        exact = [{"code": r.code, "category": r.category,
+                  "description": r.description, "match": "exact"} for r in rows]
+
+        # Semantic augmentation: for TERM queries (not raw codes), add codes that
+        # are related by meaning so conceptual/umbrella queries aren't dead ends.
+        related = []
+        if not looks_like_code and len(exact) < max_rows:
+            try:
+                from .snomed_index import semantic_search, EmbeddingsUnavailable
+                have = {e["code"] for e in exact}
+                for r in semantic_search(db, term, category=cat,
+                                         top_k=min(10, max_rows)):
+                    if r["code"] not in have:
+                        related.append({"code": r["code"], "category": r["category"],
+                                        "description": r["description"],
+                                        "score": r["score"], "match": "related"})
+            except EmbeddingsUnavailable:
+                pass  # embedder not loaded — substring-only, still works
+            except Exception as e:
+                log.warning("SNOMED semantic lookup failed: %s", e)
+
+        results = exact + related
+        cat_txt = f" in {category}" if category else ""
+        if exact:
+            summary = (f"{len(exact)} exact"
+                       + (f" + {len(related)} related" if related else "")
+                       + f" SNOMED match(es) for '{term}'{cat_txt}")
+        elif related:
+            summary = (f"No exact SNOMED match for '{term}'{cat_txt}; "
+                       f"{len(related)} semantically related code(s) shown — "
+                       f"use these rather than re-searching the literal phrase")
+        else:
+            summary = f"No SNOMED matches for '{term}'{cat_txt}"
+        return _dumps({"summary": summary, "results": results, "citations": []})
+
+    @tool
+    def search_documentation(query: str, top_k: Optional[int] = None) -> str:
+        """Look up PathoDB's own documentation and canonical glossary: definitions
+        of domain terms (Scan vs slide, Cohort vs Custom list, project/TMA types,
+        stains), platform capabilities and how the system is organized. Use for
+        'what does X mean here', 'difference between A and B', or 'what can this
+        platform do' questions. This is DOC/GLOSSARY retrieval — distinct from
+        semantic_report_search, which searches patient report text."""
+        from .knowledge import search_docs, KnowledgeUnavailable
+        try:
+            hits = search_docs(query, top_k=top_k)
+        except KnowledgeUnavailable as e:
+            return _err(f"Documentation index unavailable: {e}")
+        if not hits:
+            return _dumps({"summary": f"No documentation matches for '{query}'.",
+                           "results": [], "citations": []})
+        return _dumps({
+            "summary": f"{len(hits)} documentation section(s) matched '{query}'",
+            "results": [{"source": h["file"], "section": h["heading"],
+                         "excerpt": h["excerpt"]} for h in hits],
+            "citations": [{"type": "doc", "id": h["file"],
+                           "label": f'{h["file"]} — {h["heading"]}'} for h in hits],
+        })
+
+    @tool
     def semantic_report_search(query: str, top_k: Optional[int] = None) -> str:
-        """Semantic search over pathology report text (macro/microscopy). Use for
-        free-text questions about wording/findings, e.g. 'cases mentioning
-        perineural invasion'. Returns matching report excerpts with citations.
-        Falls back gracefully if embeddings are not loaded — in that case,
-        use search_reports_keyword instead."""
+        """Hybrid search over pathology report text (macro/microscopy): combines
+        dense semantic (meaning/paraphrase) with lexical full-text (exact rare
+        terms — drug names, mutations, codes) and fuses them, then optionally
+        reranks. Use for free-text questions about wording/findings, e.g. 'cases
+        mentioning perineural invasion'. Returns matching report excerpts with
+        citations. Falls back gracefully if embeddings are not loaded — in that
+        case, use search_reports_keyword instead."""
         from .rag import retrieve
         from .embeddings import EmbeddingsUnavailable
         try:
@@ -142,7 +608,11 @@ def get_tools(db: Session, user: User) -> list:
 
     @tool
     def universal_search(q: str) -> str:
-        """Exact-match lookup of a patient code, B-number, submission ID or probe ID."""
+        """Exact-match lookup of a patient code, B-number, submission ID or probe ID.
+        Each result carries both `patient_id` (internal, for URLs) and
+        `patient_code` (the LIS code). To then fetch that patient's history, pass
+        the result's `patient_code` to get_patient_history — never the
+        `patient_id` (the two namespaces can collide and return a wrong patient)."""
         from ..routers.search import universal_search as _search
         try:
             hits = _search(q=q, db=db, _=user)
@@ -306,9 +776,15 @@ def get_tools(db: Session, user: User) -> list:
     @tool
     def get_patient_history(patient_code: str) -> str:
         """Raw structured history for a patient: all submissions in chronological
-        order with dates, topography, malignancy flags, probe/block/scan counts,
-        and report availability. Does NOT require embeddings and always works
-        even when no cached summary exists."""
+        order with dates, topography, morphology, etiology, malignancy flags,
+        probe/block/scan counts, and report availability. Does NOT require
+        embeddings and always works even when no cached summary exists.
+
+        IMPORTANT: `patient_code` is the LIS patient code — use the
+        `patient_code` field from universal_search's results, NOT the numeric
+        `patient_id` and NOT a submission/B-number. patient_id and patient_code
+        are different namespaces that can collide, so passing an id here can
+        silently return a DIFFERENT patient."""
         pat = db.query(Patient).filter(Patient.patient_code == patient_code).first()
         if not pat:
             return _err(f"Patient '{patient_code}' not found")
@@ -320,14 +796,25 @@ def get_tools(db: Session, user: User) -> list:
             .all()
         )
         entries = []
+
+        def _code_labels(codes: list) -> list:
+            """Dedupe SNOMED codes and render each as its description (falling
+            back to the raw code when the master vocabulary has no description)."""
+            uniq = list(dict.fromkeys(codes))
+            return [e["description"] or e["code"] for e in enrich_snomed_codes(db, uniq)]
+
         for sub in subs:
             probes = db.query(Probe).filter(Probe.submission_id == sub.id).all()
             topo_set = set()
+            morph_codes: list = []
+            etio_codes: list = []
             block_count = 0
             scan_count = 0
             for probe in probes:
                 if probe.topo_description:
                     topo_set.add(probe.topo_description)
+                morph_codes.extend(probe.snomed_morph_codes or [])
+                etio_codes.extend(probe.snomed_etio_codes or [])
                 blocks = db.query(Block).filter(Block.probe_id == probe.id).all()
                 block_count += len(blocks)
                 for block in blocks:
@@ -339,6 +826,8 @@ def get_tools(db: Session, user: User) -> list:
                 "date": str(sub.report_date) if sub.report_date else None,
                 "malignancy": sub.malignancy_flag,
                 "topographies": list(topo_set),
+                "morphologies": _code_labels(morph_codes),
+                "etiologies": _code_labels(etio_codes),
                 "probe_count": len(probes),
                 "block_count": block_count,
                 "scan_count": scan_count,
@@ -467,6 +956,190 @@ def get_tools(db: Session, user: User) -> list:
             "params": job.params_json,
             "created_at": str(job.created_at) if job.created_at else None,
             "citations": cite,
+        })
+
+    @tool
+    def read_analysis_result(job_id: int) -> str:
+        """Read and summarize the actual OUTPUT of a completed analysis job — the
+        model's findings, not just its status/path. Returns interpretable results:
+        lymph-node metastasis status + measurements (metassist), or tissue-class
+        composition percentages (tissue segmentation). Use for "what did the
+        analysis find?", "summarize this run", or comparing outputs across jobs.
+        Does NOT return raw GeoJSON/overlay geometry."""
+        from ..models import AnalysisJob
+        job = db.get(AnalysisJob, job_id)
+        if not job:
+            return _err(f"Job {job_id} not found")
+        if job.status != "done":
+            return _err(f"Job {job_id} is '{job.status}', not done — no result to read yet.")
+
+        result_file = _find_result_json(job, settings.analysis_results_dir)
+        if result_file is None:
+            return _err(f"Result file not found for job {job_id}.")
+        try:
+            data = json.loads(result_file.read_text(encoding="utf-8"))
+        except Exception as e:
+            return _err(f"Failed to read result.json for job {job_id}: {e}")
+
+        cite = [{"type": "scan", "id": job.scan_id,
+                 "label": f"scan {job.scan_id}", "url": f"/viewer/{job.scan_id}"}]
+
+        # Batch result — a list of per-scan outcomes.
+        if isinstance(data.get("scans"), list):
+            scans = data["scans"]
+            summaries = []
+            for s in scans[:max_rows]:
+                summ = _summarize_outcome(s.get("outcome"), s.get("model_id") or job.model_id)
+                summ["scan_id"] = s.get("scan_id")
+                summaries.append(summ)
+            return _dumps({
+                "summary": f"Job {job_id} ({job.model_id}): batch result over {len(scans)} scan(s).",
+                "job_id": job.id, "model_id": job.model_id, "scan_count": len(scans),
+                "results": summaries, "citations": cite,
+            })
+
+        summarized = _summarize_outcome(data.get("outcome"), data.get("model_id") or job.model_id)
+        return _dumps({
+            "summary": f"Job {job_id} ({job.model_id}) result: {summarized.get('headline', 'see details')}",
+            "job_id": job.id, "scan_id": job.scan_id,
+            "model_id": data.get("model_id") or job.model_id,
+            "scope": data.get("scope"),
+            "result": summarized,
+            "total_time_s": (data.get("timing") or {}).get("total_s"),
+            "citations": cite,
+        })
+
+    @tool
+    def compute_cell_spatial_features(job_id: int, neighbor_radius_um: float = 30.0) -> str:
+        """Compute spatial single-cell features from a completed HoVer-NeXt
+        (multiclass_detection) job by reading the cell GeoJSON it produced:
+        per-class counts and fractions, immune/lymphoid fractions, the
+        lymphoid-to-epithelial ratio, and a tumor-infiltration metric — the
+        fraction of epithelial (tumor) cells with a lymphoid cell within
+        neighbor_radius_um micrometres (converted to pixels via the slide's
+        level-0 mpp). Use for TIL / immune-infiltration questions that go beyond
+        the counts in read_analysis_result. Returns aggregates only, never
+        per-cell geometry. 30 µm ≈ a few cell diameters."""
+        from pathlib import Path
+        from ..models import AnalysisJob
+        job = db.get(AnalysisJob, job_id)
+        if not job:
+            return _err(f"Job {job_id} not found")
+        if job.status != "done":
+            return _err(f"Job {job_id} is '{job.status}', not done.")
+        rj = _find_result_json(job, settings.analysis_results_dir)
+        if rj is None:
+            return _err(f"Result file not found for job {job_id}.")
+        try:
+            data = json.loads(rj.read_text(encoding="utf-8"))
+        except Exception as e:
+            return _err(f"Failed to read result.json: {e}")
+
+        gj = (data.get("files") or {}).get("download_file")
+        gj_path = Path(gj) if gj else None
+        if gj_path is None or not gj_path.exists():
+            matches = list(rj.parent.glob("*_cells.geojson"))
+            gj_path = matches[0] if matches else None
+        if gj_path is None or not gj_path.exists():
+            return _err(f"Cell GeoJSON not found for job {job_id}. "
+                        "Is this a HoVer-NeXt detection job?")
+
+        # GeoJSON coords are in level-0 slide pixels → convert µm radius via mpp.
+        mpp = _slide_base_mpp(data.get("scan_path"))
+        radius_px = (neighbor_radius_um / mpp) if mpp else None
+
+        feats = _cell_spatial_features(str(gj_path), radius_px,
+                                       max_cells=settings.agent_max_cells)
+        if "error" in feats:
+            return _err(feats["error"])
+
+        if feats.get("spatial") is not None:
+            feats["spatial"]["neighbor_radius_um"] = neighbor_radius_um
+            feats["spatial"]["neighbor_radius_px"] = round(radius_px, 1)
+            feats["spatial"]["slide_mpp_um_px"] = round(mpp, 4)
+        elif mpp is None:
+            feats["spatial_note"] = ("slide mpp unavailable (scan_path missing/unreadable); "
+                                     "cannot convert µm→px, so the infiltration metric was skipped.")
+
+        cite = [{"type": "scan", "id": job.scan_id,
+                 "label": f"scan {job.scan_id}", "url": f"/viewer/{job.scan_id}"}]
+        headline = f"{feats['total_cells']} cells, immune {feats.get('immune_fraction') or 0:.0%}"
+        if feats.get("spatial"):
+            headline += (f", {feats['spatial']['epithelial_infiltrated_fraction']:.0%} of epithelial "
+                         f"cells infiltrated within {neighbor_radius_um:g}µm")
+        approx = (feats.get("spatial") or {}).get("approximate")
+        return _dumps({
+            "summary": f"Job {job_id} spatial cell features — {headline}"
+                       + (" (spatial metric approximate: cell cap hit)" if approx else ""),
+            "job_id": job.id, "scan_id": job.scan_id,
+            "features": feats, "citations": cite,
+        })
+
+    @tool
+    def compute_tumor_infiltration(detection_job_id: int, segmentation_job_id: int,
+                                   front_width_um: float = 250.0) -> str:
+        """Combine a HoVer-NeXt cell-detection job with a CRC tissue-segmentation
+        job on the SAME slide to measure immune infiltration in tumor context:
+        intratumoral vs extratumoral lymphoid load, invasion-front vs
+        tumor-center gradient, and an immune-exclusion ratio (<1 = lymphocytes
+        excluded to the periphery). front_width_um is the invasion-margin width
+        (tumor within it of the boundary is the 'front'). Use for 'are the
+        lymphocytes inside the tumor or excluded?' / TIL-topology questions.
+        Both jobs must be done and on the same scan. Aggregates only."""
+        from pathlib import Path
+        from ..models import AnalysisJob
+        det = db.get(AnalysisJob, detection_job_id)
+        seg = db.get(AnalysisJob, segmentation_job_id)
+        if not det or not seg:
+            return _err("Detection or segmentation job not found.")
+        if det.status != "done" or seg.status != "done":
+            return _err("Both jobs must be 'done'.")
+        if det.scan_id != seg.scan_id:
+            return _err(f"Jobs are on different scans ({det.scan_id} vs {seg.scan_id}); "
+                        "both must be run on the same slide.")
+
+        def _gj(job, pat):
+            rj = _find_result_json(job, settings.analysis_results_dir)
+            if rj is None:
+                return None, None
+            try:
+                data = json.loads(rj.read_text(encoding="utf-8"))
+            except Exception:
+                return None, None
+            g = (data.get("files") or {}).get("download_file")
+            p = Path(g) if g else None
+            if p is None or not p.exists():
+                matches = list(rj.parent.glob(pat))
+                p = matches[0] if matches else None
+            return (p if (p and p.exists()) else None), data
+
+        cells_gj, det_data = _gj(det, "*_cells.geojson")
+        tumor_gj, _ = _gj(seg, "*.geojson")
+        if cells_gj is None:
+            return _err(f"Cell GeoJSON not found for detection job {detection_job_id}.")
+        if tumor_gj is None:
+            return _err(f"Segmentation GeoJSON not found for job {segmentation_job_id}.")
+
+        mpp = _slide_base_mpp((det_data or {}).get("scan_path"))
+        if not mpp:
+            return _err("Slide mpp unavailable; cannot convert the invasion-front width to pixels.")
+
+        tumor_mask, eff_ds = _tumor_mask_from_crc_geojson(str(tumor_gj))
+        feats = _tumor_infiltration_features(str(cells_gj), tumor_mask, eff_ds, mpp,
+                                             front_width_um, settings.agent_max_cells)
+        if "error" in feats:
+            return _err(feats["error"])
+
+        cite = [{"type": "scan", "id": det.scan_id,
+                 "label": f"scan {det.scan_id}", "url": f"/viewer/{det.scan_id}"}]
+        intra, extra = feats["intratumoral"], feats["extratumoral"]
+        headline = (f"intratumoral lymphoid {intra['lymphoid_fraction'] or 0:.0%} vs "
+                    f"extratumoral {extra['lymphoid_fraction'] or 0:.0%}")
+        return _dumps({
+            "summary": f"Tumor infiltration (jobs {detection_job_id}+{segmentation_job_id}) — {headline}"
+                       + (" (approximate: cell cap hit)" if feats.get("approximate") else ""),
+            "detection_job_id": det.id, "segmentation_job_id": seg.id,
+            "scan_id": det.scan_id, "features": feats, "citations": cite,
         })
 
     @tool
@@ -747,11 +1420,15 @@ def get_tools(db: Session, user: User) -> list:
         # Tier 0
         query_cohort, lookup_filter_values, semantic_report_search, universal_search,
         get_stats, slide_info, patient_summary, list_analysis_models,
+        # Knowledge grounding (glossary/docs + SNOMED vocabulary)
+        lookup_snomed, search_documentation,
         # Tier 1 — direct record access
         get_report_text, get_submission_hierarchy, get_patient_history,
         search_reports_keyword,
         # Tier 2 — analysis & exploration
-        list_analysis_jobs, get_job_result, get_data_overview, compare_submissions,
+        list_analysis_jobs, get_job_result, read_analysis_result,
+        compute_cell_spatial_features, compute_tumor_infiltration,
+        get_data_overview, compare_submissions,
         # Tier 3 — projects & annotations
         list_projects, get_project_summary,
         # Tier 4 — actions (confirmation-gated)

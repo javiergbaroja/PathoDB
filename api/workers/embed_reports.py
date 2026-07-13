@@ -6,12 +6,23 @@ agent's semantic_report_search tool can retrieve relevant excerpts.
 
 Idempotent + resumable: only embeds reports that don't yet have embeddings.
 
+Throughput design (tuned for ~1M reports on one GPU):
+  - Chunks are buffered ACROSS reports and embedded in large GPU batches
+    (`--embed-batch`), instead of one small encode() call per report — this is
+    what keeps the GPU saturated rather than idle at batch size 1.
+  - Rows are written with a single multi-row INSERT per flush (execute_values).
+  - Flushes happen on report boundaries, so every committed flush contains only
+    whole reports and the run stays crash-safe/resumable.
+  - Build the pgvector HNSW index AFTER the bulk load (see slurm_embed.sh), not
+    incrementally per row.
+
 Run from the repo root (conda env `langchain`):
     python api/workers/embed_reports.py --report-type all
     python api/workers/embed_reports.py --report-type microscopy --limit 500
 
 Requires: pgvector enabled + schema applied (db/schema.sql), sentence-transformers,
-and the embedding model configured in api/config.py (default BAAI/bge-base-en-v1.5).
+and the embedding model configured in api/config.py (default BAAI/bge-m3, 1024-dim).
+The report_embeddings.embedding column dim MUST match settings.embedding_dim.
 """
 import argparse
 import logging
@@ -35,6 +46,44 @@ log = logging.getLogger("embed_reports")
 
 def _vector_literal(vec) -> str:
     return "[" + ",".join(f"{x:.6f}" for x in vec) + "]"
+
+
+def _bulk_insert(db, rows) -> None:
+    """Insert many embedding rows in a single round-trip.
+
+    `rows` is a list of (report_id, submission_id, chunk_index, chunk_text,
+    vector_literal). Uses psycopg2's execute_values (one multi-row INSERT) when
+    available, falling back to a Core executemany otherwise. ON CONFLICT keeps
+    the run idempotent across re-runs/overlaps.
+    """
+    if not rows:
+        return
+    try:
+        from psycopg2.extras import execute_values
+    except ImportError:
+        execute_values = None
+
+    if execute_values is not None:
+        # Share the session's connection/transaction so db.commit() persists it.
+        dbapi = db.connection().connection.dbapi_connection
+        with dbapi.cursor() as cur:
+            execute_values(
+                cur,
+                "INSERT INTO report_embeddings "
+                "(report_id, submission_id, chunk_index, chunk_text, embedding) "
+                "VALUES %s ON CONFLICT (report_id, chunk_index) DO NOTHING",
+                rows,
+                template="(%s,%s,%s,%s,%s::vector)",
+                page_size=1000,
+            )
+    else:
+        db.execute(text("""
+            INSERT INTO report_embeddings
+                (report_id, submission_id, chunk_index, chunk_text, embedding)
+            VALUES (:rid, :sid, :ci, :ct, CAST(:emb AS vector))
+            ON CONFLICT (report_id, chunk_index) DO NOTHING
+        """), [{"rid": r[0], "sid": r[1], "ci": r[2], "ct": r[3], "emb": r[4]}
+               for r in rows])
 
 
 def _warmup_model() -> int:
@@ -191,10 +240,11 @@ def main():
     ap.add_argument("--report-type", choices=["microscopy", "macro", "all"], default="all")
     ap.add_argument("--limit",        type=int, default=None,
                     help="Max reports to process this run.")
-    ap.add_argument("--report-batch", type=int, default=50,
-                    help="Reports per DB commit (default 50).")
-    ap.add_argument("--fetch-size",   type=int, default=500,
-                    help="Rows fetched from DB per round-trip (default 500).")
+    ap.add_argument("--embed-batch",  type=int, default=1024,
+                    help="Chunks buffered and embedded/inserted per GPU flush "
+                         "(default 1024). Larger = better GPU utilisation.")
+    ap.add_argument("--fetch-size",   type=int, default=2048,
+                    help="Rows fetched from DB per round-trip (default 2048).")
     args = ap.parse_args()
 
     settings = get_settings()
@@ -203,7 +253,14 @@ def main():
     # Loading a GPU model can take several minutes.  If the DB connection were
     # already open it would sit idle for that entire time and PostgreSQL may
     # close it (idle_in_transaction_session_timeout, OOM-kill, etc.).
-    _warmup_model()
+    dim = _warmup_model()
+    if dim != settings.embedding_dim:
+        log.error(
+            "Model output dim (%d) != settings.embedding_dim (%d). Fix config "
+            "and the report_embeddings.embedding column together before running.",
+            dim, settings.embedding_dim,
+        )
+        sys.exit(1)
 
     # ── Step 2: open DB, run diagnostics, count pending ───────────────────────
     db = SessionLocal()
@@ -223,37 +280,45 @@ def main():
             return
 
         # ── Step 3: stream + embed + insert ──────────────────────────────────
-        pending_commit = 0
+        # Buffer chunks across reports and flush in large GPU batches. The
+        # buffer is only flushed *between* reports, so each committed flush
+        # holds whole reports and a crash mid-buffer simply leaves those reports
+        # pending (they get re-embedded on the next run).
         t_start = time.time()
+        buf_meta: list[tuple[int, int, int]] = []   # (report_id, submission_id, chunk_index)
+        buf_text: list[str] = []
+
+        def flush():
+            nonlocal total_chunks
+            if not buf_text:
+                return
+            vectors = embed_texts(buf_text)
+            rows = [
+                (m[0], m[1], m[2], t, _vector_literal(v))
+                for m, t, v in zip(buf_meta, buf_text, vectors)
+            ]
+            _bulk_insert(db, rows)
+            db.commit()
+            total_chunks += len(rows)
+            buf_meta.clear()
+            buf_text.clear()
 
         for rid, sid, rtext in _iter_pending(
             db, args.report_type, args.limit, args.fetch_size
         ):
-            chunks  = chunk_report(rtext, settings.rag_max_chunk_chars,
-                                   settings.rag_chunk_overlap_chars)
+            chunks = chunk_report(rtext, settings.rag_max_chunk_chars,
+                                  settings.rag_chunk_overlap_chars)
             if not chunks:
                 continue
 
-            vectors = embed_texts(chunks)
-
-            for ci, (chunk, vec) in enumerate(zip(chunks, vectors)):
-                db.execute(text("""
-                    INSERT INTO report_embeddings
-                        (report_id, submission_id, chunk_index, chunk_text, embedding)
-                    VALUES (:rid, :sid, :ci, :ct, CAST(:emb AS vector))
-                    ON CONFLICT (report_id, chunk_index) DO NOTHING
-                """), {
-                    "rid": rid, "sid": sid, "ci": ci,
-                    "ct":  chunk, "emb": _vector_literal(vec),
-                })
-                total_chunks += 1
-
+            for ci, chunk in enumerate(chunks):
+                buf_meta.append((rid, sid, ci))
+                buf_text.append(chunk)
             total_reports += 1
-            pending_commit += 1
 
-            if pending_commit >= args.report_batch:
-                db.commit()
-                pending_commit = 0
+            # Flush only on a report boundary once the buffer is large enough.
+            if len(buf_text) >= args.embed_batch:
+                flush()
                 elapsed = time.time() - t_start
                 rate    = total_reports / elapsed if elapsed > 0 else 0
                 done_pct = 100 * total_reports / n_pending if n_pending else 0
@@ -265,7 +330,7 @@ def main():
                     total_chunks, rate, eta_h,
                 )
 
-        db.commit()
+        flush()
         elapsed = time.time() - t_start
         log.info(
             "Done. Embedded %d report(s) into %d chunk(s) in %.1f min.",

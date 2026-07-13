@@ -49,6 +49,10 @@ def _resolve_b_number(term: str, db: Session) -> list[dict]:
                 "label":         sub.lis_submission_id,
                 "sub_label":     f"Report: {sub.report_date or '—'}" + (" · Malignant" if sub.malignancy_flag else ""),
                 "patient_id":    sub.patient_id,
+                # patient_code is the key downstream patient tools (e.g.
+                # get_patient_history) expect. It is a DIFFERENT namespace from
+                # patient_id and the two can collide, so always surface both.
+                "patient_code":  patient.patient_code,
                 "url":           f"/patients/{sub.patient_id}",
             })
 
@@ -119,6 +123,7 @@ def universal_search(
             "label":      patient.patient_code,
             "sub_label":  f"{patient.sex or '?'} · {patient.date_of_birth or 'DOB unknown'}",
             "patient_id": patient.id,
+            "patient_code": patient.patient_code,
             "url":        f"/patients/{patient.id}",
         })
         return results
@@ -128,11 +133,13 @@ def universal_search(
         Submission.lis_submission_id == term
     ).first()
     if sub:
+        sub_patient = db.get(Patient, sub.patient_id)
         results.append({
             "type":          "submission",
             "label":         sub.lis_submission_id,
             "sub_label":     f"Report: {sub.report_date or '—'}" + (" · Malignant" if sub.malignancy_flag else ""),
             "patient_id":    sub.patient_id,
+            "patient_code":  sub_patient.patient_code if sub_patient else None,
             "url":           f"/patients/{sub.patient_id}",
         })
         return results
@@ -144,11 +151,13 @@ def universal_search(
     if probe:
         sub = db.get(Submission, probe.submission_id)
         if sub:
+            probe_patient = db.get(Patient, sub.patient_id)
             results.append({
                 "type":       "probe",
                 "label":      probe.lis_probe_id,
                 "sub_label":  probe.topo_description or probe.snomed_topo_code or "Unknown site",
                 "patient_id": sub.patient_id,
+                "patient_code": probe_patient.patient_code if probe_patient else None,
                 "url":        f"/patients/{sub.patient_id}",
             })
         return results

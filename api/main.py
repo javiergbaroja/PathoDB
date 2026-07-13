@@ -33,7 +33,23 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         log.error(f"Database connection failed: {e}")
         raise
+    # Install the async-capable agent checkpointer BEFORE serving requests. The
+    # server drives the graph with astream(), which needs the checkpointer's
+    # async methods; without this it would use the sync saver and every chat
+    # would fail with NotImplementedError on aget_tuple. Best-effort: on failure
+    # it falls back to an (async-capable) MemorySaver and logs loudly.
+    if settings.agent_enabled:
+        try:
+            from .agent.checkpoint import init_async_checkpointer
+            await init_async_checkpointer()
+        except Exception as e:
+            log.error(f"Agent checkpointer init failed: {e}")
     yield
+    try:
+        from .agent.checkpoint import close_checkpointer
+        await close_checkpointer()
+    except Exception:
+        pass
     log.info("PathoDB API shutting down.")
 
 

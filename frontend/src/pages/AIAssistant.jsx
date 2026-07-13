@@ -76,6 +76,10 @@ export default function AIAssistant() {
 
   const streamHandlers = {
     onToken:        (t) => patchLast(m => ({ ...m, content: (m.content || '') + t })),
+    onStage:        (s) => patchLast(m => ({ ...m, stage: s })),
+    onPlan:         (p) => patchLast(m => ({ ...m, plan: p })),
+    onThinking:     (t) => patchLast(m => ({ ...m, thinking: (m.thinking || '') + t })),
+    onReasoning:    (r) => patchLast(m => ({ ...m, reasoning: [...(m.reasoning || []), r] })),
     onToolCall:     (tc) => patchLast(m => ({ ...m, tools: [...m.tools, { kind: 'call', ...tc }] })),
     onToolResult:   (tr) => patchLast(m => ({ ...m, tools: [...m.tools, { kind: 'result', ...tr }] })),
     onCitations:    (cs) => patchLast(m => ({ ...m, citations: dedupeCitations([...m.citations, ...cs]) })),
@@ -86,7 +90,7 @@ export default function AIAssistant() {
   }
 
   function startAssistantTurn() {
-    setMessages(m => [...m, { role: 'assistant', content: '', citations: [], tools: [], confirmation: null, streaming: true }])
+    setMessages(m => [...m, { role: 'assistant', content: '', citations: [], tools: [], confirmation: null, streaming: true, stage: null, plan: null, thinking: '', reasoning: [] }])
     setStreaming(true)
   }
 
@@ -134,6 +138,31 @@ export default function AIAssistant() {
                 {msg.role === 'user' ? initials : 'AI'}
               </div>
               <div style={{ maxWidth: '78%', display: 'flex', flexDirection: 'column', gap: 6 }}>
+                {/* Thought process — plan, chain-of-thought, and step reasoning */}
+                {(msg.plan || msg.thinking || msg.reasoning?.length > 0 || (msg.streaming && msg.stage)) && (
+                  <details open={msg.streaming} style={{ fontSize: 11, color: 'var(--text-3)', border: '1px solid var(--border-l)', borderRadius: 8, padding: '4px 8px', background: 'var(--navy-2, #f7f8fa)' }}>
+                    <summary style={{ cursor: 'pointer', userSelect: 'none', fontWeight: 600 }}>
+                      {msg.streaming && msg.stage ? `🧠 ${msg.stage}…` : '🧠 Thought process'}
+                    </summary>
+                    {msg.plan && (
+                      <div style={{ marginTop: 6 }}>
+                        <div style={{ fontWeight: 600, marginBottom: 2 }}>Plan</div>
+                        <div style={{ whiteSpace: 'pre-wrap', color: 'var(--text-2)' }}>{msg.plan}</div>
+                      </div>
+                    )}
+                    {msg.thinking && (
+                      <div style={{ marginTop: 6 }}>
+                        <div style={{ fontWeight: 600, marginBottom: 2 }}>Thinking</div>
+                        <div style={{ whiteSpace: 'pre-wrap', fontFamily: 'var(--font-mono, monospace)', opacity: 0.85 }}>{msg.thinking}</div>
+                      </div>
+                    )}
+                    {msg.reasoning?.length > 0 && (
+                      <div style={{ marginTop: 6 }}>
+                        {msg.reasoning.map((r, k) => <div key={k} style={{ whiteSpace: 'pre-wrap', color: 'var(--text-2)' }}>{r}</div>)}
+                      </div>
+                    )}
+                  </details>
+                )}
                 {/* Tool activity */}
                 {msg.tools?.length > 0 && (
                   <div style={{ fontSize: 11, color: 'var(--text-3)', display: 'flex', flexDirection: 'column', gap: 2 }}>

@@ -30,9 +30,18 @@ def _get_model():
         raise EmbeddingsUnavailable(f"sentence-transformers not installed: {e}")
     try:
         _model = SentenceTransformer(settings.embedding_model, device=settings.embedding_device)
+        if settings.embedding_max_seq_length:
+            _model.max_seq_length = settings.embedding_max_seq_length
+        # Half precision on GPU roughly doubles throughput and halves VRAM.
+        # Left in fp32 on CPU (fp16 matmuls are not accelerated there).
+        if settings.embedding_fp16 and settings.embedding_device.startswith("cuda"):
+            _model = _model.half()
     except Exception as e:  # pragma: no cover - env dependent
         raise EmbeddingsUnavailable(f"failed to load embedding model '{settings.embedding_model}': {e}")
-    log.info("Loaded embedding model %s on %s", settings.embedding_model, settings.embedding_device)
+    log.info("Loaded embedding model %s on %s (max_seq_len=%s, fp16=%s)",
+             settings.embedding_model, settings.embedding_device,
+             getattr(_model, "max_seq_length", "?"),
+             settings.embedding_fp16 and settings.embedding_device.startswith("cuda"))
     return _model
 
 
