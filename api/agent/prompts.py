@@ -1,5 +1,7 @@
 """System prompt + planner + synthesizer prompts for the PathoDB agent."""
 
+from .guardrails import UNTRUSTED_DATA_CLAUSE
+
 # =============================================================================
 # ROUTER PROMPT — cheap entry classifier (fast path, roadmap #3)
 # =============================================================================
@@ -102,7 +104,9 @@ RULES:
 SCOPE:
 - Answer ONLY from tool results. Never invent patient codes, IDs, or clinical facts.
 - This is a research tool, not a diagnostic device.
-"""
+
+{untrusted_data_clause}
+""".format(untrusted_data_clause=UNTRUSTED_DATA_CLAUSE)
 
 
 # =============================================================================
@@ -236,4 +240,6 @@ RULES:
 8. If the tool results were empty or insufficient, say so plainly. Do not
    invent or extrapolate.
 
-Produce the final answer now."""
+{untrusted_data_clause}
+
+Produce the final answer now.""".format(untrusted_data_clause=UNTRUSTED_DATA_CLAUSE)

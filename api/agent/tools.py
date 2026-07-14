@@ -16,6 +16,7 @@ from sqlalchemy.orm import Session
 
 from ..config import get_settings
 from ..models import User, Patient
+from .guardrails import fence_untrusted
 # NOTE: enrich_snomed_codes is imported lazily inside get_tools() rather than at
 # module load. It lives in api.routers.patients, and api.routers.__init__ eagerly
 # imports the assistant router -> agent.graph -> this module; a top-level import
@@ -575,7 +576,7 @@ def get_tools(db: Session, user: User) -> list:
         return _dumps({
             "summary": f"{len(hits)} documentation section(s) matched '{query}'",
             "results": [{"source": h["file"], "section": h["heading"],
-                         "excerpt": h["excerpt"]} for h in hits],
+                         "excerpt": fence_untrusted(h["excerpt"])} for h in hits],
             "citations": [{"type": "doc", "id": h["file"],
                            "label": f'{h["file"]} — {h["heading"]}'} for h in hits],
         })
@@ -602,7 +603,8 @@ def get_tools(db: Session, user: User) -> list:
         return _dumps({
             "summary": f"{len(chunks)} report excerpt(s) retrieved",
             "results": [{"lis_submission_id": c.lis_submission_id, "report_type": c.report_type,
-                         "score": round(c.score, 3), "excerpt": c.chunk_text[:600]} for c in chunks],
+                         "score": round(c.score, 3),
+                         "excerpt": fence_untrusted(c.chunk_text[:600])} for c in chunks],
             "citations": [c.to_citation() for c in chunks],
         })
 
@@ -700,7 +702,7 @@ def get_tools(db: Session, user: User) -> list:
         result = {}
         for r in reports:
             result[r.report_type] = {
-                "text": r.report_text or "(empty)",
+                "text": fence_untrusted(r.report_text or "(empty)"),
                 "date": str(r.report_date) if r.report_date else None,
             }
         cite = [{"type": "submission", "id": submission_id,
@@ -740,7 +742,8 @@ def get_tools(db: Session, user: User) -> list:
             "patient_id": pat.id if pat else None,
             "report_date": str(sub.report_date) if sub.report_date else None,
             "malignancy": sub.malignancy_flag,
-            "reports": {r.report_type: (r.report_text or "")[:300] for r in sub.reports},
+            "reports": {r.report_type: fence_untrusted((r.report_text or "")[:300])
+                        for r in sub.reports},
             "probes": [],
         }
         for probe in sub.probes:
@@ -878,7 +881,7 @@ def get_tools(db: Session, user: User) -> list:
             results.append({
                 "submission_id": sub.lis_submission_id,
                 "report_type": report.report_type,
-                "excerpt": excerpt,
+                "excerpt": fence_untrusted(excerpt),
             })
         citations = [{"type": "submission", "id": r["submission_id"],
                       "label": r["submission_id"]} for r in results]
@@ -1232,7 +1235,7 @@ def get_tools(db: Session, user: User) -> list:
             reports = db.query(Report).filter(Report.submission_id == sub.id).all()
             report_excerpts = {}
             for r in reports:
-                report_excerpts[r.report_type] = (r.report_text or "")[:200]
+                report_excerpts[r.report_type] = fence_untrusted((r.report_text or "")[:200])
             comparisons.append({
                 "submission_id": sid,
                 "date": str(sub.report_date) if sub.report_date else None,
