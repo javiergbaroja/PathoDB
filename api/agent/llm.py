@@ -30,10 +30,20 @@ def _extra_body(model: str, thinking=None) -> dict:
     return {}
 
 
-def _chat(base_url, model, temperature, thinking=None):
-    """Build a streaming ChatOpenAI for one model profile."""
+def _chat(base_url, model, temperature, thinking=None, guided=None):
+    """Build a streaming ChatOpenAI for one model profile.
+
+    `guided`: an optional vLLM guided-decoding fragment (e.g.
+    {"guided_choice": [...]} or {"guided_json": {...}}) merged INTO the vendor
+    extra_body rather than replacing it, so a guided profile keeps its thinking
+    kwargs. The constraint is baked into this instance, so guided and unguided
+    variants of the same profile are separate objects.
+    """
     settings = get_settings()
     from langchain_openai import ChatOpenAI
+    body = dict(_extra_body(model, thinking) or {})
+    if guided:
+        body.update(guided)
     return ChatOpenAI(
         base_url=base_url,
         api_key=settings.vllm_api_key,
@@ -46,7 +56,7 @@ def _chat(base_url, model, temperature, thinking=None):
         # without it streamed responses carry no usage_metadata (eval + RunTrace
         # would report zero tokens).
         stream_usage=True,
-        extra_body=_extra_body(model, thinking) or None,
+        extra_body=body or None,
     )
 
 
@@ -56,22 +66,28 @@ def get_chat_model():
     return _chat(s.vllm_base_url, s.vllm_model, s.vllm_temperature)
 
 
-def get_fast_model():
+def get_fast_model(guided=None):
     """Fast, always-non-thinking model for the router classifier and direct chat
-    answers — these must stay snappy and never emit <think>."""
+    answers — these must stay snappy and never emit <think>. `guided` optionally
+    constrains decoding (e.g. the router's guided_choice)."""
     s = get_settings()
-    return _chat(s.vllm_base_url, s.vllm_model, s.vllm_temperature, thinking=False)
+    return _chat(s.vllm_base_url, s.vllm_model, s.vllm_temperature, thinking=False,
+                 guided=guided)
 
 
-def get_reasoning_model():
+def get_reasoning_model(guided=None):
     """Planner + synthesizer model (#10). Uses the reasoning profile when
     configured (a separate endpoint/model, optionally a Qwen3 thinking model);
-    otherwise the default model — so this is a no-op until configured."""
+    otherwise the default model — so this is a no-op until configured. `guided`
+    optionally constrains decoding (the planner's guided_json); callers must not
+    pass it for a thinking model — a <think> preamble can't satisfy a strict JSON
+    grammar (the graph gates this)."""
     s = get_settings()
     base_url = s.vllm_reasoning_base_url or s.vllm_base_url
     model = s.vllm_reasoning_model or s.vllm_model
     thinking = True if s.vllm_reasoning_enable_thinking else None
-    return _chat(base_url, model, s.vllm_reasoning_temperature, thinking=thinking)
+    return _chat(base_url, model, s.vllm_reasoning_temperature, thinking=thinking,
+                 guided=guided)
 
 
 def get_synth_model():

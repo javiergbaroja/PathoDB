@@ -144,28 +144,37 @@ PLANNING RULES:
    adenocarcinoma, sarcoma), then aggregate.
 
 OUTPUT FORMAT:
-Output ONLY a numbered list of steps. No preamble, no explanation.
+Output ONLY a JSON object, no preamble and no text outside it, of the form:
+{{"steps": [{{"step": "<what to do>", "tool": "<tool name or omit>", "args_hint": "<key args or omit>"}}, ...]}}
+Each step's "step" is required; include "tool"/"args_hint" when a specific tool
+applies. A final summarize step may omit "tool".
 
 Example for "tell me about patient P12345":
-1. Call get_patient_history with patient_code "P12345" to get the timeline
-2. Call get_report_text for the most recent malignant submission
-3. Call list_analysis_jobs filtered to this patient's scans
-4. Summarize demographics, key findings, and available analyses
+{{"steps": [
+  {{"step": "Get the patient timeline", "tool": "get_patient_history", "args_hint": "patient_code P12345"}},
+  {{"step": "Read the most recent malignant submission's report", "tool": "get_report_text"}},
+  {{"step": "List analysis jobs for this patient's scans", "tool": "list_analysis_jobs"}},
+  {{"step": "Summarize demographics, key findings, and available analyses"}}
+]}}
 
 Example for "how many colon biopsies with H&E?":
-1. Call lookup_filter_values to validate the stain name for H&E
-2. Call query_cohort with topo_description_search "colon" and the validated stain name
+{{"steps": [
+  {{"step": "Validate the stain name for H&E", "tool": "lookup_filter_values", "args_hint": "field stain_name, q H&E"}},
+  {{"step": "Count the cohort", "tool": "query_cohort", "args_hint": "topo_description_search colon + validated stain"}}
+]}}
 
 Example for "what does SNOMED code M-81403 mean?":
-1. Call lookup_snomed with query "M-81403"
+{{"steps": [{{"step": "Look up the code", "tool": "lookup_snomed", "args_hint": "query M-81403"}}]}}
 
 Example for "what SNOMED codes are related to solid tumors?":
-1. Call lookup_snomed with query "solid tumor" (returns semantically related codes)
-2. Call lookup_snomed with query "carcinoma" to broaden with a concrete term
-3. Aggregate the related morphology codes (carcinoma, adenocarcinoma, sarcoma, …)
+{{"steps": [
+  {{"step": "Find semantically related codes", "tool": "lookup_snomed", "args_hint": "query solid tumor"}},
+  {{"step": "Broaden with a concrete term", "tool": "lookup_snomed", "args_hint": "query carcinoma"}},
+  {{"step": "Aggregate the related morphology codes (carcinoma, adenocarcinoma, sarcoma, …)"}}
+]}}
 
 Example for "what's the difference between a cohort and a custom list?":
-1. Call search_documentation with query "cohort vs custom list"
+{{"steps": [{{"step": "Look up the glossary definition", "tool": "search_documentation", "args_hint": "query cohort vs custom list"}}]}}
 
 CONVERSATION SO FAR (most recent last; may be empty for a new chat):
 {history}
@@ -173,7 +182,7 @@ CONVERSATION SO FAR (most recent last; may be empty for a new chat):
 USER QUESTION:
 {user_question}
 
-PLAN:"""
+JSON:"""
 
 
 # =============================================================================
@@ -194,14 +203,16 @@ DATA GATHERED SO FAR (tool result summaries):
 
 Does the gathered data address EVERY explicit part of the question (including
 multi-part or multi-step requests)?
-- If yes, reply with exactly: SUFFICIENT
-- If a part the user explicitly asked for is clearly missing or a needed step was
-  not done, reply: MISSING: <one short line naming what still to gather>
 
-Be conservative — reply SUFFICIENT unless something explicitly requested is
+Reply with ONLY a JSON object, no other text:
+- If enough was gathered: {{"verdict": "sufficient"}}
+- If a part the user explicitly asked for is clearly missing or a needed step was
+  not done: {{"verdict": "missing", "missing": "<one short line naming what still to gather>"}}
+
+Be conservative — use "sufficient" unless something explicitly requested is
 clearly absent. Never ask for more than the question requires.
 
-ANSWER:"""
+JSON:"""
 
 
 # =============================================================================

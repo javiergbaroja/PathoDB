@@ -108,6 +108,15 @@ class Settings(BaseSettings):
     # Directly targets premature termination on multi-hop / multi-part questions.
     agent_sufficiency_check: bool = True
     agent_max_sufficiency_retries: int = 2
+    # Guided (grammar-constrained) decoding for the router, sufficiency gate and
+    # planner via vLLM extra_body (guided_choice / guided_json). Forces valid
+    # structure regardless of model size, removing a class of parse failures.
+    # Every node degrades gracefully: on any failure it retries unguided and the
+    # parsers still accept free-text, so this is safe to leave on. Planner guided
+    # decoding is auto-skipped when a *thinking* reasoning model is configured
+    # (vllm_reasoning_enable_thinking), since a <think> preamble can't satisfy a
+    # strict JSON grammar.
+    agent_guided_decoding: bool = True
     agent_max_input_chars: int = 4000      # per-message user input cap
     agent_max_tool_rows: int = 25          # rows from a query surfaced to the model
     # Trim the message history fed to each LLM call to this approx token budget so

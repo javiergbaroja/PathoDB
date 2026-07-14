@@ -24,6 +24,8 @@ from sqlalchemy.orm import Session
 from ..config import get_settings
 from ..models import User
 from .checkpoint import get_checkpointer
+from .guided import (ROUTE_LABELS, SUFFICIENCY_SCHEMA, PLAN_SCHEMA,
+                     parse_json_object, render_plan)
 from .prompts import (SYSTEM_PROMPT, PLANNER_PROMPT, SYNTHESIS_PROMPT,
                       ROUTER_PROMPT, CHAT_PROMPT, SUFFICIENCY_PROMPT)
 from .tools import get_tools, ACTION_TOOL_NAMES
@@ -285,6 +287,34 @@ def build_agent_graph(db: Session, user: User, context=None):
     synth = get_synth_model()                        # synthesizer (may be a medical model)
     fast = get_fast_model()                         # router + direct chat answer
 
+    # ── Guided-decoding variants (#3) ────────────────────────────────────────
+    # Grammar-constrained instances for the router/sufficiency/planner. Planner
+    # guidance is skipped for a *thinking* reasoning model (a <think> preamble
+    # can't satisfy a strict JSON grammar). Each node falls back to its unguided
+    # counterpart on failure, so these are strictly additive.
+    guided = settings.agent_guided_decoding
+    planner_guided = guided and not settings.vllm_reasoning_enable_thinking
+    router_model = (get_fast_model(guided={"guided_choice": ROUTE_LABELS})
+                    if guided else fast)
+    suff_model = (get_fast_model(guided={"guided_json": SUFFICIENCY_SCHEMA})
+                  if guided else fast)
+    planner_model = (get_reasoning_model(guided={"guided_json": PLAN_SCHEMA})
+                     if planner_guided else reasoning)
+
+    def _guided_text(primary, fallback, msgs, label) -> str:
+        """Invoke `primary` (guided); on failure retry `fallback` (unguided).
+        Returns the response text. Lets the fallback's exception propagate to the
+        caller's own error handling. A no-op indirection when primary is
+        fallback (guided off)."""
+        try:
+            return (primary.invoke(msgs).content or "")
+        except Exception as e:
+            if primary is fallback:
+                raise
+            log.warning("Guided decoding failed for %s (%s) — retrying unguided",
+                        label, e)
+            return (fallback.invoke(msgs).content or "")
+
     # Current-view context (scan/patient/…) injected transiently into every node
     # so it never pollutes durable checkpoint state with stale per-turn context.
     context_msg = _format_context(context)
@@ -338,10 +368,12 @@ def build_agent_graph(db: Session, user: User, context=None):
         dialogue so a bare confirmation ('yes do it') is classified by the task
         it continues, not as chat. Defaults to the safe 'complex' on any failure
         or unparseable output."""
+        prompt = [SystemMessage(content=ROUTER_PROMPT.format(
+            history=history or "(no earlier conversation)", user_question=user_msg))]
         try:
-            resp = fast.invoke([SystemMessage(content=ROUTER_PROMPT.format(
-                history=history or "(no earlier conversation)", user_question=user_msg))])
-            txt = (resp.content or "").strip().lower()
+            # guided_choice constrains output to exactly one label; the substring
+            # match below is a safety net for the unguided fallback path.
+            txt = _guided_text(router_model, fast, prompt, "router").strip().lower()
         except Exception as e:
             log.warning("Router classifier failed, defaulting to complex: %s", e)
             return "complex"
@@ -416,9 +448,22 @@ def build_agent_graph(db: Session, user: User, context=None):
         )
         plan_input = ([SystemMessage(content=context_msg)] if context_msg else [])
         plan_input.append(SystemMessage(content=prompt))
-        plan_response = reasoning.invoke(plan_input)
+        try:
+            raw = _guided_text(planner_model, reasoning, plan_input, "planner")
+        except Exception as e:
+            # Planning is best-effort scaffolding — never fail the turn over it.
+            log.warning("Planner failed (%s) — proceeding without a plan", e)
+            return {"messages": []}
 
-        plan_text = _strip_think(plan_response.content or "").strip()
+        plan_text = _strip_think(raw or "").strip()
+        # guided_json yields {"steps": [...]}; flatten it to the numbered list the
+        # agent reads. Unguided/free-text output that isn't JSON is used verbatim.
+        plan_obj = parse_json_object(plan_text)
+        rendered = render_plan(plan_obj) if plan_obj else ""
+        if rendered:
+            plan_text = rendered
+        if not plan_text:
+            return {"messages": []}
         log.info(f"Plan generated: {plan_text[:200]}")
 
         # Inject the plan as a system message the agent can follow
@@ -529,13 +574,24 @@ def build_agent_graph(db: Session, user: User, context=None):
         prompt = SUFFICIENCY_PROMPT.format(question=user_msg,
                                            gathered="\n".join(gathered)[:3000])
         try:
-            verdict = (fast.invoke([SystemMessage(content=prompt)]).content or "").strip()
+            raw = _guided_text(suff_model, fast,
+                               [SystemMessage(content=prompt)], "sufficiency")
         except Exception as e:
             log.warning("Sufficiency check failed, proceeding: %s", e)
             return {"suff_verdict": "ok"}
-        if "missing:" not in verdict.lower():
-            return {"suff_verdict": "ok"}
-        missing = verdict.split(":", 1)[1].strip()[:300]
+        # guided_json → {"verdict": "sufficient"|"missing", "missing": "..."}.
+        obj = parse_json_object(_strip_think(raw))
+        if obj is not None:
+            if str(obj.get("verdict", "")).strip().lower() != "missing":
+                return {"suff_verdict": "ok"}
+            missing = str(obj.get("missing", "")).strip()[:300]
+        else:
+            # Unguided/free-text fallback: honour the legacy "MISSING:" protocol.
+            if "missing:" not in (raw or "").lower():
+                return {"suff_verdict": "ok"}
+            missing = raw.split(":", 1)[1].strip()[:300]
+        if not missing:
+            return {"suff_verdict": "ok"}   # 'missing' verdict but no detail — don't loop
         log.info("Sufficiency gate retry %d — missing: %s", retries + 1, missing[:80])
         nudge = SystemMessage(content=(
             "You stopped before fully answering. Still missing: " + missing +

@@ -13,6 +13,7 @@ from api.agent.textutil import chunk_report, vector_literal    # noqa: E402
 from api.agent.stream import sse, parse_tool_content, DONE      # noqa: E402
 from api.agent.guardrails import (                              # noqa: E402
     fence_untrusted, DATA_FENCE_OPEN, DATA_FENCE_CLOSE)
+from api.agent.guided import parse_json_object, render_plan     # noqa: E402
 
 _vector_literal = vector_literal
 
@@ -90,6 +91,35 @@ def test_fence_untrusted_neutralizes_forged_markers():
     assert fenced.count(DATA_FENCE_CLOSE) == 1
     assert fenced.startswith(DATA_FENCE_OPEN)
     assert fenced.endswith(DATA_FENCE_CLOSE)
+
+
+def test_parse_json_object():
+    # clean object
+    assert parse_json_object('{"verdict": "sufficient"}') == {"verdict": "sufficient"}
+    # object wrapped in prose / think residue (unguided fallback path)
+    assert parse_json_object('here you go: {"verdict": "missing", "missing": "x"} ok') \
+        == {"verdict": "missing", "missing": "x"}
+    # non-object / garbage / empty -> None
+    assert parse_json_object("[1, 2, 3]") is None
+    assert parse_json_object("no json here") is None
+    assert parse_json_object("") is None
+
+
+def test_render_plan():
+    plan = {"steps": [
+        {"step": "Get the timeline", "tool": "get_patient_history", "args_hint": "patient_code P1"},
+        {"step": "Summarize the findings"},          # no tool -> plain step
+        {"not_a_step": True},                          # skipped (no step text)
+    ]}
+    rendered = render_plan(plan)
+    lines = rendered.splitlines()
+    assert lines[0] == "1. Get the timeline [tool: get_patient_history — patient_code P1]"
+    assert lines[1] == "2. Summarize the findings"
+    assert len(lines) == 2
+    # empty / missing steps -> empty string (caller keeps the raw text)
+    assert render_plan({"steps": []}) == ""
+    assert render_plan({}) == ""
+    assert render_plan(None) == ""
 
 
 if __name__ == "__main__":
