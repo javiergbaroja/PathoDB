@@ -189,15 +189,20 @@ def _format_context(context) -> str:
 
 
 def _approx_msg_tokens(m) -> int:
-    """Rough token count for one message. Divides chars by 3 (vs the usual ~4) so
-    it deliberately OVER-counts — the budget guard then errs toward trimming and
-    never lets a call overflow the window."""
+    """Rough token count for one message, deliberately pessimistic.
+
+    Divides chars by 2, not the ~4 of English prose. Tool results here are dense
+    JSON (braces, quotes, short keys, IDs), which tokenizes far closer to ~2
+    chars/token; a chars/3 estimate UNDER-counted it by ~1.4x and let requests
+    overflow the vLLM window (server 400: "your request has 14402 input tokens").
+    Over-counting only costs a little extra trimming; under-counting breaks the
+    call outright, so err pessimistic."""
     content = getattr(m, "content", "") or ""
     if not isinstance(content, str):
         content = str(content)
-    tokens = len(content) // 3 + 16
+    tokens = len(content) // 2 + 16
     for tc in (getattr(m, "tool_calls", None) or []):
-        tokens += len(str(tc.get("args", ""))) // 3 + 8
+        tokens += len(str(tc.get("args", ""))) // 2 + 8
     return tokens
 
 
@@ -478,14 +483,41 @@ def build_agent_graph(db: Session, user: User, context=None):
 
         The agent sees: [system_prompt, user_question, plan, ...tool_results]
         and decides which tool to call next based on the plan.
+
+        Already-executed tool signatures are injected (A2/#8) so near-repeats are
+        avoided BEFORE the post-hoc loop guard fires. The observed failure mode was
+        2-5 redundant calls per turn and a recursion-limit crash on deep multi-hop
+        questions; the guard only catches EXACT repeats, after the fact.
         """
-        budget = settings.agent_max_context_tokens
+        # Build the preamble + anti-duplication note FIRST and reserve their tokens,
+        # so trimming accounts for them. Appending after _model_view (as we used to)
+        # pushed the request back over the vLLM context window -> a 400 from the
+        # server on long guideline turns.
+        preamble = [SystemMessage(content=SYSTEM_PROMPT)]
+        if context_msg:
+            preamble.append(SystemMessage(content=context_msg))
+        done = _executed_signatures(state["messages"])
+        anti_dup = None
+        if done:
+            listed = "\n".join(f"- {s[:120]}" for s in sorted(done)[:8])
+            anti_dup = SystemMessage(content=(
+                "ALREADY EXECUTED this turn (their results are above):\n" + listed +
+                "\nDo NOT re-issue an IDENTICAL call — its result is already above. "
+                "But if one of them returned NOTHING, do retry it with a genuinely "
+                "different term (a concrete synonym or organ name instead of an "
+                "umbrella term, e.g. colorectal -> colon / rectum) rather than "
+                "concluding there is no result. Then continue with the REMAINING "
+                "plan steps; only stop once every step is done."))
+        reserve = sum(_approx_msg_tokens(m) for m in preamble)
+        if anti_dup is not None:
+            reserve += _approx_msg_tokens(anti_dup)
+
+        budget = max(1000, settings.agent_max_context_tokens - reserve)
         msgs = _model_view(list(state["messages"]), budget)
         if not msgs or getattr(msgs[0], "type", None) != "system":
-            preamble = [SystemMessage(content=SYSTEM_PROMPT)]
-            if context_msg:
-                preamble.append(SystemMessage(content=context_msg))
             msgs = preamble + msgs
+        if anti_dup is not None:
+            msgs = msgs + [anti_dup]
         return {"messages": [model.invoke(msgs)]}
 
     # ── Tool node ────────────────────────────────────────────────────────────
@@ -536,16 +568,15 @@ def build_agent_graph(db: Session, user: User, context=None):
         full conversation (user question, plan, agent reasoning, tool results)
         and produces a clean, clinical-grade narrative.
         """
-        budget = settings.agent_max_context_tokens
-        msgs = _model_view(list(state["messages"]), budget)
-
-        # Build a synthesis-focused message list:
-        # [synthesis_prompt, ...recent_conversation]
-        synth_msgs = [SystemMessage(content=SYNTHESIS_PROMPT)]
+        # Reserve the synthesis preamble's tokens before trimming (see agent_node):
+        # adding it after _model_view can push the request over the context window.
+        preamble = [SystemMessage(content=SYNTHESIS_PROMPT)]
         if context_msg:
-            synth_msgs.append(SystemMessage(content=context_msg))
-        synth_msgs += msgs
-        return {"messages": [synth.invoke(synth_msgs)]}
+            preamble.append(SystemMessage(content=context_msg))
+        reserve = sum(_approx_msg_tokens(m) for m in preamble)
+        budget = max(1000, settings.agent_max_context_tokens - reserve)
+        msgs = _model_view(list(state["messages"]), budget)
+        return {"messages": [synth.invoke(preamble + msgs)]}
 
     # ── Routing ──────────────────────────────────────────────────────────────
     # ── Sufficiency gate (catches premature termination) ─────────────────────

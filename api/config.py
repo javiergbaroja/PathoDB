@@ -122,7 +122,12 @@ class Settings(BaseSettings):
     # Trim the message history fed to each LLM call to this approx token budget so
     # long / durable conversations can't overflow the vLLM context window. Keep it
     # comfortably below (vLLM --max-model-len) − vllm_max_tokens − prompt headroom.
-    agent_max_context_tokens: int = 12000
+    # With --max-model-len 16384 and vllm_max_tokens 2048 the input ceiling is
+    # 14336. 12000 overflowed in practice (server 400) on guideline turns: the
+    # char/3 estimate UNDER-counts JSON-heavy tool output, and the system preamble
+    # is added on top. 10000 leaves real headroom (the nodes also now reserve the
+    # preamble/anti-duplication tokens before trimming).
+    agent_max_context_tokens: int = 10000
     agent_max_cells: int = 400000          # cell cap for spatial single-cell feature tools
     # Conversation state. 'postgres' (PostgresSaver) is durable across restarts
     # and safe under multiple workers; 'memory' is in-process only (non-durable).
@@ -180,6 +185,23 @@ class Settings(BaseSettings):
     knowledge_doc_paths: str = "docs/GLOSSARY.md,README.md,docs/AGENT_SERVING.md"
     knowledge_top_k: int = 4
     knowledge_excerpt_chars: int = 700
+
+    # ── Guideline RAG (CAP / ICCR reporting standards) ─────────────────────────
+    # A THIRD retrieval namespace (audit #5): external staging/grading/required-
+    # reporting-element standards, embedded into the guideline_chunks pgvector
+    # table by api/workers/embed_guidelines.py and queried by
+    # api/agent/guideline_rag.py. Reuses the embedding model + rag_* hybrid/chunk/
+    # rerank settings above. guideline_dirs is a comma-separated list of dirs of
+    # .docx guidelines (empty entries skipped). LICENSING: point this only at
+    # internally licensed corpora — see docs/GUIDELINES.md.
+    guideline_search_enabled: bool = True
+    guideline_dirs: str = (
+        "/storage/research/igmp_dp_workspace/garciabaroja_javier/PW_reports/"
+        "Structured_extraction/cap_protocols,"
+        "/storage/research/igmp_dp_workspace/garciabaroja_javier/PW_reports/"
+        "Structured_extraction/iccr_datasets"
+    )
+    guideline_top_k: int = 6
 
     class Config:
         env_file = ".env"

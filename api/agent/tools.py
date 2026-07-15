@@ -582,6 +582,82 @@ def get_tools(db: Session, user: User) -> list:
         })
 
     @tool
+    def guideline_search(query: str, organ: Optional[str] = None,
+                         top_k: Optional[int] = None) -> str:
+        """Search external cancer-reporting GUIDELINES (CAP protocols + ICCR
+        datasets) for authoritative staging/grading thresholds and REQUIRED
+        reporting elements. Use for questions about standards — e.g. 'what defines
+        pT3 in colorectal carcinoma?', 'CAP required elements for adrenal cortical
+        carcinoma', 'is lymphovascular invasion an ICCR core element for lung?'.
+        Optional `organ` softly narrows to a body site ('colon', 'breast', 'lung').
+        Returns cited, VERSION-STAMPED excerpts — always cite the protocol +
+        version in your answer. This is EXTERNAL STANDARDS retrieval — distinct from
+        semantic_report_search (a patient's report text) and search_documentation
+        (PathoDB platform/glossary terms)."""
+        if not settings.guideline_search_enabled:
+            return _err("Guideline search is disabled.")
+        from .guideline_rag import retrieve
+        from .embeddings import EmbeddingsUnavailable
+        try:
+            chunks = retrieve(db, query, top_k=top_k, organ=organ)
+        except EmbeddingsUnavailable as e:
+            return _err(f"Guideline search unavailable (embeddings not loaded): {e}.")
+        except Exception as e:
+            return _err(f"Guideline search unavailable: {e}.")
+        if not chunks:
+            return _dumps({"summary": f"No guideline passages matched '{query}'"
+                           + (f" for organ '{organ}'" if organ else "") + ".",
+                           "results": [], "citations": []})
+        # NOT data-fenced: guideline text is trusted, curated reference the model
+        # SHOULD apply — unlike patient report text (see guardrails.fence_untrusted).
+        return _dumps({
+            "summary": f"{len(chunks)} guideline passage(s) retrieved"
+                       + (f" for '{organ}'" if organ else ""),
+            "results": [{"source_org": c.source_org, "title": c.title,
+                         "organ": c.organ, "version": c.version, "section": c.section,
+                         "excerpt": c.chunk_text[:700]} for c in chunks],
+            "citations": [c.to_citation() for c in chunks],
+        })
+
+    @tool
+    def list_guideline_elements(cancer_type: str, source_org: Optional[str] = None) -> str:
+        """Enumerate the REPORTING ELEMENTS a guideline defines for a cancer type.
+        Use this for 'list / what are the reporting elements for X', 'what must be
+        reported for X', 'required (core) elements', or 'which elements are core'.
+        Returns the ACTUAL, COMPLETE element list (e.g. Histologic Type, Tumor
+        Deposits, pT Category, Lymphovascular Invasion) grouped by section, each
+        with its status (core / non-core / optional / conditional) and a version
+        stamp — read straight from the structured guideline, not by semantic
+        guessing. Prefer this over guideline_search for enumeration; use
+        guideline_search only for a SPECIFIC question (one threshold/definition).
+        Optional source_org ('CAP' or 'ICCR') restricts to one authority."""
+        if not settings.guideline_search_enabled:
+            return _err("Guideline search is disabled.")
+        from .guideline_rag import list_elements
+        try:
+            docs = list_elements(db, cancer_type, source_org=source_org)
+        except Exception as e:
+            return _err(f"Guideline element listing unavailable: {e}.")
+        if not docs:
+            return _dumps({"summary": f"No guideline document matched '{cancer_type}'"
+                           + (f" ({source_org})" if source_org else "")
+                           + ". Try a different term, or use guideline_search.",
+                           "results": [], "citations": []})
+        total = sum(len(d["elements"]) for d in docs)
+        # Trusted reference (not data-fenced), like guideline_search.
+        return _dumps({
+            "summary": f"{total} reporting element(s) across {len(docs)} guideline "
+                       f"document(s) for '{cancer_type}'",
+            "results": [{"source_org": d["source_org"], "title": d["title"],
+                         "organ": d["organ"], "version": d["version"],
+                         "element_count": len(d["elements"]),
+                         "elements": d["elements"]} for d in docs],
+            "citations": [{"type": "guideline", "id": d["doc_slug"],
+                           "label": f"{d['source_org']} {d['organ']} {d['version']}".strip()}
+                          for d in docs],
+        })
+
+    @tool
     def semantic_report_search(query: str, top_k: Optional[int] = None) -> str:
         """Hybrid search over pathology report text (macro/microscopy): combines
         dense semantic (meaning/paraphrase) with lexical full-text (exact rare
@@ -1423,8 +1499,8 @@ def get_tools(db: Session, user: User) -> list:
         # Tier 0
         query_cohort, lookup_filter_values, semantic_report_search, universal_search,
         get_stats, slide_info, patient_summary, list_analysis_models,
-        # Knowledge grounding (glossary/docs + SNOMED vocabulary)
-        lookup_snomed, search_documentation,
+        # Knowledge grounding (glossary/docs + SNOMED vocabulary + guidelines)
+        lookup_snomed, search_documentation, guideline_search, list_guideline_elements,
         # Tier 1 — direct record access
         get_report_text, get_submission_hierarchy, get_patient_history,
         search_reports_keyword,

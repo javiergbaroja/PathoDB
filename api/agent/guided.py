@@ -84,6 +84,11 @@ def render_plan(plan_obj) -> str:
     numbered plan, so the typed object is flattened back to that shape — the JSON
     buys validity + inspectability without changing the executor contract.
     Returns "" when there are no usable steps (caller keeps the raw text).
+
+    The tool is named in PROSE, never in a bracketed '[tool: x — args]' form: that
+    shape reads like an invocation and small models copy it into their *text*
+    instead of emitting a real tool call (observed: answers containing
+    '[tool: guideline_search — …]' and invented tool names).
     """
     steps = (plan_obj or {}).get("steps") or []
     lines = []
@@ -97,6 +102,6 @@ def render_plan(plan_obj) -> str:
         hint = (s.get("args_hint") or "").strip()
         suffix = ""
         if tool:
-            suffix = f" [tool: {tool}" + (f" — {hint}" if hint else "") + "]"
+            suffix = f" (use the {tool} tool" + (f" with {hint}" if hint else "") + ")"
         lines.append(f"{i}. {text}{suffix}")
     return "\n".join(lines)

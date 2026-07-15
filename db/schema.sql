@@ -405,6 +405,60 @@ END
 $$;
 
 -- =============================================================================
+-- GUIDELINE EMBEDDINGS  (RAG over external reporting guidelines — CAP / ICCR)
+-- A SECOND retrieval namespace, distinct from report_embeddings: authoritative
+-- staging/grading/required-element standards, not patient data. Populated by
+-- api/workers/embed_guidelines.py and queried by api/agent/guideline_rag.py.
+-- Flat + denormalized (like report_embeddings): each row is one chunk carrying
+-- its document's metadata. doc_slug EXCLUDES the version, so re-ingesting a newer
+-- protocol version replaces the same document's rows ("latest only") rather than
+-- accumulating stale duplicates; `version`/`doc_date` are kept for citation and
+-- staleness stamping. embedding dim MUST match Settings.embedding_dim (1024).
+-- =============================================================================
+CREATE TABLE IF NOT EXISTS guideline_chunks (
+    id            SERIAL      PRIMARY KEY,
+    source_org    TEXT        NOT NULL,             -- 'CAP' | 'ICCR'
+    doc_slug      TEXT        NOT NULL,             -- stable doc identity (version-free)
+    kind          TEXT        NOT NULL DEFAULT 'element',  -- 'element' | 'note' | 'frontmatter'
+    title         TEXT,                             -- human title (inline, else filename)
+    organ         TEXT,                             -- e.g. 'ColoRectal', 'Lung'
+    specimen_type TEXT,                             -- 'biopsy' | 'resection' | 'biomarker' | 'cytology' | NULL
+    version       TEXT,                             -- '4.3.1.0' / '2nd ed v2.0'
+    doc_date      TEXT,                             -- posting/required date if parsed
+    section       TEXT,                             -- nearest heading for the chunk
+    chunk_index   INTEGER     NOT NULL DEFAULT 0,
+    chunk_text    TEXT        NOT NULL,
+    embedding     vector(1024),
+    source_path   TEXT        NOT NULL,             -- absolute path to the source .docx
+    content_hash  TEXT        NOT NULL,             -- sha256 of the doc text (idempotent re-ingest)
+    ingested_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+    UNIQUE (doc_slug, chunk_index)
+);
+CREATE INDEX IF NOT EXISTS idx_guideline_chunks_org    ON guideline_chunks (source_org);
+CREATE INDEX IF NOT EXISTS idx_guideline_chunks_organ  ON guideline_chunks (organ);
+CREATE INDEX IF NOT EXISTS idx_guideline_chunks_slug_kind ON guideline_chunks (doc_slug, kind);
+CREATE INDEX IF NOT EXISTS idx_guideline_chunks_vec
+    ON guideline_chunks USING hnsw (embedding vector_cosine_ops);
+-- Lexical arm of hybrid retrieval. 'english' MUST match config.rag_fts_config and
+-- be a constant literal so the expression stays immutable and index-eligible.
+CREATE INDEX IF NOT EXISTS idx_guideline_chunks_fts
+    ON guideline_chunks USING gin (to_tsvector('english', chunk_text));
+
+DO $$
+BEGIN
+    IF EXISTS (
+        SELECT 1 FROM pg_roles WHERE rolname = current_setting('app.db_user', true)
+    ) THEN
+        EXECUTE format(
+            'GRANT SELECT, INSERT, UPDATE, DELETE ON guideline_chunks TO %I;'
+            ' GRANT USAGE, SELECT ON SEQUENCE guideline_chunks_id_seq TO %I;',
+            current_setting('app.db_user'), current_setting('app.db_user')
+        );
+    END IF;
+END
+$$;
+
+-- =============================================================================
 -- CHAT SESSIONS / MESSAGES / AGENT AUDIT  (conversational pathology agent)
 -- =============================================================================
 CREATE TABLE IF NOT EXISTS chat_session (
