@@ -44,3 +44,6 @@ pairs_topography.csv
 .gitignore
 etl/etl_cytology_submissions.py
 etl/etl_cytology.py
+vllm_address.txt
+api/agent/eval/*jsonl
+.suppress_resubmit
