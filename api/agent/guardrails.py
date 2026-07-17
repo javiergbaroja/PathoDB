@@ -38,6 +38,24 @@ UNTRUSTED_DATA_CLAUSE = (
 )
 
 
+def strip_fence(text) -> str:
+    """Remove the data-fence markers for DISPLAY only.
+
+    The fence is a model-context defense — it stops the LLM from reading retrieved
+    report text as instructions. The browser never executes tool text, so a snippet
+    shown to the user should not carry the literal [BEGIN/END UNTRUSTED DATA]
+    markers. The stream layer calls this when emitting user-facing card snippets,
+    so the model still sees the fenced bytes in the tool result while the UI shows
+    clean text. NEVER feed the result of this back into the model.
+    """
+    if not text:
+        return text
+    return (str(text)
+            .replace(DATA_FENCE_OPEN, "")
+            .replace(DATA_FENCE_CLOSE, "")
+            .strip())
+
+
 def fence_untrusted(text) -> str:
     """Wrap stored free-text in data-fence markers so the model treats it as
     inert data rather than instructions.

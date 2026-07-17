@@ -21,6 +21,44 @@ hard-coding the strings.
 > user-facing copy (pathologists' word) and **`scan`** in code/DB. Do not
 > introduce a third synonym.
 
+## SNOMED coding (the two axes)
+
+A diagnosis is **not one code**. PathoDB codes a probe on independent axes, in
+separate columns, and a diagnosis phrase spans several of them:
+
+| Axis | Column | Prefix | Example |
+| --- | --- | --- | --- |
+| **Topography** | `probes.snomed_topo_code` (one) | `T` | `T67000` colon |
+| **Morphology** | `probes.snomed_morph_codes` (array) | `M` | `M81403` adenocarcinoma, NOS |
+| **Etiology** | `probes.snomed_etio_codes` (array) | `E` | `E10000` bacterium |
+
+> "Colorectal adenocarcinoma" = topography `T67*`/`T68*` **and** morphology
+> `M81403`/`M82603`/… — no single code, and no description, contains the whole
+> phrase. Searching it as one term matches nothing.
+
+**Families.** Neither axis has one code per concept:
+- Topography is **prefix-coherent**: the first 3 characters are the organ, the
+  rest is subsite. `T67*` is colon *and* cecum, sigmoid, flexures, serosa (22
+  codes). Expanding the prefix is complete by construction.
+- Morphology is **not** prefix-coherent (`M81403` adenocarcinoma NOS vs `M82603`
+  papillary adenocarcinoma). Its taxonomy is the **head term** of the
+  description, formatted `<head>, <qualifier>`. The `adenocarcinoma` family is
+  every code whose head is exactly `adenocarcinoma`; `suspected adenocarcinoma`
+  and `cystadenocarcinoma` are deliberately *outside* it.
+- The last digit of a morphology code is **behavior**: `/3` malignant primary,
+  `/6` metastatic, `/2` in situ, `/0` benign. `M81406` is a metastasis *to* the
+  site, not a primary there.
+
+The master vocabulary is `snomed_codes`, loaded from the source dict by
+`etl/load_snomed_vocab.py`. Only the three axes above are loaded — the dict
+carries others (procedure, disease, …) that no column references.
+
+> **Coverage — read before quoting a count.** Only ~25% of probes carry any
+> morphology code; the rest state the diagnosis in report text only. A cohort
+> filtered on morphology codes is therefore a **floor, not a total**. "Find all
+> cases of X" needs both `query_cohort` (coded) and `semantic_report_search`
+> (text). Topography coverage is near-complete by contrast.
+
 ## Collections of slides
 
 | Canonical | Definition | Notes |

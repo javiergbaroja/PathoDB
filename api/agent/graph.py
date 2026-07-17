@@ -88,24 +88,35 @@ def _model_view(messages, budget_tokens):
         budget_tokens)
 
 
-def _tool_sig(call) -> str:
+def _tool_sig(call, known_args=None) -> str:
     """Stable signature of a tool call: name + canonical args. Two calls with the
-    same signature return the same result, so a repeat is a wasted loop."""
+    same signature return the same result, so a repeat is a wasted loop.
+
+    `known_args` maps tool name -> its declared argument names. When supplied, args
+    not in the tool's schema are dropped before hashing, so a HALLUCINATED kwarg
+    (the model invented `sort="recent"` on a tool that has no such field) can't
+    make two otherwise-identical calls look distinct and slip past the loop guard.
+    The tool node drops those kwargs before invoking anyway, so they never affect
+    the result — the signature must agree."""
     name = call.get("name") if isinstance(call, dict) else getattr(call, "name", "")
-    args = call.get("args") if isinstance(call, dict) else getattr(call, "args", {})
+    args = (call.get("args") if isinstance(call, dict) else getattr(call, "args", {})) or {}
+    if known_args is not None:
+        allowed = known_args.get(name)
+        if allowed is not None:
+            args = {k: v for k, v in args.items() if k in allowed}
     try:
-        args_s = json.dumps(args or {}, sort_keys=True, default=str)
+        args_s = json.dumps(args, sort_keys=True, default=str)
     except Exception:
         args_s = str(args)
     return f"{name}::{args_s}"
 
 
-def _executed_signatures(messages) -> set:
+def _executed_signatures(messages, known_args=None) -> set:
     """Signatures of every tool call the agent already issued this run."""
     sigs = set()
     for m in messages:
         for c in (getattr(m, "tool_calls", None) or []):
-            sigs.add(_tool_sig(c))
+            sigs.add(_tool_sig(c, known_args))
     return sigs
 
 
@@ -287,6 +298,10 @@ def build_agent_graph(db: Session, user: User, context=None):
 
     tools = get_tools(db, user)
     tools_by_name = {t.name: t for t in tools}
+    # Declared arg names per tool — used to (a) strip hallucinated kwargs before a
+    # tool runs and (b) canonicalize loop-guard signatures so an invented kwarg
+    # can't disguise a repeat call (see _tool_sig).
+    tool_arg_names = {t.name: set((t.args or {}).keys()) for t in tools}
     model = get_chat_model().bind_tools(tools)      # agent (tool-calling)
     reasoning = get_reasoning_model()               # planner (#10)
     synth = get_synth_model()                        # synthesizer (may be a medical model)
@@ -496,7 +511,7 @@ def build_agent_graph(db: Session, user: User, context=None):
         preamble = [SystemMessage(content=SYSTEM_PROMPT)]
         if context_msg:
             preamble.append(SystemMessage(content=context_msg))
-        done = _executed_signatures(state["messages"])
+        done = _executed_signatures(state["messages"], tool_arg_names)
         anti_dup = None
         if done:
             listed = "\n".join(f"- {s[:120]}" for s in sorted(done)[:8])
@@ -548,6 +563,17 @@ def build_agent_graph(db: Session, user: User, context=None):
                 content = json.dumps({"summary": f"Unknown tool '{name}'",
                                       "citations": []})
             else:
+                # Drop kwargs the tool doesn't declare. The model occasionally
+                # invents a parameter (observed: sort="recent" on a tool with no
+                # such field); passing it through can raise, and — worse — the
+                # spurious key made the call look novel to the loop guard, so the
+                # same search ran twice and duplicated its result block.
+                allowed = tool_arg_names.get(name)
+                if allowed is not None:
+                    dropped = [k for k in args if k not in allowed]
+                    if dropped:
+                        log.info("Dropping undeclared arg(s) %s from %s", dropped, name)
+                        args = {k: v for k, v in args.items() if k in allowed}
                 try:
                     content = tool.invoke(args)
                 except Exception as e:
@@ -640,8 +666,8 @@ def build_agent_graph(db: Session, user: User, context=None):
         calls = getattr(last, "tool_calls", None)
         if not calls:
             return "sufficiency"
-        prior = _executed_signatures(msgs[:-1])
-        if prior and all(_tool_sig(c) in prior for c in calls):
+        prior = _executed_signatures(msgs[:-1], tool_arg_names)
+        if prior and all(_tool_sig(c, tool_arg_names) in prior for c in calls):
             log.info("Loop guard: %d repeated tool call(s) — forcing synthesis",
                      len(calls))
             return "synthesizer"

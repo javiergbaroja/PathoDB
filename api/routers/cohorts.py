@@ -212,6 +212,7 @@ def _format_results(rows, return_level: str, db: Session, f=None) -> list[dict]:
                 
                 results.append({
                     "patient_code":      patient.patient_code,
+                    "patient_id":        patient.id,
                     "lis_submission_id": sub.lis_submission_id,
                     "lis_probe_id":      probe.lis_probe_id,
                     "snomed_topo_code":  probe.snomed_topo_code,
@@ -281,6 +282,7 @@ def _format_results(rows, return_level: str, db: Session, f=None) -> list[dict]:
                 sub_list = list(all_patient_subs.values())
                 results.append({
                     "patient_code":       patient.patient_code,
+                    "patient_id":        patient.id,
                     "date_of_birth":      str(patient.date_of_birth) if patient.date_of_birth else None,
                     "sex":                patient.sex,
                     "submission_count":   len(sub_list),
@@ -308,6 +310,7 @@ def _format_results(rows, return_level: str, db: Session, f=None) -> list[dict]:
 
                 results.append({
                     "patient_code":           patient.patient_code,
+                    "patient_id":        patient.id,
                     "lis_submission_id":      sub.lis_submission_id,
                     "report_date":            str(sub.report_date) if sub.report_date else None,
                     "malignancy_flag":        sub.malignancy_flag,
@@ -332,6 +335,7 @@ def _format_results(rows, return_level: str, db: Session, f=None) -> list[dict]:
                 etio = _enrich(probe.snomed_etio_codes)
                 results.append({
                     "patient_code":       patient.patient_code,
+                    "patient_id":        patient.id,
                     "lis_submission_id":  sub.lis_submission_id,
                     "lis_probe_id":       probe.lis_probe_id,
                     "snomed_topo_code":   probe.snomed_topo_code,
@@ -358,6 +362,7 @@ def _format_results(rows, return_level: str, db: Session, f=None) -> list[dict]:
                 scan_count = db.query(func.count(Scan.id)).filter(Scan.block_id == block.id).scalar()
                 results.append({
                     "patient_code":      patient.patient_code,
+                    "patient_id":        patient.id,
                     "lis_submission_id": sub.lis_submission_id,
                     "lis_probe_id":      probe.lis_probe_id,
                     "snomed_topo_code":  probe.snomed_topo_code,
@@ -686,6 +691,53 @@ def _apply_client_transforms(results: list[dict], f: "CohortFilter") -> list[dic
 
 
 # ─── Shared helper: run whichever query mode is encoded in a CohortFilter ─────
+_COUNT_ENTITY = {
+    "patient": Patient.id, "submission": Submission.id,
+    "probe": Probe.id, "block": Block.id,
+}
+
+
+def count_for_cohort(f: "CohortFilter", db: Session) -> int:
+    """Count a cohort filter's results without materializing the rows.
+
+    _get_results_for_cohort builds a dict per row before the caller can count
+    them — at scan level a broad filter (e.g. all of colon) is 250k+ dicts to
+    produce one integer, which is the shape of most agent questions ("how many
+    X?"). This runs the same predicates as COUNT(DISTINCT …) in the database.
+
+    Falls back to the materializing path for list queries and for the two
+    client-side transforms (dedup, exclusions), which are applied in Python and
+    so cannot be counted in SQL. Neither is reachable from the agent — both are
+    UI-set fields that default to off — but correctness wins over speed here.
+    """
+    if getattr(f, "is_list_query", False) or getattr(f, "dedup_one_per_block", False) \
+            or getattr(f, "excluded_topos", None) or getattr(f, "excluded_stains", None):
+        rows, _ = _get_results_for_cohort(f, db)
+        return len(rows)
+
+    q = _apply_filters(db, f)
+    if f.return_level != "scan":
+        entity = _COUNT_ENTITY.get(f.return_level)
+        if entity is None:
+            raise ValueError(f"Unknown return_level '{f.return_level}'")
+        return q.with_entities(func.count(func.distinct(entity))).scalar() or 0
+
+    # Scan level: _apply_filters resolves to blocks, and the scan-level stain
+    # filters are re-applied when the rows are built — mirror that here.
+    block_ids = q.with_entities(Block.id).subquery()
+    sq = (
+        db.query(func.count(func.distinct(Scan.id)))
+        .select_from(Scan)
+        .outerjoin(Stain, Scan.stain_id == Stain.id)
+        .filter(Scan.block_id.in_(select(block_ids.c.id)))
+    )
+    if getattr(f, "stain_names", None):
+        sq = sq.filter(Stain.stain_name.in_(f.stain_names))
+    if getattr(f, "stain_categories", None):
+        sq = sq.filter(Stain.stain_category.in_(f.stain_categories))
+    return sq.scalar() or 0
+
+
 def _get_results_for_cohort(f: "CohortFilter", db: Session) -> tuple[list[dict], list[str]]:
     """Execute a saved cohort filter and return (results, not_found)."""
 
@@ -808,10 +860,13 @@ def export_cohort(
     f       = CohortFilter(**cohort.filter_json)
     results, _ = _get_results_for_cohort(f, db)
 
-    # Strip viewer_available from exports
+    # Strip internal-only fields from exports (viewer_available is a UI flag;
+    # patient_id is the internal numeric id carried for in-app links — patient_code
+    # is the exported identity, and mixing the two invites the id/code collision).
     for r in results:
         r.pop("scan_id", None)
         r.pop("viewer_available", None)
+        r.pop("patient_id", None)
 
     cohort.result_count = len(results)
     cohort.last_run_at  = datetime.now(timezone.utc)

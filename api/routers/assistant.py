@@ -9,11 +9,14 @@ after the user confirms through POST /assistant/confirm.
 All heavy deps are imported lazily; the endpoints return 503 (not a crash) when
 the agent stack or vLLM is unavailable.
 """
+import csv
+import io
+import json
 import logging
 from datetime import datetime, timezone
 from typing import Optional, Any
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
@@ -24,6 +27,7 @@ from ..config import get_settings
 from ..models import User, ChatSession, ChatMessage, AgentAudit
 from ..agent.stream import sse, parse_tool_content, DONE
 from ..agent.trace import RunTrace
+from ..agent.guardrails import strip_fence
 
 log = logging.getLogger("pathodb_agent")
 settings = get_settings()
@@ -31,6 +35,21 @@ settings = get_settings()
 router = APIRouter(prefix="/assistant", tags=["assistant"])
 
 _SSE_HEADERS = {"X-Accel-Buffering": "no", "Cache-Control": "no-cache"}
+
+
+def _display_block(block: dict) -> dict:
+    """Prepare a presentation block for the browser.
+
+    Card snippets carry the FENCED excerpt (the model reads it as inert data —
+    see guardrails.fence_untrusted); strip the markers here so the user sees clean
+    text. The model-facing tool bytes are untouched — only this streamed copy is
+    unfenced. Other block kinds pass through.
+    """
+    if block.get("kind") == "cards":
+        items = [{**it, "snippet": strip_fence(it["snippet"])} if "snippet" in it else it
+                 for it in (block.get("items") or [])]
+        return {**block, "items": items}
+    return block
 
 
 # ─── Schemas ──────────────────────────────────────────────────────────────────
@@ -214,6 +233,10 @@ async def _run_stream(graph, graph_input, config, db, session_id, user, question
                                         present when a thinking model is configured.
       {"tool_call": {"name","args"}} — a tool the agent is invoking.
       {"tool_result": {"name","summary"}} — that tool's result summary.
+      {"block": {"name","kind", ...}} — a presentation block the UI renders inline.
+                            kind="table" (cohort result set: columns/rows/total/
+                            truncated) or kind="cards" (report-search excerpts:
+                            items of {title,subtitle,snippet,score,url}).
       {"citations": [...]}           — grounded record links.
       {"token": "…"}                 — final-answer tokens (the user-facing reply).
       {"confirmation_request": {...}}— HITL gate for a state-changing action.
@@ -294,9 +317,16 @@ async def _run_stream(graph, graph_input, config, db, session_id, user, question
                     elif node == "tools":
                         for m in (update or {}).get("messages", []):
                             data = parse_tool_content(getattr(m, "content", "") or "")
-                            trace.on_tool_result(getattr(m, "name", None), data)
-                            yield sse({"tool_result": {"name": getattr(m, "name", None),
+                            tname = getattr(m, "name", None)
+                            trace.on_tool_result(tname, data)
+                            yield sse({"tool_result": {"name": tname,
                                                        "summary": data.get("summary")}})
+                            # Presentation blocks (tables, excerpt cards, …) → the
+                            # UI renders each inline instead of collapsing to prose.
+                            for block in (data.get("blocks") or []):
+                                if isinstance(block, dict):
+                                    yield sse({"block": {"name": tname,
+                                                         **_display_block(block)}})
                             if data.get("citations"):
                                 citations.extend(data["citations"])
                                 yield sse({"citations": data["citations"]})
@@ -372,3 +402,53 @@ async def confirm(req: ConfirmRequest, db: Session = Depends(get_db),
     return StreamingResponse(
         _run_stream(graph, Command(resume=resume), config, db, req.session_id, user),
         media_type="text/event-stream", headers=_SSE_HEADERS)
+
+
+@router.get("/export")
+def export_result(
+    tool: str = Query(..., description="Name of the tool whose result to export"),
+    args: str = Query("{}", description="JSON object of the tool's arguments"),
+    fmt: str = Query("csv", pattern="^(csv|json)$"),
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_active_user),
+):
+    """Download the FULL result set of a tool query as CSV/JSON.
+
+    A chat result block carries an {tool, args} export descriptor; this re-runs the
+    SAME query server-side, uncapped (the inline preview is truncated), so the export
+    can't drift from what was shown. Only tools registered in EXPORTERS are allowed.
+    """
+    _ensure_enabled()
+    from ..agent.exporters import EXPORTERS
+    exporter = EXPORTERS.get(tool)
+    if exporter is None:
+        raise HTTPException(400, f"'{tool}' results are not exportable.")
+    try:
+        parsed = json.loads(args) if args else {}
+        if not isinstance(parsed, dict):
+            raise ValueError("args must be a JSON object")
+    except Exception as e:
+        raise HTTPException(422, f"Invalid args: {e}")
+
+    try:
+        stem, rows = exporter(db, user, parsed)
+    except ValueError as e:
+        raise HTTPException(422, str(e))
+    _audit(db, user, None, "export", payload={"tool": tool, "fmt": fmt, "rows": len(rows)})
+
+    if fmt == "json":
+        return StreamingResponse(
+            io.StringIO(json.dumps(rows, indent=2, default=str)),
+            media_type="application/json",
+            headers={"Content-Disposition": f'attachment; filename="{stem}.json"'})
+
+    if not rows:
+        raise HTTPException(404, "No results to export.")
+    buf = io.StringIO()
+    writer = csv.DictWriter(buf, fieldnames=list(rows[0].keys()))
+    writer.writeheader()
+    writer.writerows(rows)
+    buf.seek(0)
+    return StreamingResponse(
+        buf, media_type="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="{stem}.csv"'})

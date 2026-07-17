@@ -41,6 +41,130 @@ function CitationChip({ c }) {
     : <span style={style}>{label}</span>
 }
 
+// Render one cell, giving a few known columns richer treatment: the Scan column
+// links into the viewer, booleans render as ✓/–, and null shows as an em-dash.
+function ResultCell({ colKey, value }) {
+  if (colKey === 'scan_id' && value != null)
+    return <Link to={`/viewer/${value}`} style={{ color: 'var(--crimson)', textDecoration: 'none' }}>{value}</Link>
+  if (colKey === 'has_report') return <span>{value ? '✓' : '–'}</span>
+  if (colKey === 'malignancy') return <span>{value === true ? 'Yes' : value === false ? 'No' : '–'}</span>
+  if (value == null || value === '') return <span style={{ color: 'var(--text-3)' }}>–</span>
+  return <span>{String(value)}</span>
+}
+
+// Footer actions for a result block: how much is shown, and how to get the rest.
+// Both actions are DIRECT server calls: `export` ({tool,args}) re-runs the query
+// uncapped and downloads it; `save` persists the cohort from the filter the tool
+// already returned. Neither round-trips through the model, which could otherwise
+// reconstruct a different query than the one the user is looking at.
+function BlockFooter({ block, shown, onSaveCohort }) {
+  const [busy, setBusy] = useState(null)
+  const [err, setErr]   = useState(null)
+  const total     = block?.total
+  const exp       = block?.export
+  const canSave   = !!block?.save
+  const truncated = block?.truncated ?? (total != null && shown < total)
+  if (!exp && !canSave && total == null) return null
+
+  const download = async (fmt) => {
+    setBusy(fmt); setErr(null)
+    try { await api.exportToolResult(exp, fmt) }
+    catch (e) { setErr(e.message || 'Export failed') }
+    finally { setBusy(null) }
+  }
+  const btn = { border: '1px solid var(--border)', borderRadius: 6, background: 'white', cursor: 'pointer', fontSize: 11, padding: '3px 10px', color: 'var(--navy)' }
+  const count = total != null ? total.toLocaleString() : ''
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, padding: '6px 8px', background: 'var(--navy-2, var(--info-bg))', fontSize: 11, color: 'var(--text-3)', borderRadius: 6 }}>
+      <span>
+        {total != null && (truncated ? `Showing ${shown} of ${count}` : `${count} result${total === 1 ? '' : 's'}`)}
+        {err && <span style={{ color: 'var(--danger, #b00020)' }}> · {err}</span>}
+      </span>
+      <span style={{ display: 'flex', gap: 6 }}>
+        {exp && (
+          <>
+            <button style={btn} disabled={!!busy} onClick={() => download('csv')}>
+              {busy === 'csv' ? 'Preparing…' : `Download all${total != null ? ` ${count}` : ''} (CSV)`}
+            </button>
+            <button style={btn} disabled={!!busy} onClick={() => download('json')}>
+              {busy === 'json' ? 'Preparing…' : 'JSON'}
+            </button>
+          </>
+        )}
+        {canSave && truncated && onSaveCohort && (
+          <button style={btn} onClick={onSaveCohort}>Save as cohort</button>
+        )}
+      </span>
+    </div>
+  )
+}
+
+// Inline result set (e.g. a cohort query) — an enumerable, linked table so a
+// "retrieve all X" request lands as something the user can scan and act on,
+// instead of a prose paragraph. Shows a preview; the full set is reachable by
+// saving the cohort.
+function ResultTable({ table, onSaveCohort }) {
+  const { columns = [], rows = [], shown = rows.length } = table || {}
+  if (!columns.length || !rows.length) return null
+  const th = { textAlign: 'left', padding: '5px 8px', fontSize: 10, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--text-3)', borderBottom: '1px solid var(--border)', whiteSpace: 'nowrap' }
+  const td = { padding: '4px 8px', fontSize: 12, color: 'var(--text-1)', borderBottom: '1px solid var(--border-l)', whiteSpace: 'nowrap' }
+  return (
+    <div style={{ marginTop: 4, border: '1px solid var(--border-l)', borderRadius: 8, overflow: 'hidden' }}>
+      <div style={{ overflowX: 'auto', maxHeight: 320, overflowY: 'auto' }}>
+        <table style={{ borderCollapse: 'collapse', width: '100%', fontFamily: 'var(--font-sans)' }}>
+          <thead><tr>{columns.map(c => <th key={c.key} style={th}>{c.label}</th>)}</tr></thead>
+          <tbody>
+            {rows.map((r, i) => (
+              <tr key={i}>{columns.map(c => (
+                <td key={c.key} style={td}><ResultCell colKey={c.key} value={r[c.key]} /></td>
+              ))}</tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <BlockFooter block={table} shown={shown} onSaveCohort={onSaveCohort} />
+    </div>
+  )
+}
+
+// Report-search hits — one card per matched excerpt, so a "find cases mentioning
+// X" request shows the actual snippet (clickable to the patient) instead of an
+// LLM paraphrase. Snippets arrive already stripped of the data-fence markers.
+function ExcerptCards({ block }) {
+  const items = block?.items || []
+  if (!items.length) return null
+  const card = { border: '1px solid var(--border-l)', borderRadius: 8, padding: '8px 10px', background: 'white' }
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 4 }}>
+      {items.map((it, i) => (
+        <div key={i} style={card}>
+          <div style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between', gap: 8, marginBottom: 3 }}>
+            <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--navy)' }}>
+              {it.url ? <Link to={it.url} style={{ color: 'var(--navy)', textDecoration: 'none' }}>{it.title}</Link> : it.title}
+              {it.subtitle && <span style={{ fontWeight: 400, color: 'var(--text-3)', marginLeft: 6 }}>{it.subtitle}</span>}
+            </span>
+            <span style={{ display: 'flex', gap: 8, alignItems: 'baseline', whiteSpace: 'nowrap' }}>
+              {it.date && <span style={{ fontSize: 10, color: 'var(--text-3)' }}>{it.date}</span>}
+              {it.score != null && <span style={{ fontSize: 10, color: 'var(--text-3)' }}>score {it.score}</span>}
+            </span>
+          </div>
+          {it.snippet && <div style={{ fontSize: 12, lineHeight: 1.5, color: 'var(--text-2)', whiteSpace: 'pre-wrap' }}>{it.snippet}</div>}
+        </div>
+      ))}
+      <BlockFooter block={block} shown={items.length} />
+    </div>
+  )
+}
+
+// Dispatch a presentation block to its renderer by kind. New block kinds (stats,
+// charts) slot in here without touching the stream wiring.
+function RenderBlock({ block, onSaveCohort }) {
+  if (!block) return null
+  if (block.kind === 'table') return <ResultTable table={block} onSaveCohort={onSaveCohort} />
+  if (block.kind === 'cards') return <ExcerptCards block={block} />
+  return null
+}
+
 export default function AIAssistant() {
   const [messages, setMessages] = useState([GREETING])
   const [input, setInput]       = useState('')
@@ -82,6 +206,7 @@ export default function AIAssistant() {
     onReasoning:    (r) => patchLast(m => ({ ...m, reasoning: [...(m.reasoning || []), r] })),
     onToolCall:     (tc) => patchLast(m => ({ ...m, tools: [...m.tools, { kind: 'call', ...tc }] })),
     onToolResult:   (tr) => patchLast(m => ({ ...m, tools: [...m.tools, { kind: 'result', ...tr }] })),
+    onBlock:        (b) => patchLast(m => ({ ...m, blocks: [...(m.blocks || []), b] })),
     onCitations:    (cs) => patchLast(m => ({ ...m, citations: dedupeCitations([...m.citations, ...cs]) })),
     onConfirmation: (req) => patchLast(m => ({ ...m, confirmation: req, streaming: false })),
     onError:        (e) => { patchLast(m => ({ ...m, content: (m.content ? m.content + '\n\n' : '') + `⚠️ ${e}`, streaming: false })); setStreaming(false) },
@@ -90,7 +215,7 @@ export default function AIAssistant() {
   }
 
   function startAssistantTurn() {
-    setMessages(m => [...m, { role: 'assistant', content: '', citations: [], tools: [], confirmation: null, streaming: true, stage: null, plan: null, thinking: '', reasoning: [] }])
+    setMessages(m => [...m, { role: 'assistant', content: '', citations: [], tools: [], blocks: [], confirmation: null, streaming: true, stage: null, plan: null, thinking: '', reasoning: [] }])
     setStreaming(true)
   }
 
@@ -100,6 +225,29 @@ export default function AIAssistant() {
     setInput('')
     startAssistantTurn()
     api.streamChat(sessionId, text, streamHandlers)
+  }
+
+  // Persist a cohort straight from the filter the tool returned with its block.
+  // Previously this asked the model ("Save those N results as a cohort"), which had
+  // to reconstruct the filter from prose and could silently save a different set
+  // than the one shown. Falls back to that path only for older blocks that carry
+  // no filter.
+  async function saveCohortFromBlock(block) {
+    const filter = block?.save?.filter_json
+    if (!filter) { sendMessage(`Save those ${block?.total ?? ''} results as a cohort`); return }
+    const name = window.prompt('Name this cohort:', '')
+    if (!name?.trim()) return
+    const note = (content, citations = []) => setMessages(m => [...m, {
+      role: 'assistant', content, citations, tools: [], blocks: [],
+      confirmation: null, streaming: false,
+    }])
+    try {
+      const c = await api.saveCohort({ name: name.trim(), description: null, filter_json: filter })
+      note(`Saved cohort “${name.trim()}”${c?.result_count != null ? ` (${c.result_count} results)` : ''}. Open it under Saved Results to export the full set.`,
+           c?.id ? [{ type: 'cohort', id: c.id, label: name.trim(), url: `/saved-results/${c.id}` }] : [])
+    } catch (e) {
+      note(`Could not save the cohort: ${e.message || e}`)
+    }
   }
 
   function handleConfirm(idx, approved) {
@@ -125,7 +273,7 @@ export default function AIAssistant() {
       <div style={{ height: '100%', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
 
         {offline && (
-          <div style={{ margin: '12px 24px 0', padding: '10px 14px', background: 'var(--warning-bg)', border: '1px solid #e8c84a', borderRadius: 8, fontSize: 12, color: 'var(--warning)', display: 'flex', alignItems: 'center', gap: 8 }}>
+          <div style={{ margin: '12px 24px 0', padding: '10px 14px', background: 'var(--warning-bg)', border: '1px solid var(--amber-40)', borderRadius: 8, fontSize: 12, color: 'var(--warning)', display: 'flex', alignItems: 'center', gap: 8 }}>
             <svg width="14" height="14" viewBox="0 0 16 16" fill="currentColor"><path d="M8.982 1.566a1.13 1.13 0 00-1.96 0L.165 13.233c-.457.778.091 1.767.98 1.767h13.713c.889 0 1.438-.99.98-1.767L8.982 1.566zM8 5c.535 0 .954.462.9.995l-.35 3.507a.552.552 0 01-1.1 0L7.1 5.995A.905.905 0 018 5zm.002 6a1 1 0 110 2 1 1 0 010-2z"/></svg>
             {offline}
           </div>
@@ -140,7 +288,7 @@ export default function AIAssistant() {
               <div style={{ maxWidth: '78%', display: 'flex', flexDirection: 'column', gap: 6 }}>
                 {/* Thought process — plan, chain-of-thought, and step reasoning */}
                 {(msg.plan || msg.thinking || msg.reasoning?.length > 0 || (msg.streaming && msg.stage)) && (
-                  <details open={msg.streaming} style={{ fontSize: 11, color: 'var(--text-3)', border: '1px solid var(--border-l)', borderRadius: 8, padding: '4px 8px', background: 'var(--navy-2, #f7f8fa)' }}>
+                  <details open={msg.streaming} style={{ fontSize: 11, color: 'var(--text-3)', border: '1px solid var(--border-l)', borderRadius: 8, padding: '4px 8px', background: 'var(--navy-2, var(--info-bg))' }}>
                     <summary style={{ cursor: 'pointer', userSelect: 'none', fontWeight: 600 }}>
                       {msg.streaming && msg.stage ? `🧠 ${msg.stage}…` : '🧠 Thought process'}
                     </summary>
@@ -181,6 +329,12 @@ export default function AIAssistant() {
                   </div>
                 )}
 
+                {/* Presentation blocks — inline tables, excerpt cards, … */}
+                {msg.blocks?.map((b, j) => (
+                  <RenderBlock key={j} block={b}
+                    onSaveCohort={() => saveCohortFromBlock(b)} />
+                ))}
+
                 {/* Citations */}
                 {msg.citations?.length > 0 && (
                   <div style={{ marginTop: 2 }}>
@@ -191,7 +345,7 @@ export default function AIAssistant() {
 
                 {/* Confirmation card */}
                 {msg.confirmation && (
-                  <div style={{ padding: '10px 14px', background: 'var(--warning-bg)', border: '1px solid #e8c84a', borderRadius: 8, fontSize: 12 }}>
+                  <div style={{ padding: '10px 14px', background: 'var(--warning-bg)', border: '1px solid var(--amber-40)', borderRadius: 8, fontSize: 12 }}>
                     <div style={{ fontWeight: 600, marginBottom: 4 }}>Confirm action: {msg.confirmation.action}</div>
                     <pre style={{ margin: '4px 0 8px', fontSize: 11, whiteSpace: 'pre-wrap', color: 'var(--text-2)' }}>{JSON.stringify(msg.confirmation.args, null, 2)}</pre>
                     <div style={{ display: 'flex', gap: 8 }}>

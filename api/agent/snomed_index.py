@@ -46,9 +46,16 @@ def _ensure(db):
 
 def semantic_search(db, query, category=None, top_k=10, min_score=0.35):
     """Return SNOMED codes closest in MEANING to `query`, best first:
-    [{code, category, description, score}]. `min_score` drops weak neighbours
-    but at least the single best match is always returned. Raises
-    EmbeddingsUnavailable if the embedder can't load."""
+    [{code, category, description, score}]. Every result scores >= min_score;
+    an unrecognizable term returns [] rather than a bad guess. Raises
+    EmbeddingsUnavailable if the embedder can't load.
+
+    min_score is applied to EVERY result including the first. It used to exempt
+    the best match ("always return something"), which meant a term outside the
+    vocabulary still produced a confident-looking code — and the system prompt
+    tells the model to prefer these related codes over re-searching. An empty
+    result is the honest answer, and lets the caller say so.
+    """
     import numpy as np
     _ensure(db)
     if _vecs is None or _vecs.shape[0] == 0:
@@ -62,8 +69,8 @@ def semantic_search(db, query, category=None, top_k=10, min_score=0.35):
         if category and m["category"] != category:
             continue
         s = float(sims[int(i)])
-        if out and s < min_score:
-            break
+        if s < min_score:
+            break                          # sorted desc — nothing better follows
         out.append({**m, "score": round(s, 3)})
         if len(out) >= top_k:
             break

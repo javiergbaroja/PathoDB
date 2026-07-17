@@ -119,6 +119,12 @@ class Settings(BaseSettings):
     agent_guided_decoding: bool = True
     agent_max_input_chars: int = 4000      # per-message user input cap
     agent_max_tool_rows: int = 25          # rows from a query surfaced to the model
+    # Rows query_cohort puts in its structured `table` block — the inline result
+    # set the chat UI renders for a "retrieve all X" request. Larger than
+    # agent_max_tool_rows because these rows are compact (a handful of short
+    # columns) and are the user-facing preview, not reasoning fodder; the model
+    # still gets the full `total` and can offer to save the rest as a cohort.
+    agent_cohort_preview_rows: int = 50
     # Trim the message history fed to each LLM call to this approx token budget so
     # long / durable conversations can't overflow the vLLM context window. Keep it
     # comfortably below (vLLM --max-model-len) − vllm_max_tokens − prompt headroom.
@@ -174,6 +180,38 @@ class Settings(BaseSettings):
     rag_reranker_model: str = ""
     rag_reranker_device: str = "cpu" if not torch.cuda.is_available() else "cuda"
     rag_reranker_batch_size: int = 32
+
+    # ── RAG pre-filtering ("zoom in" before retrieval) ─────────────────────────
+    # Semantic search over ~2.5M chunks is imprecise AND slow when the question
+    # only concerns a slice of the corpus (one year, one patient, one organ). The
+    # agent narrows first against the `rag_meta` side table
+    # (db/rag_prefilter_migration.sql), and rag.py picks the plan by selectivity.
+    #
+    # rag_filter_enabled: off = reject filter args and search the whole corpus.
+    #   The escape hatch if the migration has not been applied — with it off,
+    #   rag_meta is never referenced, so an un-migrated DB works unchanged.
+    rag_filter_enabled: bool = True
+    # THE strategy threshold, in chunks matched by the filter.
+    #   <= this  -> EXACT: materialize the scope and scan it. 100% recall, and
+    #               faster than ANN at this size. Measured: 12,025 chunks
+    #               (colon+2024+microscopy) in 144ms, via a BitmapAnd of the
+    #               rag_meta indexes.
+    #   >  this  -> BROAD: take a widened ANN pool and post-filter it (see
+    #               rag_broad_pool_max). Approximate, but a scope this large is a
+    #               big enough share of the corpus that the pool still fills.
+    # 50k is where the two regimes meet: at that size an exact scan is ~0.5-1s,
+    # and the scope is ~2% of the corpus — just dense enough for a 2000-row pool
+    # to yield the top_k. Moving this trades latency against recall.
+    rag_exact_scan_max_chunks: int = 50000
+    # BROAD path only: the ANN pool is widened by corpus/scope so that, after
+    # post-filtering, enough rows survive to fill top_k. This caps that widening
+    # (and hence the worst-case latency) — if a scope is too sparse for the pool,
+    # fewer than top_k rows come back rather than the query running away.
+    rag_broad_pool_max: int = 20000
+    # Cap on an explicitly-passed submission_id scope list. Beyond this, a big
+    # ANY(...) array is what made filtering slow in the first place (it defeats
+    # the index); the native date/patient/topography filters are the fast path.
+    rag_max_scope_ids: int = 2000
 
     # ── Knowledge grounding (glossary + docs) ──────────────────────────────────
     # A SECOND retrieval namespace, distinct from report RAG: the agent's
