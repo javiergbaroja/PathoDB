@@ -387,6 +387,189 @@ def _catalog_model(model_id: str) -> Optional[dict]:
     return next((m for m in _load_catalog() if m["id"] == model_id), None)
 
 
+# ── Derived artifacts: catalog-driven produce / reuse ──────────────────────────
+# Some models compute a reusable intermediate as a byproduct (e.g. the CRC
+# Clinical tools produce a tissue segmentation on the way to their ICCR reading).
+# Rather than hardcode any model pair, each model DECLARES this in catalog.json:
+#
+#   "produces": [{                       # register a companion run of another
+#      "as_model": "crc_tissue_segmentation",   #   model when this one finishes
+#      "artifact": "tissue_segmentation",        #   logical kind (label)
+#      "artifact_key": "tissue_geojson",         #   files{} key → reusable artifact
+#      "overlay_key": "raster_overlay_tissue",   #   files{} key → display overlay
+#      "overlay_name": "Tissue Classes",         #   overlays[] entry to expose
+#      "composition_key": "tissue_composition_pct",  # optional → derived outcome
+#      "derived_status": "segmentation_complete",     # optional outcome.status
+#      "only_if_fresh_field": "segmentation_source",  # register only if the job
+#      "only_if_fresh_value": "fresh_inference"       #   computed it itself
+#   }],
+#   "reuses": [{                         # reuse another model's artifact
+#      "from_model": "crc_tissue_segmentation",  #   whose done runs carry it
+#      "toggle": "reuse_segmentation",           #   bool param that enables reuse
+#      "inject": "_reuse_seg_geojson"            #   param key to inject the path
+#   }]
+#
+# Registration/discovery below are fully model-agnostic; adding a new produce/
+# reuse pair is a catalog edit, no API code.
+
+def _model_produces(model_id: str) -> list:
+    return (_catalog_model(model_id) or {}).get("produces", []) or []
+
+
+def _model_reuses(model_id: str) -> list:
+    return (_catalog_model(model_id) or {}).get("reuses", []) or []
+
+
+def _artifact_download_from_result(job_id: int, scan_id: int) -> Optional[str]:
+    """Resolve a completed job's reusable artifact path — its ``files.download_file``
+    (or the matching ``scans[]`` entry for batch results) — if it exists on disk.
+    """
+    try:
+        data = _get_result_data(job_id)
+    except Exception:
+        return None
+    path = (data.get("files", {}) or {}).get("download_file")
+    if not path and isinstance(data.get("scans"), list):
+        entry = next((s for s in data["scans"] if s.get("scan_id") == scan_id), None)
+        if entry:
+            path = (entry.get("files", {}) or {}).get("download_file")
+    return path if (path and os.path.exists(path)) else None
+
+
+def _find_reusable_artifact(scan_id: int, from_model: str, db: Session) -> Optional[str]:
+    """Newest reusable *whole-slide* artifact from ``from_model`` for ``scan_id``.
+
+    The canonical source of truth the tracker/viewer use — no filesystem crawl.
+    Only whole-slide runs are reusable (an ROI run is partial). Prefers
+    single-slide/derived runs keyed on scan_id, then batch runs (whose row
+    scan_id is not authoritative, so we inspect their ``scans[]``).
+    """
+    single = (
+        db.query(AnalysisJob)
+        .filter(AnalysisJob.scan_id == scan_id,
+                AnalysisJob.model_id == from_model,
+                AnalysisJob.status == "done",
+                AnalysisJob.scope == "whole_slide")
+        .order_by(AnalysisJob.created_at.desc())
+        .all()
+    )
+    for row in single:
+        path = _artifact_download_from_result(row.id, scan_id)
+        if path:
+            return path
+
+    batch = (
+        db.query(AnalysisJob)
+        .filter(AnalysisJob.model_id == from_model,
+                AnalysisJob.status == "done",
+                AnalysisJob.scope == "whole_slide",
+                AnalysisJob.params_json.contains({"is_batch": True}))
+        .order_by(AnalysisJob.created_at.desc())
+        .limit(50)
+        .all()
+    )
+    for row in batch:
+        path = _artifact_download_from_result(row.id, scan_id)
+        if path:
+            return path
+    return None
+
+
+def _resolve_reuse_params(model_id: str, scan_id: int, params: dict, db: Session) -> dict:
+    """Return a copy of ``params`` with any enabled reuse artifact paths injected
+    (per the model's ``reuses`` declarations). Discovery happens here, at submit
+    time, not in the SLURM job.
+    """
+    out = dict(params or {})
+    for spec in _model_reuses(model_id):
+        toggle, inject, from_model = spec.get("toggle"), spec.get("inject"), spec.get("from_model")
+        if toggle and inject and from_model and out.get(toggle):
+            path = _find_reusable_artifact(scan_id, from_model, db)
+            if path:
+                out[inject] = path
+    return out
+
+
+def _register_derived_artifacts(job: AnalysisJob, db: Session) -> None:
+    """Register companion "done" jobs for each artifact this job declares it
+    ``produces`` (and computed itself). Best-effort and isolated: each spec runs
+    in a nested savepoint so a failure never affects the parent job's completion.
+    """
+    produces = _model_produces(job.model_id)
+    if not produces:
+        return
+    try:
+        data = _get_result_data(job.id)
+    except Exception:
+        log.exception(f"Cannot read result.json to register artifacts for job {job.id}")
+        return
+
+    files = data.get("files", {}) or {}
+    for spec in produces:
+        try:
+            as_model = spec.get("as_model")
+            if not as_model:
+                continue
+            # Register only when the job produced the artifact itself, not reused it.
+            fresh_field = spec.get("only_if_fresh_field")
+            if fresh_field and data.get(fresh_field) != spec.get("only_if_fresh_value"):
+                continue
+            artifact = files.get(spec.get("artifact_key"))
+            if not artifact or not os.path.exists(artifact):
+                continue
+            overlay_file = files.get(spec.get("overlay_key"))
+            overlay_entry = next((o for o in data.get("overlays", [])
+                                  if o.get("name") == spec.get("overlay_name")), None)
+
+            with db.begin_nested():                 # savepoint — isolates failure
+                derived = AnalysisJob(
+                    scan_id      = job.scan_id,
+                    model_id     = as_model,
+                    status       = "done",
+                    progress     = 100,
+                    # Byproduct artifacts are whole-slide (tools process the whole
+                    # tissue regardless of the job's scope), so safely reusable.
+                    scope        = "whole_slide",
+                    params_json  = {"derived_from_job": job.id, "synthetic": True,
+                                    "artifact": spec.get("artifact")},
+                    submitted_by = job.submitted_by,
+                )
+                db.add(derived)
+                db.flush()                          # assign derived.id
+
+                ddir = _job_result_dir(derived.id)
+                ddir.mkdir(parents=True, exist_ok=True)
+                # A result.json exposing ONLY this artifact's overlay (opening the
+                # derived run never shows the parent tool's own overlays), with the
+                # artifact as the reusable/downloadable file.
+                outcome = {"status": spec.get("derived_status", "complete"), "label": 0}
+                comp_key = spec.get("composition_key")
+                if comp_key and data.get(comp_key) is not None:
+                    outcome["composition_pct"] = data.get(comp_key)
+                derived_files = {"download_file": artifact}
+                derived_overlays = []
+                if overlay_file and os.path.exists(overlay_file) and overlay_entry:
+                    derived_files["raster_overlay"] = overlay_file
+                    derived_overlays = [{**overlay_entry, "file_key": "raster_overlay"}]
+                derived_result = {
+                    "model_id":  as_model,
+                    "scan_path": data.get("scan_path"),
+                    "scope":     "whole_slide",
+                    "derived_from": {"job_id": job.id, "model_id": job.model_id},
+                    "outcome":  outcome,
+                    "files":    derived_files,
+                    "overlays": derived_overlays,
+                }
+                (ddir / "result.json").write_text(
+                    json.dumps(derived_result, indent=2), encoding="utf-8")
+                derived.result_path = str(ddir)
+            log.info(f"Registered derived {as_model} job {derived.id} from job {job.id}")
+        except Exception:
+            # Best-effort: never break the parent job's completion; log with stack.
+            log.exception(f"Could not register derived '{spec.get('as_model')}' "
+                          f"for job {job.id}")
+
+
 def _slurm_state(slurm_job_id: int) -> Optional[str]:
     """
     Query SLURM for the state of a job.
@@ -616,6 +799,9 @@ def _sync_job_status(job: AnalysisJob, db: Session, slurm_state=_FETCH_STATE) ->
                 job.progress    = 100
                 job.result_path = str(_job_result_dir(job.id))
                 changed = True
+                if not is_batch:
+                    # Runs once — terminal states early-return on the next sync.
+                    _register_derived_artifacts(job, db)
             elif result_error:
                 job.status        = "failed"
                 job.error_message = result_error
@@ -895,6 +1081,16 @@ def cancel_or_delete_job(
                 log.error(f"Failed to delete directory {result_dir} for job {job_id}: {e}")
                 raise HTTPException(status_code=500, detail="Failed to delete files on disk")
 
+        # Cascade: derived jobs registered from this job point at its (now-deleted)
+        # artifact/overlay files, so remove them and their small dirs.
+        for d in db.query(AnalysisJob).filter(
+            AnalysisJob.params_json.contains({"derived_from_job": job_id}),
+        ).all():
+            ddir = _job_result_dir(d.id)
+            if ddir.exists() and ddir.is_dir():
+                shutil.rmtree(ddir, ignore_errors=True)
+            db.delete(d)
+
         db.delete(job)
         db.commit()
     
@@ -953,13 +1149,19 @@ def submit_job(
             detail="roi_json is required when scope='roi'",
         )
 
+    # ── Resolve reusable artifacts (catalog-declared `reuses`) ────────────────
+    # For any enabled reuse toggle, resolve a prior whole-slide artifact from the
+    # DB and inject its path so the tool skips recomputation. Discovery lives here
+    # (not in the SLURM job) — the same source of truth the viewer uses.
+    effective_params = _resolve_reuse_params(req.model_id, scan_id, req.params, db)
+
     # ── Create DB record (queued) ─────────────────────────────────────────────
     job = AnalysisJob(
         scan_id      = scan_id,
         model_id     = req.model_id,
         status       = "queued",
         scope        = req.scope,
-        params_json  = req.params,
+        params_json  = effective_params,
         roi_json     = req.roi_json,
         submitted_by = user.id,
     )
@@ -998,8 +1200,8 @@ def submit_job(
         "scan_path": scan.file_path,
         "result_dir": str(result_dir),
         "scope": req.scope,
-        "params": req.params,
-        "roi": roi_file_path 
+        "params": effective_params,
+        "roi": roi_file_path
 
     }
     context_file.write_text(json.dumps(context_data), encoding="utf-8")

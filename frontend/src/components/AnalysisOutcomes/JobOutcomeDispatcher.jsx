@@ -8,6 +8,7 @@ import SegmentationSummary       from './SegmentationSummary'
 import MultiClassDetectionSummary from './MultiClassDetectionSummary'
 import MetastasisSummary         from './MetastasisSummary'
 import FeatureExtractionSummary  from './FeatureExtractionSummary'
+import GenericOutcomeCard        from './GenericOutcomeCard'
 
 export default function JobOutcomeDispatcher({ jobId, model, scanId = null }) {
   const [outcome, setOutcome] = useState(null)
@@ -46,7 +47,11 @@ export default function JobOutcomeDispatcher({ jobId, model, scanId = null }) {
     </button>
   )
 
-  // Route the data to the correct UI component based on the model's result_type
+  // Prefer the declarative card if the tool provides one — new tools render via
+  // GenericOutcomeCard and never need a bespoke component here.
+  if (outcome.card) return <GenericOutcomeCard card={outcome.card} />
+
+  // Legacy: route by the model's result_type for tools that predate outcome.card.
   switch (model?.result_type) {
     case 'segmentation':
       return <SegmentationSummary outcome={outcome} />

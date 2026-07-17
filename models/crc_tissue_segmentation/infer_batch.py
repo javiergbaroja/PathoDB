@@ -76,9 +76,13 @@ ID2LABEL = {v: k for k, v in LABEL2ID.items()}
 RESOLUTION      = 1.0
 BATCH_SIZE      = 256 if "A100" in GPU_TYPE else 256 if "H100" in GPU_TYPE else 90
 TILE_SIZE       = int(PARAMS.get("tile_size", 336))
-USE_TISSUE_MASK = PARAMS.get("use_tissue_mask", True) 
+USE_TISSUE_MASK = PARAMS.get("use_tissue_mask", True)
 STEP_SIZE       = int(TILE_SIZE - (TILE_SIZE * PARAMS.get("tile_overlap", 66.667)  // 100))
 CROP_PRED_EDGE  = 84 if PARAMS.get("tile_overlap", 66.667) > 25 else 50
+# Dilate the (fat-dropping) automatic tissue mask by this µm margin (0 = off,
+# the standalone default; CRC Clinical tools default to 500 µm).
+TISSUE_MASK_RES  = 8.0
+TISSUE_DILATE_UM = float(PARAMS.get("tissue_mask_dilation_um", 0.0))
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -248,7 +252,11 @@ def main() -> None:
             )
 
             if USE_TISSUE_MASK:
-                tissue_mask, _ = detect_tissue_mask(scan_path)
+                tissue_mask, _ = detect_tissue_mask(scan_path, resolution=TISSUE_MASK_RES)
+                if TISSUE_DILATE_UM > 0:
+                    dil_px = max(1, int(round(TISSUE_DILATE_UM / TISSUE_MASK_RES)))
+                    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (2 * dil_px + 1, 2 * dil_px + 1))
+                    tissue_mask = cv2.dilate((tissue_mask > 0).astype(np.uint8), kernel, iterations=1)
             else:
                 tissue_mask = np.ones((5, 5), dtype=np.uint8)
 

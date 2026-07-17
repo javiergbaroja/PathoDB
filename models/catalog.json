@@ -57,6 +57,13 @@
         "type": "bool",
         "default": 1,
         "options": [0, 1]
+      },
+      {
+        "key": "tissue_mask_dilation_um",
+        "label": "Tissue-mask fat dilation (µm)",
+        "type": "int",
+        "default": 0,
+        "options": [0, 250, 500, 1000]
       }
     ]
   },
@@ -132,6 +139,255 @@
           1,
           2
         ]
+      }
+    ]
+  },
+  {
+    "id": "crc_invasion_extent",
+    "name": "CRC Extent of Invasion (pT)",
+    "description": "CRC Clinical suite — reuses the CRC Tissue Segmentation backbone to read the ICCR 'Extent of invasion' element.\nSegments the bowel wall (tumour / muscularis propria / pericolic fat / mucosa), then estimates a pT category and the depth of invasion beyond the muscularis propria in mm.\nRun on the deepest, transmural tumour block. pTis/pT1 are not separated (submucosa not resolved) and pT4a/pT4b require gross/serosal correlation.",
+    "category": "CRC Clinical",
+    "supports_batch": false,
+    "stain_compatibility": ["HE"],
+    "estimated_minutes": 8,
+    "result_type": "invasion_extent",
+    "produces": [
+      {
+        "as_model": "crc_tissue_segmentation",
+        "artifact": "tissue_segmentation",
+        "artifact_key": "tissue_geojson",
+        "overlay_key": "raster_overlay_tissue",
+        "overlay_name": "Tissue Classes",
+        "composition_key": "tissue_composition_pct",
+        "derived_status": "segmentation_complete",
+        "only_if_fresh_field": "segmentation_source",
+        "only_if_fresh_value": "fresh_inference"
+      }
+    ],
+    "reuses": [
+      {
+        "from_model": "crc_tissue_segmentation",
+        "artifact": "tissue_segmentation",
+        "toggle": "reuse_segmentation",
+        "inject": "_reuse_seg_geojson"
+      }
+    ],
+    "classes": ["Muscularis propria", "Intramural tumour", "Tumour beyond MP"],
+    "params": [
+      {
+        "key": "tile_size",
+        "label": "Patch size (px)",
+        "type": "int",
+        "default": 336,
+        "options": [224, 336, 448, 560]
+      },
+      {
+        "key": "tile_overlap",
+        "label": "Tile overlap (%)",
+        "type": "int",
+        "default": 66,
+        "options": [25, 33, 50, 66, 75]
+      },
+      {
+        "key": "use_tissue_mask",
+        "label": "Use automated tissue mask",
+        "type": "bool",
+        "default": 1,
+        "options": [0, 1]
+      },
+      {
+        "key": "tissue_mask_dilation_um",
+        "label": "Tissue-mask fat dilation (µm)",
+        "type": "int",
+        "default": 500,
+        "options": [0, 250, 500, 1000]
+      },
+      {
+        "key": "reuse_segmentation",
+        "label": "Reuse existing segmentation if available",
+        "type": "bool",
+        "default": 0,
+        "options": [0, 1]
+      },
+      {
+        "key": "min_tumor_um",
+        "label": "Min tumour object size (µm)",
+        "type": "int",
+        "default": 300,
+        "options": [150, 300, 500, 1000]
+      },
+      {
+        "key": "adjacency_um",
+        "label": "Tumour–tissue adjacency radius (µm)",
+        "type": "int",
+        "default": 120,
+        "options": [60, 120, 200, 300]
+      }
+    ]
+  },
+  {
+    "id": "crc_perineural_invasion",
+    "name": "CRC Perineural Invasion",
+    "description": "CRC Clinical suite — reuses the CRC Tissue Segmentation backbone to read the ICCR 'Perineural invasion' element.\nFor each nerve, calls PNI when tumour surrounds ≥33% of its circumference or invades it, and reports the number of nerves involved.\nRun on tumour blocks. Screening detection on HE — a negative is not definitive; S100/SOX10 IHC can confirm equivocal foci. Set 'Reuse existing segmentation' to skip re-inference when a CRC tissue segmentation already exists for the slide.",
+    "category": "CRC Clinical",
+    "supports_batch": false,
+    "stain_compatibility": ["HE"],
+    "estimated_minutes": 8,
+    "result_type": "perineural_invasion",
+    "produces": [
+      {
+        "as_model": "crc_tissue_segmentation",
+        "artifact": "tissue_segmentation",
+        "artifact_key": "tissue_geojson",
+        "overlay_key": "raster_overlay_tissue",
+        "overlay_name": "Tissue Classes",
+        "composition_key": "tissue_composition_pct",
+        "derived_status": "segmentation_complete",
+        "only_if_fresh_field": "segmentation_source",
+        "only_if_fresh_value": "fresh_inference"
+      }
+    ],
+    "reuses": [
+      {
+        "from_model": "crc_tissue_segmentation",
+        "artifact": "tissue_segmentation",
+        "toggle": "reuse_segmentation",
+        "inject": "_reuse_seg_geojson"
+      }
+    ],
+    "classes": ["Nerve", "PNI-positive nerve", "Tumour"],
+    "params": [
+      {
+        "key": "tile_size",
+        "label": "Patch size (px)",
+        "type": "int",
+        "default": 336,
+        "options": [224, 336, 448, 560]
+      },
+      {
+        "key": "tile_overlap",
+        "label": "Tile overlap (%)",
+        "type": "int",
+        "default": 66,
+        "options": [25, 33, 50, 66, 75]
+      },
+      {
+        "key": "use_tissue_mask",
+        "label": "Use automated tissue mask",
+        "type": "bool",
+        "default": 1,
+        "options": [0, 1]
+      },
+      {
+        "key": "tissue_mask_dilation_um",
+        "label": "Tissue-mask fat dilation (µm)",
+        "type": "int",
+        "default": 500,
+        "options": [0, 250, 500, 1000]
+      },
+      {
+        "key": "reuse_segmentation",
+        "label": "Reuse existing segmentation if available",
+        "type": "bool",
+        "default": 0,
+        "options": [0, 1]
+      },
+      {
+        "key": "min_nerve_um",
+        "label": "Min nerve size (µm)",
+        "type": "int",
+        "default": 50,
+        "options": [30, 50, 80, 120]
+      },
+      {
+        "key": "contact_um",
+        "label": "Perineural apposition radius (µm)",
+        "type": "int",
+        "default": 20,
+        "options": [10, 20, 40]
+      }
+    ]
+  },
+  {
+    "id": "crc_tumour_budding",
+    "name": "CRC Tumour Budding (ITBCC)",
+    "description": "CRC Clinical suite — reuses the CRC Tissue Segmentation backbone to read the ICCR 'Tumour budding' element.\nBuds are detached tumour objects of 1–4 cells (cell count estimated from area) at the invasive front; the grade is the maximum bud count in a 0.785 mm² (20×) hotspot: Bd1 (0–4), Bd2 (5–9), Bd3 (≥10).\nRun on the deepest, transmural tumour block. HE-based screening — pan-cytokeratin is the ITBCC adjunct in equivocal cases. Set 'Reuse existing segmentation' to chain after the pT tool with no re-inference.",
+    "category": "CRC Clinical",
+    "supports_batch": false,
+    "stain_compatibility": ["HE"],
+    "estimated_minutes": 8,
+    "result_type": "tumour_budding",
+    "produces": [
+      {
+        "as_model": "crc_tissue_segmentation",
+        "artifact": "tissue_segmentation",
+        "artifact_key": "tissue_geojson",
+        "overlay_key": "raster_overlay_tissue",
+        "overlay_name": "Tissue Classes",
+        "composition_key": "tissue_composition_pct",
+        "derived_status": "segmentation_complete",
+        "only_if_fresh_field": "segmentation_source",
+        "only_if_fresh_value": "fresh_inference"
+      }
+    ],
+    "reuses": [
+      {
+        "from_model": "crc_tissue_segmentation",
+        "artifact": "tissue_segmentation",
+        "toggle": "reuse_segmentation",
+        "inject": "_reuse_seg_geojson"
+      }
+    ],
+    "classes": ["Main tumour", "Bud"],
+    "params": [
+      {
+        "key": "tile_size",
+        "label": "Patch size (px)",
+        "type": "int",
+        "default": 336,
+        "options": [224, 336, 448, 560]
+      },
+      {
+        "key": "tile_overlap",
+        "label": "Tile overlap (%)",
+        "type": "int",
+        "default": 66,
+        "options": [25, 33, 50, 66, 75]
+      },
+      {
+        "key": "use_tissue_mask",
+        "label": "Use automated tissue mask",
+        "type": "bool",
+        "default": 1,
+        "options": [0, 1]
+      },
+      {
+        "key": "tissue_mask_dilation_um",
+        "label": "Tissue-mask fat dilation (µm)",
+        "type": "int",
+        "default": 500,
+        "options": [0, 250, 500, 1000]
+      },
+      {
+        "key": "reuse_segmentation",
+        "label": "Reuse existing segmentation if available",
+        "type": "bool",
+        "default": 0,
+        "options": [0, 1]
+      },
+      {
+        "key": "main_tumor_cells",
+        "label": "Main-tumour size threshold (cells)",
+        "type": "int",
+        "default": 50,
+        "options": [20, 50, 100, 200]
+      },
+      {
+        "key": "front_band_um",
+        "label": "Invasive-front band width (µm)",
+        "type": "int",
+        "default": 500,
+        "options": [250, 500, 1000]
       }
     ]
   }

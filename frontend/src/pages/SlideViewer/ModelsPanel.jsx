@@ -177,6 +177,20 @@ function PastJobsList({ jobs, catalog, activeOverlays, onToggleOverlay, onDelete
                 {new Date(job.created_at).toLocaleDateString()}{scopeLabel}
               </span>
 
+              {job.params_json?.synthetic && (
+                <span
+                  title={`Auto-registered from analysis job #${job.params_json.derived_from_job}`}
+                  style={{
+                    display: 'inline-flex', alignItems: 'center',
+                    padding: '2px 8px', borderRadius: 'var(--radius-full)',
+                    fontSize: 'var(--text-xs)', fontWeight: 500, whiteSpace: 'nowrap',
+                    background: 'var(--transparent-teal-2)', color: 'var(--viewer-teal-light)',
+                  }}
+                >
+                  Derived
+                </span>
+              )}
+
               <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
                 {job.status === 'done' && (
                   <>
