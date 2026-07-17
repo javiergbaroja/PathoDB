@@ -17,6 +17,7 @@ from datetime import date as DateType
 from typing import Literal, Optional
 
 from ..database import get_db
+from ..lib.text_query import TS_CONFIG, QueryParseError, to_tsquery_string
 from ..models import Patient, Submission, Probe, Block, Scan, Stain, Cohort, Report, SnomedCode, User
 from ..schemas import CohortFilter, CohortSave, CohortResponse
 from ..auth import get_current_active_user
@@ -383,6 +384,30 @@ def _format_results(rows, return_level: str, db: Session, f=None) -> list[dict]:
     return results
 
 
+def _report_text_exists(report_type: str, query: str):
+    """EXISTS clause matching a submission's report of `report_type` against a
+    Google-style keyword query. Callers must screen out blank queries — an empty
+    tsquery matches nothing, so it would silently empty the cohort.
+
+    Correlated on Submission.id rather than joined: a submission has at most one
+    report per type (UNIQUE (submission_id, report_type)), so a join would not
+    duplicate rows, but EXISTS lets the planner stop at the first hit and keeps
+    reports out of the block/probe row set the rest of _apply_filters builds.
+
+    Matches report_tsv — the stored generated column — so the idx_reports_tsv GIN
+    index carries the scan. TS_CONFIG must equal the column's config for that.
+    """
+    try:
+        tsq = to_tsquery_string(query)
+    except QueryParseError as e:
+        raise HTTPException(status_code=400, detail=f"Report text search: {e}")
+    return exists().where(and_(
+        Report.submission_id == Submission.id,
+        Report.report_type   == report_type,
+        Report.report_tsv.op('@@')(func.to_tsquery(TS_CONFIG, tsq)),
+    ))
+
+
 def _apply_filters(db: Session, f: CohortFilter):
     modality = getattr(f, 'modality', None)
     if modality == 'cytology':
@@ -464,6 +489,13 @@ def _apply_filters(db: Session, f: CohortFilter):
         q = q.filter(Submission.report_date <= f.submission_date_to)
     if f.block_info_search:
         q = q.filter(Block.block_info.ilike(f"%{f.block_info_search}%"))
+    # Report keyword filters — independent, and ANDed when both are given.
+    for report_type, raw_query in (
+        ('microscopy', getattr(f, 'report_micro_search', None)),
+        ('macro',      getattr(f, 'report_macro_search', None)),
+    ):
+        if raw_query and raw_query.strip():
+            q = q.filter(_report_text_exists(report_type, raw_query))
     if f.has_scan is True:
         q = q.filter(exists().where(Scan.block_id == Block.id))
     elif f.has_scan is False:
@@ -506,6 +538,8 @@ class ListQueryRequest(BaseModel):
     consent_statuses:        Optional[list[str]] = None
     has_scan:                Optional[bool] = None
     block_info_search:       Optional[str] = None
+    report_micro_search:     Optional[str] = None
+    report_macro_search:     Optional[str] = None
     stain_names:             Optional[list[str]] = None
     stain_categories:        Optional[list[str]] = None
     file_formats:            Optional[list[str]] = None

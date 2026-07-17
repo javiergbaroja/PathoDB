@@ -217,6 +217,12 @@ class CohortFilter(BaseModel):
     submission_date_from: Optional[date] = None
     submission_date_to: Optional[date] = None
     block_info_search: Optional[str] = None
+    # Google-style keyword queries over the report text, one per report type.
+    # Syntax (AND/OR/NOT, "phrases", grouping, prefix*) is parsed by
+    # api/lib/text_query.py. Both are matched against the submission's reports,
+    # and when both are given a submission must satisfy each.
+    report_micro_search: Optional[str] = None
+    report_macro_search: Optional[str] = None
     has_scan: Optional[bool] = None
     stain_names: Optional[List[str]] = None
     stain_categories: Optional[List[str]] = None

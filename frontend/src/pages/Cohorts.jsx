@@ -351,6 +351,8 @@ function ActiveFilterChips({ filter, mode, listState, onRemove }) {
   if (f.magnification_min != null) chips.push({ key: 'magnification_min', label: `Mag ≥ ${f.magnification_min}` })
   if (f.magnification_max != null) chips.push({ key: 'magnification_max', label: `Mag ≤ ${f.magnification_max}` })
   if (f.block_info_search) chips.push({ key: 'block_info_search', label: `Block: "${f.block_info_search}"` })
+  if (f.report_micro_search) chips.push({ key: 'report_micro_search', label: `Micro: ${f.report_micro_search}` })
+  if (f.report_macro_search) chips.push({ key: 'report_macro_search', label: `Macro: ${f.report_macro_search}` })
 
   if (mode === 'list' && listState.idText.trim()) {
     const count = listState.idText.split('\n').filter(s => s.trim()).length

@@ -4,11 +4,11 @@ SQLAlchemy models mirroring the database schema.
 """
 from datetime import date, datetime
 from sqlalchemy import (
-      Boolean, Column, Date, ForeignKey, Integer, Numeric, Float,
+      Boolean, Column, Computed, Date, ForeignKey, Integer, Numeric, Float,
       String, Text, TIMESTAMP, UniqueConstraint, ARRAY,
       func, Index
   )
-from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.dialects.postgresql import JSONB, TSVECTOR
 from sqlalchemy.orm import relationship
 from ..database import Base
 
@@ -85,6 +85,16 @@ class Report(Base):
     report_text   = Column(Text)
     report_date   = Column(Date)
     created_at    = Column(TIMESTAMP(timezone=True), server_default=func.now())
+
+    # Stored generated column, GIN-indexed as idx_reports_tsv. Backs the cohort
+    # report-text filters — see api/lib/text_query.py, whose TS_CONFIG must stay
+    # in step with the 'simple' config used here or the index goes unused.
+    # 'simple' is a deliberate choice over 'english', not an oversight; the
+    # reasoning is recorded in db/schema.sql.
+    report_tsv    = Column(
+        TSVECTOR,
+        Computed("to_tsvector('simple', coalesce(report_text, ''))", persisted=True),
+    )
 
     __table_args__ = (
         UniqueConstraint("submission_id", "report_type"),

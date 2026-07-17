@@ -51,6 +51,8 @@ export const EMPTY_FILTER = {
   consent_statuses:        ['consented', 'informed', 'unknown'],
   has_scan:                null,
   block_info_search:       '',
+  report_micro_search:     '',
+  report_macro_search:     '',
   return_level:            'scan',
 }
 
@@ -67,6 +69,8 @@ export const EMPTY_LIST_STATE = {
     consent_statuses:        ['consented', 'informed', 'unknown'],
     has_scan:                null,
     block_info_search:       '',
+    report_micro_search:     '',
+    report_macro_search:     '',
     submission_date_from:    '',
     submission_date_to:      '',
     stain_names:             [],
@@ -131,6 +135,26 @@ function SectionLabel({ children }) {
     }}>
       {children}
       <div style={{ flex: 1, height: 1, background: 'var(--border-l)' }} />
+    </div>
+  )
+}
+
+// Spelled out once under the report-text inputs — the syntax is only guessable
+// up to a point, and the prefix form is the one users must know: matching is
+// word-level and unstemmed, so a plural is a different word. 'metasta*' is the
+// example on purpose — it shows the prefix earning its keep on a Latin plural
+// (metastasis/metastases/metastatic), which is where this bites in practice.
+function ReportSyntaxHint() {
+  return (
+    <div style={{
+      fontSize: 11, color: 'var(--text-3)', lineHeight: 1.6,
+      marginTop: -2, marginBottom: 2,
+    }}>
+      Search like Google: <code>carcinoma colon</code> needs both,{' '}
+      <code>carcinoma OR adenoma</code> either, <code>-metastasis</code> excludes,{' '}
+      <code>"lymph node"</code> is an exact phrase, and <code>(…)</code> groups.
+      Whole words only, so end with <code>*</code> to cover word endings —{' '}
+      <code>metasta*</code> finds metastasis, metastases and metastatic.
     </div>
   )
 }
@@ -277,6 +301,25 @@ function FilterModeForm({ filter, onFilterChange, lockReturnLevel }) {
         )}
         </div>
     </FormField>
+
+      <SectionLabel>Report text</SectionLabel>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 6 }}>
+        <FormField label="Microscopy report matches">
+          <FormInput
+            placeholder='e.g. "invasive carcinoma" -metastasis'
+            value={filter.report_micro_search}
+            onChange={e => onFilterChange('report_micro_search', e.target.value)}
+          />
+        </FormField>
+        <FormField label="Macro report matches">
+          <FormInput
+            placeholder="e.g. polyp OR mass"
+            value={filter.report_macro_search}
+            onChange={e => onFilterChange('report_macro_search', e.target.value)}
+          />
+        </FormField>
+      </div>
+      <ReportSyntaxHint />
 
       <SectionLabel>Block</SectionLabel>
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
@@ -507,6 +550,17 @@ function ListModeForm({ listState, onListStateChange, lockReturnLevel }) {
             </div>
         </FormField>
       
+      <SectionLabel>Report text</SectionLabel>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 6 }}>
+        <FormField label="Microscopy report matches">
+          <FormInput placeholder='e.g. "invasive carcinoma" -metastasis' value={listFilter.report_micro_search} onChange={e => setLF('report_micro_search', e.target.value)} />
+        </FormField>
+        <FormField label="Macro report matches">
+          <FormInput placeholder="e.g. polyp OR mass" value={listFilter.report_macro_search} onChange={e => setLF('report_macro_search', e.target.value)} />
+        </FormField>
+      </div>
+      <ReportSyntaxHint />
+
       <SectionLabel>Block</SectionLabel>
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
         <FormField label="Block info contains">

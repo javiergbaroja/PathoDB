@@ -60,11 +60,27 @@ CREATE TABLE IF NOT EXISTS reports (
     report_type   TEXT        NOT NULL CHECK (report_type IN ('macro', 'microscopy')),
     report_text   TEXT,
     report_date   DATE,
+    -- Backs the cohort report-text filters (report_micro_search / report_macro_search).
+    -- api/lib/text_query.py builds its tsquery with the same config; changing one
+    -- requires changing both, or the GIN index below is silently bypassed.
+    --
+    -- 'simple' (no stemming) is deliberate — do not "fix" this to 'english'.
+    -- English stemming cannot relate the Latin/Greek plurals this corpus runs on
+    -- (metastasis/metastases → 'metastasi'/'metastas', nucleus/nuclei,
+    -- carcinoma/carcinomata all stem apart), so it buys regular -s plurals and
+    -- loses the ones that matter. Worse, it breaks the prefix search that covers
+    -- them: 'invasive' stems to 'invas', so a search for 'invasi*' is LONGER than
+    -- the stored lexeme and matches nothing. Under 'simple' the lexeme is the
+    -- literal word, so 'metasta*' reaches metastasis, metastases and metastatic
+    -- alike — which is the idiom the filter UI teaches.
+    report_tsv    TSVECTOR GENERATED ALWAYS AS
+                      (to_tsvector('simple', coalesce(report_text, ''))) STORED,
     created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
     UNIQUE (submission_id, report_type)
 );
 
 CREATE INDEX IF NOT EXISTS idx_reports_submission_id ON reports (submission_id);
+CREATE INDEX IF NOT EXISTS idx_reports_tsv ON reports USING GIN (report_tsv);
 
 -- =============================================================================
 -- PROBES
