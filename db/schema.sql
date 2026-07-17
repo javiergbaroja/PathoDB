@@ -378,6 +378,7 @@ CREATE TABLE IF NOT EXISTS report_embeddings (
     created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
     UNIQUE (report_id, chunk_index)
 );
+
 CREATE INDEX IF NOT EXISTS idx_report_embeddings_report_id  ON report_embeddings (report_id);
 CREATE INDEX IF NOT EXISTS idx_report_embeddings_submission ON report_embeddings (submission_id);
 CREATE INDEX IF NOT EXISTS idx_report_embeddings_vec
@@ -400,6 +401,53 @@ BEGIN
 
 
         );
+    END IF;
+END
+$$;
+
+-- =============================================================================
+-- RAG PRE-FILTER  (rag_meta — the agent's "zoom in" side table)
+-- One narrow row per report carrying the keys semantic_report_search filters on,
+-- so it can narrow the ~2.5M-chunk corpus BEFORE retrieval (api/agent/rag.py).
+-- DERIVED from reports/submissions/probes — rebuild with
+--   python api/workers/embed_reports.py --refresh-metadata
+-- after an ETL load or a probe SNOMED/topography backfill, or the agent filters
+-- on values that were true at ETL time.
+--
+-- A SIDE TABLE, deliberately, rather than columns on report_embeddings: populating
+-- those would UPDATE all 2.55M rows, and Postgres MVCC rewrites a row on UPDATE
+-- (new ctid), forcing EVERY index — including the 17 GB HNSW — to be re-inserted
+-- even though no vector changes. Measured n_tup_hot_upd = 0 (the table is packed
+-- at fillfactor 100, so no HOT update can avoid it). See
+-- db/rag_prefilter_migration.sql for the full rationale and the benchmarks.
+-- =============================================================================
+CREATE TABLE IF NOT EXISTS rag_meta (
+    report_id         INTEGER PRIMARY KEY REFERENCES reports (id) ON DELETE CASCADE,
+    submission_id     INTEGER NOT NULL,
+    report_type       TEXT    NOT NULL,          -- 'macro' | 'microscopy'
+    report_date       DATE,                      -- = submissions.report_date
+    patient_id        INTEGER,                   -- internal id, never patient_code
+    malignancy_flag   BOOLEAN,
+    topo_descriptions TEXT[]  NOT NULL DEFAULT '{}',  -- DISTINCT over the submission's probes
+    snomed_topo_codes TEXT[]  NOT NULL DEFAULT '{}',
+    refreshed_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+-- Date is the headline filter; composite with report_type because "microscopy
+-- reports from 2024" is the archetypal narrowing query and report_type alone
+-- (2 values) is not worth an index. malignancy_flag is intentionally unindexed.
+CREATE INDEX IF NOT EXISTS idx_rag_meta_date_type  ON rag_meta (report_date, report_type);
+CREATE INDEX IF NOT EXISTS idx_rag_meta_patient    ON rag_meta (patient_id);
+CREATE INDEX IF NOT EXISTS idx_rag_meta_submission ON rag_meta (submission_id);
+CREATE INDEX IF NOT EXISTS idx_rag_meta_topo_desc  ON rag_meta USING GIN (topo_descriptions);
+CREATE INDEX IF NOT EXISTS idx_rag_meta_topo_codes ON rag_meta USING GIN (snomed_topo_codes);
+
+DO $$
+BEGIN
+    IF EXISTS (
+        SELECT 1 FROM pg_roles WHERE rolname = current_setting('app.db_user', true)
+    ) THEN
+        EXECUTE format('GRANT SELECT, INSERT, UPDATE, DELETE ON rag_meta TO %I;',
+                       current_setting('app.db_user'));
     END IF;
 END
 $$;

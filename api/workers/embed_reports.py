@@ -86,6 +86,60 @@ def _bulk_insert(db, rows) -> None:
                for r in rows])
 
 
+def _refresh_rag_meta(db) -> int:
+    """Rebuild `rag_meta`, the agent's RAG pre-filter side table (one narrow row
+    per report: report_date / report_type / patient_id / malignancy_flag /
+    topography). See db/rag_prefilter_migration.sql.
+
+    Needed because rag_meta is derived from reports/submissions/probes, which keep
+    changing after a report is embedded: probe SNOMED/topography backfills
+    (etl/backfill_probe_snomed_codes.py) and malignancy corrections would
+    otherwise leave the agent filtering on values that were true at ETL time.
+    Also picks up reports added since the last run. Does NOT touch embeddings.
+
+    Deliberately ONE set-based statement: aggregating probes per report inline
+    would re-aggregate each submission's probes once per report and turn this into
+    millions of random index probes. As a single hash aggregate + hash joins it
+    runs in ~1 minute over the full corpus.
+    """
+    if db.execute(text("SELECT to_regclass('rag_meta')")).scalar() is None:
+        log.error("rag_meta does not exist — apply db/rag_prefilter_migration.sql first.")
+        return -1
+    n = db.execute(text("""
+        INSERT INTO rag_meta (report_id, submission_id, report_type, report_date,
+                              patient_id, malignancy_flag, topo_descriptions,
+                              snomed_topo_codes)
+        SELECT r.id, r.submission_id, r.report_type, s.report_date, s.patient_id,
+               s.malignancy_flag, COALESCE(t.descs, '{}'), COALESCE(t.codes, '{}')
+        FROM reports r
+        JOIN submissions s ON s.id = r.submission_id
+        LEFT JOIN (
+            SELECT p.submission_id,
+                   array_agg(DISTINCT p.topo_description)
+                       FILTER (WHERE p.topo_description IS NOT NULL) AS descs,
+                   array_agg(DISTINCT p.snomed_topo_code)
+                       FILTER (WHERE p.snomed_topo_code IS NOT NULL)  AS codes
+            FROM probes p
+            GROUP BY p.submission_id
+        ) t ON t.submission_id = s.id
+        ON CONFLICT (report_id) DO UPDATE SET
+            submission_id     = EXCLUDED.submission_id,
+            report_type       = EXCLUDED.report_type,
+            report_date       = EXCLUDED.report_date,
+            patient_id        = EXCLUDED.patient_id,
+            malignancy_flag   = EXCLUDED.malignancy_flag,
+            topo_descriptions = EXCLUDED.topo_descriptions,
+            snomed_topo_codes = EXCLUDED.snomed_topo_codes,
+            refreshed_at      = now()
+    """)).rowcount
+    db.commit()
+    # Selectivity stats are what let the planner exact-scan a narrow scope rather
+    # than fall back to the HNSW index, so this is not optional.
+    db.execute(text("ANALYZE rag_meta"))
+    db.commit()
+    return n
+
+
 def _warmup_model() -> int:
     """
     Force-load the embedding model and return its output dimension.
@@ -245,9 +299,28 @@ def main():
                          "(default 1024). Larger = better GPU utilisation.")
     ap.add_argument("--fetch-size",   type=int, default=2048,
                     help="Rows fetched from DB per round-trip (default 2048).")
+    ap.add_argument("--refresh-metadata", action="store_true",
+                    help="Rebuild the rag_meta RAG pre-filter table from "
+                         "reports/submissions/probes, then exit. Does not embed. "
+                         "Run after a probe SNOMED/topography backfill or an ETL "
+                         "load, so the agent's date/topography filters stay current.")
     args = ap.parse_args()
 
     settings = get_settings()
+
+    # ── Metadata refresh: no embedding model needed, so handle it before warmup ──
+    if args.refresh_metadata:
+        db = SessionLocal()
+        try:
+            log.info("Refreshing rag_meta (RAG pre-filter table)...")
+            t0 = time.time()
+            n = _refresh_rag_meta(db)
+            if n < 0:
+                sys.exit(1)
+            log.info("rag_meta refreshed: %d row(s) in %.1fs.", n, time.time() - t0)
+        finally:
+            db.close()
+        return
 
     # ── Step 1: warm up embedding model BEFORE opening the DB connection ──────
     # Loading a GPU model can take several minutes.  If the DB connection were

@@ -9,7 +9,7 @@
 #SBATCH --account=invest
 #SBATCH --partition=gpu-invest
 #SBATCH --gres=gpu:rtx4090:1
-#SBATCH --cpus-per-task=8
+#SBATCH --cpus-per-task=16
 #SBATCH --qos=job_gpu_igmp-tru
 
 # =============================================================================
@@ -174,6 +174,7 @@ CREATE INDEX IF NOT EXISTS idx_report_embeddings_report_id
 CREATE INDEX IF NOT EXISTS idx_report_embeddings_submission
     ON report_embeddings (submission_id);
 
+
 -- Grant DML to the app user so embed_reports.py can INSERT/SELECT
 
 GRANT SELECT, INSERT, UPDATE, DELETE
@@ -182,6 +183,7 @@ GRANT USAGE, SELECT
     ON SEQUENCE report_embeddings_id_seq TO ${APP_PGUSER};
 SQL
 echo "  report_embeddings: OK"
+
 
 # ── Defer the HNSW index for a full (re)build ────────────────────────────────
 # Maintaining the HNSW graph on every INSERT is far slower (and yields worse
@@ -270,17 +272,24 @@ echo "  Pending          : $PENDING / $TOTAL"
 echo ""
 
 if [ "$PENDING" = "0" ]; then
-    echo "Nothing to do — all reports are already embedded."
-    exit 0
+    # Deliberately NOT `exit 0`. With EMBED_REBUILD_INDEX=true (the default) the
+    # HNSW + FTS indexes have ALREADY been dropped above in preparation for the
+    # bulk load. Exiting here would leave the corpus permanently unindexed —
+    # semantic search silently degrades to a sequential scan over millions of
+    # vectors. Skip only the embedding step and fall through to the index phase,
+    # which is idempotent (CREATE INDEX IF NOT EXISTS) and cheap when the indexes
+    # already exist.
+    echo "Nothing to embed — all reports are already embedded."
+    echo "Continuing to the index phase (indexes are rebuilt/verified below)."
+else
+    # ── Run embedding worker ──────────────────────────────────────────────────
+    echo "Starting embedding pipeline..."
+    echo ""
+
+    python3 api/workers/embed_reports.py \
+        --report-type "$REPORT_TYPE" \
+        "${EXTRA_ARGS[@]}"
 fi
-
-# ── Run embedding worker ──────────────────────────────────────────────────────
-echo "Starting embedding pipeline..."
-echo ""
-
-python3 api/workers/embed_reports.py \
-    --report-type "$REPORT_TYPE" \
-    "${EXTRA_ARGS[@]}"
 
 # ── Build the HNSW index (once, after the bulk load) ──────────────────────────
 if [ "$EMBED_REBUILD_INDEX" = "true" ]; then
@@ -289,8 +298,8 @@ if [ "$EMBED_REBUILD_INDEX" = "true" ]; then
     # maintenance_work_mem + parallel workers dramatically speed the build.
     # max_parallel_maintenance_workers is bounded by --cpus-per-task above.
     "$PG_BIN/psql" -p "$PGPORT" -d "$PGDB" --set ON_ERROR_STOP=1 <<SQL
-SET maintenance_work_mem = '8GB';
-SET max_parallel_maintenance_workers = 7;
+SET maintenance_work_mem = '60GB';
+SET max_parallel_maintenance_workers = 15;
 CREATE INDEX IF NOT EXISTS idx_report_embeddings_vec
     ON report_embeddings USING hnsw (embedding vector_cosine_ops);
 -- Lexical arm of hybrid retrieval. 'english' must match config.rag_fts_config
@@ -300,6 +309,12 @@ CREATE INDEX IF NOT EXISTS idx_report_embeddings_fts
 SQL
     echo "  HNSW + FTS indexes: OK"
 fi
+
+# Keep the agent's RAG pre-filter table in step with any reports this run added
+# (rag_meta is derived from reports/submissions/probes — see
+# db/rag_prefilter_migration.sql). No-op if the migration hasn't been applied.
+python3 api/workers/embed_reports.py --refresh-metadata || \
+    echo "  NOTE: rag_meta refresh skipped (apply db/rag_prefilter_migration.sql)"
 
 # ── Post-run summary ──────────────────────────────────────────────────────────
 echo ""
