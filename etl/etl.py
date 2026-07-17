@@ -129,7 +129,7 @@ SEX_MAP = {
     "unknown":   "U",
     "m":         "M",
     "f":         "F",
-    "w":         "F",   # German abbreviation for weiblich
+    "w":         "F",
     "divers":    "U",
 }
 
@@ -208,17 +208,27 @@ def parse_date(val) -> Optional[str]:
     if s is None:
         return None
     from datetime import datetime
+    
+    # 1. Try parsing as a standard ISO 8601 string first
+    try:
+        return datetime.fromisoformat(s).strftime("%Y-%m-%d")
+    except ValueError:
+        pass  # If it fails, move on to custom formats
+
+    # 2. Fallback to manual formats
     for fmt in (
         "%d/%m/%Y  %H:%M:%S",
         "%d/%m/%Y %H:%M:%S",
         "%d/%m/%Y",
         "%Y-%m-%d %H:%M:%S",
         "%Y-%m-%d",
+        "%Y-%m-%dT%H:%M:%S%z",
     ):
         try:
             return datetime.strptime(s, fmt).strftime("%Y-%m-%d")
         except ValueError:
             continue
+            
     log.warning(f"  Could not parse date value: {s!r}")
     return None
 
@@ -373,8 +383,8 @@ def load_submissions(filepath: str, conn, dry_run: bool) -> tuple:
         report_date    = parse_date(row.get("Freigabedatum"))
         malignancy_raw = clean(row.get("Malignom auf Einsendung")) or ""
         malignancy     = (
-            True  if malignancy_raw.lower() == "ja"   else
-            False if malignancy_raw.lower() == "nein" else
+            True  if (malignancy_raw.lower() == "ja") or (malignancy_raw.lower() == "yes") else
+            False if (malignancy_raw.lower() == "nein") or (malignancy_raw.lower() == "no") else
             None
         )
         consent = clean(row.get("Konsens"))
@@ -385,7 +395,10 @@ def load_submissions(filepath: str, conn, dry_run: bool) -> tuple:
                 INSERT INTO submissions
                     (patient_id, lis_submission_id, report_date, malignancy_flag, consent)
                 VALUES (%s, %s, %s, %s, %s)
-                ON CONFLICT (lis_submission_id) DO NOTHING
+                ON CONFLICT (lis_submission_id) 
+                DO UPDATE SET 
+                    report_date = EXCLUDED.report_date,
+                    malignancy_flag = EXCLUDED.malignancy_flag
                 RETURNING id
                 """,
                 (patient_id, lis_sub_id, report_date, malignancy, consent),
@@ -413,7 +426,8 @@ def load_submissions(filepath: str, conn, dry_run: bool) -> tuple:
                         INSERT INTO reports
                             (submission_id, report_type, report_text, report_date)
                         VALUES (%s, %s, %s, %s)
-                        ON CONFLICT (submission_id, report_type) DO NOTHING
+                        ON CONFLICT (submission_id, report_type) 
+                        DO UPDATE SET report_date = EXCLUDED.report_date
                         """,
                         (sub_id, rtype, text, report_date),
                     )

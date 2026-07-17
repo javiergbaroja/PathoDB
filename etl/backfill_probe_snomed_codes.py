@@ -118,7 +118,7 @@ def main():
         sys.exit(1)
     probe_id_map, ambiguous_refs = load_probe_id_map(conn)
 
-    df = pd.read_csv(args.csv, dtype=str)
+    df = pd.read_csv(args.csv, dtype=str) if args.csv.lower().endswith(".csv") else pd.read_excel(args.csv)
     df.columns = df.columns.str.strip()
     probe_refs = df["Probe"].fillna("").astype(str).str.strip().tolist()
     codes_raws = df["SNOMED Codes"].fillna("").tolist()

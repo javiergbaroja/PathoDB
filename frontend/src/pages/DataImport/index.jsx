@@ -3,7 +3,7 @@ import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { Navigate } from 'react-router-dom'
 import { useAuth } from '../../context/AuthContext'
 import Layout from '../../components/Layout'
-import { Btn, Badge, Spinner, SegmentedControl, ErrorMsg, useToast } from '../../components/ui'
+import { Btn, Badge, Spinner, SegmentedControl, ErrorMsg, ConfirmDialog, JobStatusBadge, useToast } from '../../components/ui'
 import DirectoryBrowser from '../../components/DirectoryBrowser'
 import { api } from '../../api'
 import ScanCleanupReviewModal from './ScanCleanupReviewModal'
@@ -36,14 +36,6 @@ const JOB_TYPES = {
     iconClass: 'cardIconScans',
     mode: null, // unused — ScansCard manages its own sync/verify toggle
   },
-}
-
-const STATUS_BADGE = {
-  queued:    'muted',
-  running:   'teal',
-  done:      'green',
-  failed:    'red',
-  cancelled: 'muted',
 }
 
 const POLL_INTERVAL = 4000
@@ -179,7 +171,13 @@ function FileDropZone({ file, onFile, onClear, accept }) {
         <span style={{ fontSize: 11, color: 'var(--text-3)' }}>
           {(file.size / 1024).toFixed(0)} KB
         </span>
-        <button className={s.clearFile} onClick={onClear} title="Remove file">
+        <button
+          type="button"
+          className={s.clearFile}
+          onClick={onClear}
+          aria-label={`Remove file ${file.name}`}
+          title="Remove file"
+        >
           <CloseIcon />
         </button>
       </div>
@@ -190,7 +188,16 @@ function FileDropZone({ file, onFile, onClear, accept }) {
     <>
       <div
         className={`${s.dropZone} ${dragOver ? s.dropZoneActive : ''}`}
+        role="button"
+        tabIndex={0}
+        aria-label="Choose a file: drop it here, or activate to browse"
         onClick={() => inputRef.current?.click()}
+        onKeyDown={e => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault()
+            inputRef.current?.click()
+          }
+        }}
         onDragOver={e => { e.preventDefault(); setDragOver(true) }}
         onDragLeave={() => setDragOver(false)}
         onDrop={handleDrop}
@@ -234,23 +241,22 @@ function ProgressBar({ percent, status }) {
 function ImportCard({ type, config, onSubmit, submitting }) {
   const [file, setFile] = useState(null)
   const [mode, setMode] = useState('preview')
+  const [confirmOpen, setConfirmOpen] = useState(false)
   const isFile = config.mode === 'file'
+
+  async function runSubmit() {
+    if (isFile && !file) return
+    const ok = await onSubmit({ jobType: type, mode, file: isFile ? file : null })
+    // Clear the file after a committed import so the card is ready for the next
+    // one; keep it after a preview so the user can commit the same file next.
+    if (ok && mode === 'commit') setFile(null)
+  }
 
   function handleSubmit() {
     if (isFile && !file) return
-    if (mode === 'preview') {
-      onSubmit({
-        jobType: type,
-        mode: 'preview',
-        file: isFile ? file : null,
-      })
-    } else {
-      onSubmit({
-        jobType: type,
-        mode: 'commit',
-        file: isFile ? file : null,
-      })
-    }
+    // Direct writes to the database get a confirmation step; previews don't.
+    if (mode === 'commit') setConfirmOpen(true)
+    else runSubmit()
   }
 
   const canSubmit = isFile ? !!file : false
@@ -311,6 +317,18 @@ function ImportCard({ type, config, onSubmit, submitting }) {
           {mode === 'preview' ? 'Run Preview' : 'Upload & Import'}
         </Btn>
       </div>
+
+      <ConfirmDialog
+        isOpen={confirmOpen}
+        onClose={() => setConfirmOpen(false)}
+        onConfirm={() => { setConfirmOpen(false); runSubmit() }}
+        title={`Import ${config.title.toLowerCase()} directly?`}
+        message={
+          `This writes ${file ? `“${file.name}”` : 'the file'} straight into the database — no dry run. ` +
+          `Running a preview first is recommended so you can see what would change. Continue?`
+        }
+        confirmLabel="Import now"
+      />
     </div>
   )
 }
@@ -322,10 +340,10 @@ function ScansCard({ config, onSubmit, submitting }) {
   const [scanFolder, setScanFolder] = useState('')
   const [browserOpen, setBrowserOpen] = useState(false)
 
-  function handleSyncSubmit() {
+  async function handleSyncSubmit() {
     if (!scanFolder.trim()) return
-    onSubmit({ jobType: 'scans', mode: 'sync', scanFolder: scanFolder.trim() })
-    setScanFolder('')
+    const ok = await onSubmit({ jobType: 'scans', mode: 'sync', scanFolder: scanFolder.trim() })
+    if (ok) setScanFolder('')
   }
 
   function handlePreviewSubmit() {
@@ -435,7 +453,7 @@ function JobRow({ job, onCancel, onReview, onReport }) {
         </Badge>
       </td>
       <td>
-        <Badge variant={STATUS_BADGE[job.status] || 'muted'}>{job.status}</Badge>
+        <JobStatusBadge status={job.status} />
       </td>
       <td>
         <ProgressBar percent={job.progress} status={job.status} />
@@ -537,6 +555,7 @@ export default function DataImport() {
     return () => clearInterval(pollRef.current)
   }, [hasActiveJobs, fetchJobs])
 
+  // Returns true on a successful submit so cards can clear their input.
   async function handleSubmit({ jobType, mode, file, scanFolder }) {
     setSubmitting(jobType)
     setError('')
@@ -548,8 +567,10 @@ export default function DataImport() {
           ? 'Preview job submitted — see Import History below once it finishes.'
           : 'Import job submitted — see Import History below for progress.'
       )
+      return true
     } catch (e) {
       setError(e.message || 'Failed to submit job')
+      return false
     } finally {
       setSubmitting(null)
     }
@@ -584,12 +605,14 @@ export default function DataImport() {
             Each import runs as a SLURM job on the cluster.
           </p>
         </div>
-        {hasActiveJobs && (
-          <Badge variant="teal">
-            <Spinner size={12} color="var(--teal)" />
-            &nbsp;Jobs running
-          </Badge>
-        )}
+        <div role="status" aria-live="polite">
+          {hasActiveJobs && (
+            <Badge variant="teal">
+              <Spinner size={12} color="var(--teal)" />
+              &nbsp;Jobs running
+            </Badge>
+          )}
+        </div>
       </div>
 
       {error && <ErrorMsg message={error} onDismiss={() => setError('')} style={{ marginBottom: 16 }} />}
@@ -617,10 +640,17 @@ export default function DataImport() {
 
       {/* ── Job history ──────────────────────────────────────────────────── */}
       <div className={s.historySection}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 8 }}>
+        <div className={s.historyHeader}>
           <div className={s.sectionTitle} style={{ marginBottom: 0 }}>Import History</div>
+          {!loading && (
+            <span className={s.historyCount} aria-live="polite">
+              {filteredJobs.length}{historyFilter === 'all' ? '' : ` ${historyFilter}`}
+              {filteredJobs.length === 1 ? ' job' : ' jobs'}
+            </span>
+          )}
           <SegmentedControl
             small
+            style={{ marginLeft: 'auto' }}
             options={[
               ['all', 'All'],
               ['submissions', 'Submissions'],
@@ -632,7 +662,7 @@ export default function DataImport() {
           />
           {jobs.length >= 200 && (
             <span style={{ fontSize: 11, color: 'var(--text-3)' }}>
-              Showing the latest 200 jobs — older jobs aren't listed yet.
+              Latest 200 shown
             </span>
           )}
         </div>
@@ -640,14 +670,14 @@ export default function DataImport() {
           <table className={s.table}>
             <thead>
               <tr>
-                <th>ID</th>
-                <th>Type</th>
-                <th>Status</th>
-                <th>Progress</th>
-                <th>Source</th>
-                <th>Result</th>
-                <th>Started</th>
-                <th></th>
+                <th scope="col">ID</th>
+                <th scope="col">Type</th>
+                <th scope="col">Status</th>
+                <th scope="col">Progress</th>
+                <th scope="col">Source</th>
+                <th scope="col">Result</th>
+                <th scope="col">Started</th>
+                <th scope="col"><span className={s.srOnly}>Actions</span></th>
               </tr>
             </thead>
             <tbody>

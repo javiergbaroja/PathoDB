@@ -6,9 +6,10 @@
 # =============================================================================
 #SBATCH --mail-type=fail
 #SBATCH --mail-user=javier.garcia@unibe.ch
-#SBATCH --time=06:00:00
+#SBATCH --time=6:00:00
 #SBATCH --account=gratis
 #SBATCH --mem-per-cpu=8G
+#SBATCH --cpus-per-task=4
 #SBATCH --partition=cpu-invest
 #SBATCH --qos=job_cpu_preemptable
 
@@ -46,7 +47,7 @@ export $(grep -v '^#' "$ENV_FILE" | xargs)
 # ── Set DB host from context (inter-node connectivity) ────────────────────────
 DB_HOST="$(jq -r '.db_host // "localhost"' "${CONTEXT_FILE}")"
 export POSTGRES_HOST="${DB_HOST}"
-# export POSTGRES_HOST="cnode21"
+# export POSTGRES_HOST="bnode004"
 
 echo "Job type   : $(jq -r '.job_type' "${CONTEXT_FILE}")"
 echo "Source     : $(jq -r '.source_path' "${CONTEXT_FILE}")"

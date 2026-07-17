@@ -3,6 +3,19 @@
    Uses design tokens from index.css. No hardcoded colors.
    ============================================================ */
 
+/* Visually hidden, still announced by screen readers */
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
 /* ── Page header ─────────────────────────────────────────────── */
 .headerRow {
   display: flex;
@@ -26,6 +39,10 @@
 }
 
 @media (max-width: 1100px) {
+  .cardGrid { grid-template-columns: repeat(2, 1fr); }
+}
+
+@media (max-width: 720px) {
   .cardGrid { grid-template-columns: 1fr; }
 }
 
@@ -123,6 +140,13 @@
   color: var(--teal);
 }
 
+.dropZone:focus-visible {
+  outline: 2px solid var(--teal);
+  outline-offset: 2px;
+  border-color: var(--teal);
+  color: var(--teal);
+}
+
 .selectedFile {
   display: flex;
   align-items: center;
@@ -180,6 +204,19 @@
   margin-top: 8px;
 }
 
+.historyHeader {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.historyCount {
+  font-size: 12px;
+  color: var(--text-3);
+  font-variant-numeric: tabular-nums;
+}
+
 .sectionTitle {
   font-family: var(--font-serif);
   font-size: 15px;
@@ -190,6 +227,7 @@
 
 .table {
   width: 100%;
+  min-width: 760px; /* keeps columns readable; .tableWrap scrolls below this */
   border-collapse: collapse;
   font-size: var(--text-sm);
 }
@@ -202,8 +240,13 @@
   font-size: 11px;
   text-transform: uppercase;
   letter-spacing: 0.06em;
-  border-bottom: 1px solid var(--border);
   background: var(--navy-05);
+  /* Stays visible while the table body scrolls. box-shadow (not border)
+     because border-collapse drops sticky-header borders mid-scroll. */
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  box-shadow: inset 0 -1px 0 var(--border);
 }
 
 .table td {
@@ -220,7 +263,10 @@
   background: var(--white);
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
-  overflow: hidden;
+  /* Scrolls both ways: wide 8-col table horizontally, long history
+     (up to 200 rows) vertically — with a sticky header (see .table th). */
+  overflow: auto;
+  max-height: min(560px, 65vh);
 }
 
 /* ── Progress bar ────────────────────────────────────────────── */

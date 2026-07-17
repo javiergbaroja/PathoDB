@@ -1,8 +1,8 @@
 #!/bin/bash
 #SBATCH --mail-type=end,fail
 #SBATCH --mail-user=javier.garcia@unibe.ch
-#SBATCH --job-name="pathodb_etl"
-#SBATCH --output="/storage/research/igmp_dp_workspace/garciabaroja_javier/PW_reports/database/pathodb/logs/pathodb_etl_%j.out"
+#SBATCH --job-name="pathodb_etl_cyto"
+#SBATCH --output="/storage/research/igmp_dp_workspace/garciabaroja_javier/PW_reports/database/pathodb/logs/pathodb_etl_cyto_%j.out"
 #SBATCH --time=6:00:00
 #SBATCH --mem=90G
 #SBATCH --nodes=1
@@ -11,21 +11,26 @@
 #SBATCH --partition=gpu-invest
 #SBATCH --cpus-per-task=16
 #SBATCH --qos=job_gpu_igmp-tru
-#SBATCH --dependency=afterany:4769180
 # =============================================================================
-# PathoDB ETL — SLURM job script
+# PathoDB CYTOLOGY ETL — SLURM job script
+#
+# Companion to slurm_etl.sh. Reconciles the PROBE layer of the cytology
+# (Z-number) submissions, which are already present in the database (their
+# patients/submissions/reports were loaded by the shared etl.py Phase 1).
+#
+# Cytology stops at the probe level — there are no blocks and no scans — so
+# there is no per-year loop and no blocks/scans arguments. The probe and SNOMED
+# exports are single files spanning all years (2011-2026).
 #
 # Before submitting:
-#   1. Run setup_postgres_hpc.sh once interactively to initialise the database
-#   2. Edit .env (change passwords)
-#   3. Edit the DATA_DIR path below to point to your CSV files
-#   4. Choose DRY_RUN=true for a first validation pass
+#   1. Confirm the three input paths below.
+#   2. Set DRY_RUN=true first to see the correction / insertion counts.
 # =============================================================================
-YEAR=2026   # Only used for naming log files, doesn't affect ETL logic
 
 PG_ENV="/storage/research/igmp_dp_workspace/garciabaroja_javier/conda_envs/pathodb-pg"
 PGDATA="/storage/research/igmp_dp_workspace/garciabaroja_javier/PW_reports/database/pathodb/pathodb_conda_data"
 PG_BIN="$PG_ENV/bin"
+
 # Clean stale PID if needed
 PIDFILE="$PGDATA/postmaster.pid"
 if [ -f "$PIDFILE" ]; then
@@ -36,22 +41,18 @@ if [ -f "$PIDFILE" ]; then
     fi
 fi
 
-
 set -euo pipefail
 
 # ── Configuration — edit these ────────────────────────────────────────────────
 PROJECT_DIR="/storage/research/igmp_dp_workspace/garciabaroja_javier/PW_reports/database/pathodb"
-SUBMISSIONS_CSV="/storage/research/igmp_dp_workspace/garciabaroja_javier/PW_reports/Reports/search_${YEAR}_en_consolidated.xlsx"
-BLOCKS_CSV="/storage/research/igmp_dp_workspace/garciabaroja_javier/PW_reports/Blocks/search_${YEAR}_final_expanded_en.xlsx"
-SCANS_CSV="/storage/research/igmp_dp_workspace/garciabaroja_javier/PW_reports/slide_df_valid.csv"
-# SUBMISSIONS_CSV="/storage/research/igmp_dp_workspace/garciabaroja_javier/PW_reports/Reports/search_${YEAR}_en_consolidated.xlsx"
-# BLOCKS_CSV="/storage/research/igmp_dp_workspace/garciabaroja_javier/PW_reports/Blocks/search_${YEAR}_final_expanded_en.xlsx"
-# SCANS_CSV="/storage/research/igmp_dp_workspace/garciabaroja_javier/PW_reports/slide_df_valid.csv"
+PROBES_XLSX="/storage/research/igmp_dp_workspace/garciabaroja_javier/PW_reports/Probes/cytology_2011-2026.xlsx"
+SNOMED_XLSX="/storage/research/igmp_dp_workspace/garciabaroja_javier/PW_reports/SNOMED_codes/cytology_snomed.xlsx"
+SNOMED_DICT="/storage/research/igmp_dp_workspace/garciabaroja_javier/PW_reports/SNOMED_codes/snomed_dict_en.json"
 
-DRY_RUN=false   # Set to true for validation without writing to DB
+DRY_RUN=true   # Set to false to write to the database
 # ─────────────────────────────────────────────────────────────────────────────
 
-echo "=== PathoDB ETL Job ==="
+echo "=== PathoDB Cytology ETL Job ==="
 echo "Started : $(date)"
 echo "Node    : $(hostname)"
 echo "DRY_RUN : $DRY_RUN"
@@ -65,22 +66,18 @@ source activate langchain
 cd "$PROJECT_DIR"
 
 # Load environment variables from .env
-if [ ! -f "/storage/research/igmp_dp_workspace/garciabaroja_javier/PW_reports/database/pathodb/.env" ]; then
+ENV_FILE="${PROJECT_DIR}/.env"
+if [ ! -f "$ENV_FILE" ]; then
     echo "ERROR: .env not found in $PROJECT_DIR"
-    echo "Run setup_postgres_hpc.sh first, then edit .env with your password."
     exit 1
 fi
-export $(grep -v '^#' /storage/research/igmp_dp_workspace/garciabaroja_javier/PW_reports/database/pathodb/.env | xargs)
+export $(grep -v '^#' "$ENV_FILE" | xargs)
 
-# Alias .env variable names to what the script uses
 PGDB="${POSTGRES_DB}"
 PGUSER="${POSTGRES_USER}"
 
 # ── Start PostgreSQL ──────────────────────────────────────────────────────────
 echo "Checking PostgreSQL server..."
-
-# Clean up stale PID file if the process it references is no longer running.
-# This happens when a previous SLURM job was killed without a clean shutdown.
 PIDFILE="$PGDATA/postmaster.pid"
 if [ -f "$PIDFILE" ]; then
     STORED_PID=$(head -1 "$PIDFILE")
@@ -95,8 +92,6 @@ if "$PG_BIN/pg_ctl" -D "$PGDATA" status | grep -q "server is running"; then
 else
     echo "Server not running — starting..."
     "$PG_BIN/pg_ctl" -D "$PGDATA" -l "$PGDATA/logs/startup.log" start
-
-    # Wait until server is actually accepting connections (up to 30s)
     echo "Waiting for server to accept connections..."
     for i in $(seq 1 30); do
         if "$PG_BIN/pg_isready" -p "$PGPORT" -q; then
@@ -121,7 +116,6 @@ fi
 echo "Timeouts disabled for ETL session."
 
 # Keep-alive: ping the database every 2 minutes.
-# Explicitly specifies -d and -U to avoid defaulting to the Unix username.
 (
     while true; do
         sleep 120
@@ -137,36 +131,36 @@ echo ""
 echo "Installing ETL dependencies..."
 pip install -q -r etl/requirements.txt
 
-# ── Run ETL ───────────────────────────────────────────────────────────────────
+# ── Run cytology ETL ──────────────────────────────────────────────────────────
 ETL_ARGS=(
-    --submissions "$SUBMISSIONS_CSV"
-    --blocks      "$BLOCKS_CSV"
-    --scans       "$SCANS_CSV"
-    --year        "$YEAR"
+    --probes      "$PROBES_XLSX"
+    --snomed      "$SNOMED_XLSX"
+    --snomed-dict "$SNOMED_DICT"
 )
 
 if [ "$DRY_RUN" = true ]; then
     ETL_ARGS+=(--dry-run)
-    echo "Running ETL in DRY RUN mode (no data will be written)..."
+    echo "Running cytology ETL in DRY RUN mode (no data will be written)..."
 else
-    echo "Running ETL — writing to database..."
+    echo "Running cytology ETL — writing to database..."
 fi
 
 echo ""
-python etl/etl.py "${ETL_ARGS[@]}"
+set +e
+python etl/etl_cytology.py "${ETL_ARGS[@]}"
 ETL_EXIT=$?
+set -e
 
 # ── Cleanup ───────────────────────────────────────────────────────────────────
-# Stop the keep-alive process now that ETL is done
-kill "$KEEPALIVE_PID" 2>/dev/null
-wait "$KEEPALIVE_PID" 2>/dev/null
+kill "$KEEPALIVE_PID" 2>/dev/null || true
+wait "$KEEPALIVE_PID" 2>/dev/null || true
 echo "Keep-alive process stopped."
 
-if [ $ETL_EXIT -ne 0 ]; then
-    echo "ERROR: ETL exited with code $ETL_EXIT"
-    exit $ETL_EXIT
+if [ "$ETL_EXIT" -ne 0 ]; then
+    echo "ERROR: Cytology ETL exited with code $ETL_EXIT"
+    exit "$ETL_EXIT"
 fi
 
 echo ""
-echo "=== ETL Job Complete ==="
+echo "=== Cytology ETL Job Complete ==="
 echo "Finished : $(date)"

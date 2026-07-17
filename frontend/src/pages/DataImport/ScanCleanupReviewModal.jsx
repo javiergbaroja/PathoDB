@@ -2,6 +2,7 @@
 import { useState, useMemo } from 'react'
 import { Modal, Btn, ConfirmDialog, ErrorMsg } from '../../components/ui'
 import { api } from '../../api'
+import SummaryStats from './SummaryStats'
 import s from './DataImport.module.css'
 
 export default function ScanCleanupReviewModal({ job, onClose, onCommitted }) {
@@ -60,24 +61,14 @@ export default function ScanCleanupReviewModal({ job, onClose, onCommitted }) {
       <Modal.Body>
         <ErrorMsg message={error} onDismiss={() => setError('')} />
 
-        <div className={s.reviewSummary}>
-          <div className={s.reviewSummaryItem}>
-            <span className={s.reviewSummaryValue}>{summary.scans_checked ?? '—'}</span>
-            <span className={s.reviewSummaryLabel}>Checked</span>
-          </div>
-          <div className={s.reviewSummaryItem}>
-            <span className={s.reviewSummaryValue}>{summary.scans_missing ?? 0}</span>
-            <span className={s.reviewSummaryLabel}>Missing</span>
-          </div>
-          <div className={s.reviewSummaryItem}>
-            <span className={s.reviewSummaryValue}>{cleanCount}</span>
-            <span className={s.reviewSummaryLabel}>Clean</span>
-          </div>
-          <div className={s.reviewSummaryItem}>
-            <span className={s.reviewSummaryValue}>{blockedScans.length}{blockedTruncated > 0 ? '+' : ''}</span>
-            <span className={s.reviewSummaryLabel}>In use</span>
-          </div>
-        </div>
+        <SummaryStats
+          items={[
+            { label: 'Checked', value: summary.scans_checked ?? '—' },
+            { label: 'Missing', value: summary.scans_missing ?? 0 },
+            { label: 'Clean',   value: cleanCount },
+            { label: 'In use',  value: `${blockedScans.length}${blockedTruncated > 0 ? '+' : ''}` },
+          ]}
+        />
 
         {cleanCount > 0 && (
           <div className={s.cleanBanner}>

@@ -2,6 +2,7 @@
 import { useState } from 'react'
 import { Modal, Btn, ErrorMsg } from '../../components/ui'
 import { api } from '../../api'
+import SummaryStats from './SummaryStats'
 import s from './DataImport.module.css'
 
 export default function ScanSyncReportModal({ job, onClose }) {
@@ -30,28 +31,15 @@ export default function ScanSyncReportModal({ job, onClose }) {
       <Modal.Body>
         <ErrorMsg message={error} onDismiss={() => setError('')} />
 
-        <div className={s.reviewSummary}>
-          <div className={s.reviewSummaryItem}>
-            <span className={s.reviewSummaryValue}>{summary.files_found ?? '—'}</span>
-            <span className={s.reviewSummaryLabel}>Found</span>
-          </div>
-          <div className={s.reviewSummaryItem}>
-            <span className={s.reviewSummaryValue}>{summary.scans_inserted ?? 0}</span>
-            <span className={s.reviewSummaryLabel}>Inserted</span>
-          </div>
-          <div className={s.reviewSummaryItem}>
-            <span className={s.reviewSummaryValue}>{summary.duplicate_skipped ?? 0}</span>
-            <span className={s.reviewSummaryLabel}>Already existed</span>
-          </div>
-          <div className={s.reviewSummaryItem}>
-            <span className={s.reviewSummaryValue}>{summary.unlinked ?? 0}</span>
-            <span className={s.reviewSummaryLabel}>Unlinked</span>
-          </div>
-          <div className={s.reviewSummaryItem}>
-            <span className={s.reviewSummaryValue}>{summary.parse_failed ?? 0}</span>
-            <span className={s.reviewSummaryLabel}>Parse failed</span>
-          </div>
-        </div>
+        <SummaryStats
+          items={[
+            { label: 'Found',           value: summary.files_found ?? '—' },
+            { label: 'Inserted',        value: summary.scans_inserted ?? 0 },
+            { label: 'Already existed', value: summary.duplicate_skipped ?? 0 },
+            { label: 'Unlinked',        value: summary.unlinked ?? 0 },
+            { label: 'Parse failed',    value: summary.parse_failed ?? 0 },
+          ]}
+        />
 
         <p style={{ fontSize: 12, color: 'var(--text-3)', marginBottom: 16 }}>
           Showing up to 25 examples per category below. Download the full CSV for every file processed in this run.
