@@ -3,6 +3,7 @@ import { useViewerStore } from '../../store/viewerStore'
 import { STAIN_COLORS } from '../../constants/stains'
 import { ImageAdjustPopover, ToolBtn } from '../../components/ui'
 import { shortcutGroupsFor, SLIDE_VIEWER_ACTIONS } from '../../lib/viewerKeymap'
+import { formatHierarchy } from '../../lib/slideNaming'
 
 export default function Toolbar({ handleBack, leftInfo, rightInfo, compareMode, leftZoom, rightZoom, handleCompareToggle }) {
   const {
@@ -41,7 +42,12 @@ export default function Toolbar({ handleBack, leftInfo, rightInfo, compareMode, 
         <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 8, overflow: 'hidden' }}>
           {leftInfo && (
             <>
-              <span style={{ fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--text-dark-3)', flexShrink: 0 }}>{leftInfo.lis_submission_id}</span>
+              <span
+                title={formatHierarchy(leftInfo)}
+                style={{ fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--text-dark-3)', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+              >
+                {formatHierarchy(leftInfo)}
+              </span>
               <StainBadge name={leftInfo.stain_name} category={leftInfo.stain_category} side={compareMode ? 'L' : null} zoom={leftZoom} />
               {compareMode && rightInfo && <StainBadge name={rightInfo.stain_name} category={rightInfo.stain_category} side="R" zoom={rightZoom} />}
               {leftInfo.malignancy_flag && (

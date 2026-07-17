@@ -1,25 +1,6 @@
 import { useState, useMemo, useRef, memo } from 'react'
 import { useVirtualizer } from '@tanstack/react-virtual'
-
-function formatHierarchy(scan) {
-  const sub = scan.lis_submission_id || '';
-  const prb = scan.lis_probe_id || '';
-  const blk = scan.block_label || '';
-
-  const parts = [];
-  const isFullBNumber = /^B\d{4}/i.test(prb);
-
-  if (isFullBNumber) {
-    parts.push(prb);
-  } else {
-    if (sub) parts.push(sub);
-    if (prb && prb !== '1') parts.push(prb);
-  }
-
-  if (blk) parts.push(blk);
-
-  return parts.join(' › ') || '—';
-}
+import { formatHierarchy } from '../../lib/slideNaming'
 
 // 1. Wrap the entire component in React.memo to block parent re-renders during panning/zooming
 const SlideTray = memo(function SlideTray({ scans, activeScanId, onSelect, token, saving, onScanNoteChange, readOnly = false }) {
