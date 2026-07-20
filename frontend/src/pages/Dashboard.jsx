@@ -511,7 +511,7 @@ function QuickActions() {
           flexShrink: 0, width: 34, height: 34,
           borderRadius: 'var(--radius-md)',
           background: 'var(--transparent-padding-2)',
-          border: '1px solid rgba(255,255,255,0.12)',
+          border: '1px solid var(--transparent-white-1)',
           display: 'flex', alignItems: 'center', justifyContent: 'center',
           color: 'var(--teal-light)',
         }}>
@@ -528,12 +528,12 @@ function QuickActions() {
             <span style={{
               fontSize: 9, fontWeight: 700, letterSpacing: '0.08em',
               textTransform: 'uppercase', color: 'var(--teal-light)',
-              border: '1px solid rgba(110,231,183,0.3)',
+              border: '1px solid var(--transparent-teallight-3)',
               padding: '2px 6px', borderRadius: 'var(--radius-full)',
               lineHeight: 1,
             }}>Beta</span>
           </div>
-          <div style={{ fontSize: 11, color: 'rgba(255,255,255,0.45)', lineHeight: 1.4 }}>
+          <div style={{ fontSize: 11, color: 'var(--transparent-white-5)', lineHeight: 1.4 }}>
             Ask questions about your collection in plain language
           </div>
         </div>

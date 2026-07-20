@@ -21,7 +21,7 @@ export default function ScansDrawer({ scans, block, probe, sub, onClose }) {
         onClick={onClose}
         style={{
           position: 'absolute', inset: 0,
-          background: 'rgba(0,20,100,0.18)',
+          background: 'var(--transparent-dark-2)',
           zIndex: 'var(--z-overlay)',
         }}
       />
@@ -34,7 +34,7 @@ export default function ScansDrawer({ scans, block, probe, sub, onClose }) {
         borderLeft: '1px solid var(--border-l)',
         zIndex: 'var(--z-modal)',
         display: 'flex', flexDirection: 'column',
-        boxShadow: '-4px 0 20px rgba(0,20,100,0.12)',
+        boxShadow: '-4px 0 20px var(--transparent-dark-1)',
       }}>
 
         {/* Header */}

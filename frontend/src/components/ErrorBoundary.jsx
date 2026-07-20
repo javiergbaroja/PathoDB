@@ -25,11 +25,11 @@ export class ErrorBoundary extends React.Component {
       }
 
       return (
-        <div style={{ padding: '12px 16px', border: '1px solid rgba(230,0,46,0.3)', background: 'rgba(230,0,46,0.08)', borderRadius: '6px', margin: '8px 0' }}>
-          <div style={{ color: '#ff8099', fontSize: '11px', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '4px' }}>
+        <div style={{ padding: '12px 16px', border: '1px solid var(--transparent-crimson-3)', background: 'var(--transparent-crimson-1)', borderRadius: '6px', margin: '8px 0' }}>
+          <div style={{ color: 'var(--viewer-red)', fontSize: '11px', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '4px' }}>
             Component Crashed
           </div>
-          <div style={{ color: 'rgba(255,255,255,0.7)', fontSize: '12px', fontFamily: 'monospace', wordBreak: 'break-all' }}>
+          <div style={{ color: 'var(--transparent-white-7)', fontSize: '12px', fontFamily: 'monospace', wordBreak: 'break-all' }}>
             {this.state.error?.message || 'An unknown rendering error occurred.'}
           </div>
         </div>

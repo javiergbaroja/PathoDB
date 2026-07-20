@@ -15,9 +15,8 @@
 export default function BrushLimits({ cx, cy, radius, subtract, visible }) {
   if (!visible || radius <= 0) return null
 
-  const strokeOuter = subtract ? 'rgba(255,80,80,0.7)' : 'rgba(255,255,255,0.7)'
-  const strokeInner = subtract ? 'rgba(180,0,0,0.9)'   : 'rgba(0,0,0,0.85)'
-
+  const strokeOuter = subtract ? 'var(--transparent-crimson-7)' : 'var(--transparent-white-7)' // light ring
+  const strokeInner = subtract ? 'var(--transparent-crimsonh-7)'   : 'var(--transparent-black-8)' // dark ring
   return (
     <g style={{ pointerEvents: 'none' }}>
       {/* outer — light ring */}

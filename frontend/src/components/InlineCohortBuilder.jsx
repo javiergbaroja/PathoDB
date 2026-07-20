@@ -46,7 +46,7 @@ function ResultCard({ result }) {
         marginTop: 16,
         padding: '12px 14px',
         background: 'var(--warning-bg)',
-        border: '1px solid #e8c84a',
+        border: '1px solid var(--amber)',
         borderRadius: 'var(--radius-md)',
         fontSize: 13,
         color: 'var(--warning)',
@@ -61,7 +61,7 @@ function ResultCard({ result }) {
       marginTop: 16,
       padding: '14px 16px',
       background: 'var(--teal-10)',
-      border: '1px solid rgba(27,153,139,0.25)',
+      border: '1px solid var(--transparent-teal-3)',
       borderRadius: 'var(--radius-lg)',
     }}>
       {/* Headline count */}
@@ -113,7 +113,7 @@ function MiniBar({ label, count, max, color }) {
       <div style={{ width: 110, color: 'var(--text-2)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flexShrink: 0 }} title={label}>
         {label}
       </div>
-      <div style={{ flex: 1, background: 'rgba(27,153,139,0.12)', borderRadius: 3, overflow: 'hidden', height: 7 }}>
+      <div style={{ flex: 1, background: 'var(--transparent-teal-1)', borderRadius: 3, overflow: 'hidden', height: 7 }}>
         <div style={{ width: `${pct}%`, height: '100%', borderRadius: 3, background: color, opacity: 0.6 }} />
       </div>
       <div style={{ width: 28, textAlign: 'right', color: 'var(--text-3)', fontFamily: 'var(--font-mono)', fontSize: 10 }}>

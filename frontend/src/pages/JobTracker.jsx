@@ -118,7 +118,7 @@ function BatchDrillDown({ job }) {
           </span>
           {isRunning && (
             <span style={{ fontSize: 'var(--text-sm)', color: 'var(--warning-dot)', display: 'flex', alignItems: 'center', gap: 6 }}>
-              <Spinner size={12} color="var(--warning-dot)" trackColor="rgba(251,191,36,0.2)" />
+              <Spinner size={12} color="var(--warning-dot)" trackColor="var(--transparent-amber-2)" />
               Live Tracking
             </span>
           )}
@@ -401,8 +401,8 @@ export default function JobTracker() {
 
                         <Td>
                           <Badge style={{
-                            background: isBatch ? 'rgba(100,20,200,0.10)' : 'var(--navy-10)',
-                            color:      isBatch ? '#6414c8' : 'var(--navy)',
+                            background: isBatch ? 'var(--transparent-purple-dark-1)' : 'var(--navy-10)',
+                            color:      isBatch ? 'var(--purple-dark)' : 'var(--navy)',
                             borderRadius: 'var(--radius-full)',
                           }}>
                             {isBatch ? 'Batch' : 'Single WSI'}

@@ -3,10 +3,10 @@ import { imageToElement, elementToImage } from '../../hooks/useOSDViewer'
 import { toSVGPath, dist, VERTEX_R, FIRST_VERTEX_R, CLOSE_THRESH } from '../../lib/annotationMath'
 
 // ── Visual constants — chosen for contrast against H&E pink/purple ─────────────
-const FILL_COLOR         = 'rgba(255, 210, 0, 0.15)'
-const STROKE_COLOR       = '#ffd700'
-const VERTEX_COLOR       = '#ffd700'
-const FIRST_VERTEX_COLOR = '#ff7c00'  // orange ⟹ "click here to close"
+const FILL_COLOR         = 'var(--transparent-amber-2)'
+const STROKE_COLOR       = 'var(--amber)'
+const VERTEX_COLOR       = 'var(--amber)'
+const FIRST_VERTEX_COLOR = 'var(--amber-h)'  // orange ⟹ "click here to close"
 
 
 // ── Component ──────────────────────────────────────────────────────────────────

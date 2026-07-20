@@ -104,7 +104,7 @@ export default function TMADetail() {
       <div style={{
         width: '100vw', height: '100vh', background: 'var(--surface-dark)',
         display: 'flex', alignItems: 'center', justifyContent: 'center',
-        color: 'rgba(255,255,255,0.4)', fontSize: 14,
+        color: 'var(--transparent-white-4)', fontSize: 14,
       }}>
         Loading TMA…
       </div>
@@ -117,7 +117,7 @@ export default function TMADetail() {
       {/* ── Topbar ── */}
       <div style={{
         height: 48, flexShrink: 0,
-        background: 'rgba(3,8,25,0.97)',
+        background: 'var(--transparent-dark-9)',
         borderBottom: '1px solid var(--border-dark)',
         display: 'flex', alignItems: 'center', gap: 10, padding: '0 14px',
       }}>
@@ -127,9 +127,9 @@ export default function TMADetail() {
           style={{
             display: 'flex', alignItems: 'center', gap: 6,
             padding: '4px 10px', borderRadius: 6,
-            background: 'rgba(255,255,255,0.05)',
-            border: '1px solid rgba(255,255,255,0.12)',
-            color: 'rgba(255,255,255,0.65)', cursor: 'pointer', fontSize: 12,
+            background: 'var(--transparent-white-0)',
+            border: '1px solid var(--transparent-white-1)',
+            color: 'var(--transparent-white-7)', cursor: 'pointer', fontSize: 12,
             fontFamily: 'var(--font-sans)',
           }}
         >
@@ -142,14 +142,14 @@ export default function TMADetail() {
         <div style={{ width: 1, height: 18, background: 'var(--border-dark)', flexShrink: 0 }} />
 
         {/* Name */}
-        <span style={{ fontSize: 13, fontWeight: 500, color: 'rgba(255,255,255,0.85)' }}>
+        <span style={{ fontSize: 13, fontWeight: 500, color: 'var(--transparent-white-9)' }}>
           {tma?.name}
         </span>
 
         {/* Type badge */}
         <span style={{
           fontSize: 9, padding: '2px 8px', borderRadius: 20,
-          background: 'rgba(167,139,250,0.15)', color: '#a78bfa',
+          background: 'var(--transparent-purple-1)', color: 'var(--purple-80)',
           fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', flexShrink: 0,
         }}>
           TMA
@@ -162,7 +162,7 @@ export default function TMADetail() {
             <>
               <StatChip value={matchedCores}   label="matched"   color="var(--teal)" />
               {unmatchedCores > 0 && (
-                <StatChip value={unmatchedCores} label="unmatched" color="rgba(255,255,255,0.35)" />
+                <StatChip value={unmatchedCores} label="unmatched" color="var(--transparent-white-4)" />
               )}
             </>
           )}
@@ -177,8 +177,8 @@ export default function TMADetail() {
             style={{
               display: 'flex', alignItems: 'center', gap: 5,
               padding: '5px 10px', borderRadius: 6, fontSize: 11,
-              background: 'rgba(27,153,139,0.12)',
-              border: '1px solid rgba(27,153,139,0.3)',
+              background: 'var(--transparent-teal-1)',
+              border: '1px solid var(--transparent-teal-3)',
               color: 'var(--viewer-teal-light)', cursor: 'pointer',
               fontFamily: 'var(--font-sans)',
             }}
@@ -196,9 +196,9 @@ export default function TMADetail() {
           style={{
             display: 'flex', alignItems: 'center', gap: 5,
             padding: '5px 10px', borderRadius: 6, fontSize: 11,
-            background: 'rgba(255,255,255,0.05)',
-            border: '1px solid rgba(255,255,255,0.15)',
-            color: 'rgba(255,255,255,0.7)', cursor: 'pointer',
+            background: 'var(--transparent-white-0)',
+            border: '1px solid var(--transparent-white-1)',
+            color: 'var(--transparent-white-7)', cursor: 'pointer',
             fontFamily: 'var(--font-sans)',
           }}
         >
@@ -216,8 +216,8 @@ export default function TMADetail() {
           style={{
             width: 32, height: 32, borderRadius: 6,
             display: 'flex', alignItems: 'center', justifyContent: 'center',
-            background: 'rgba(230,0,46,0.08)',
-            border: '1px solid rgba(230,0,46,0.2)',
+            background: 'var(--transparent-crimson-1)',
+            border: '1px solid var(--transparent-crimson-2)',
             color: 'var(--viewer-red)', cursor: 'pointer',
           }}
         >
@@ -247,7 +247,7 @@ export default function TMADetail() {
               position: 'absolute', inset: 0, zIndex: 10,
               display: 'flex', flexDirection: 'column',
               alignItems: 'center', justifyContent: 'center',
-              gap: 12, color: 'rgba(255,255,255,0.4)',
+              gap: 12, color: 'var(--transparent-white-4)',
               background: 'var(--surface-dark)',
             }}>
               <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1" style={{ opacity: 0.25 }}>
@@ -259,8 +259,8 @@ export default function TMADetail() {
                 onClick={() => setShowManage(true)}
                 style={{
                   marginTop: 4, padding: '8px 16px', borderRadius: 6, fontSize: 12,
-                  background: 'rgba(27,153,139,0.15)',
-                  border: '1px solid rgba(27,153,139,0.3)',
+                  background: 'var(--transparent-teal-2)',
+                  border: '1px solid var(--transparent-teal-3)',
                   color: 'var(--viewer-teal-light)', cursor: 'pointer',
                   fontFamily: 'var(--font-sans)',
                 }}
@@ -312,12 +312,12 @@ function StatChip({ value, label, color }) {
   return (
     <div style={{
       display: 'flex', alignItems: 'center', gap: 4,
-      fontSize: 10, color: color || 'rgba(255,255,255,0.4)',
-      background: 'rgba(255,255,255,0.05)',
-      border: '1px solid rgba(255,255,255,0.05)',
+      fontSize: 10, color: color || 'var(--transparent-white-4)',
+      background: 'var(--transparent-white-0)',
+      border: '1px solid var(--transparent-white-0)',
       borderRadius: 20, padding: '2px 8px',
     }}>
-      <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 600, color: color || 'rgba(255,255,255,0.7)' }}>
+      <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 600, color: color || 'var(--transparent-white-7)' }}>
         {value}
       </span>
       {label}

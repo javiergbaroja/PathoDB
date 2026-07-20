@@ -43,6 +43,7 @@
   /* Purple */
   --purple:      #8b5cf6;
   --purple-80:   #a78bfa;
+  --purple-dark: #6414c8;
   --purple-h:    #7c3aed;   /* hover */
   --purple-40:   #c4b5fd;
   --purple-20:   #ede9fe; 
@@ -182,6 +183,7 @@
   --transparent-crimson-3: rgba(230,0,46,0.30);
   
   --transparent-crimson60-5: rgba(255,100,100,0.50);
+  --transparent-crimsonh-7:  rgba(196,0,31,0.70);
 
   --transparent-purple-1: rgba(167,139,250,0.1);
   --transparent-purple-2: rgba(167,139,250,0.2);
@@ -190,6 +192,7 @@
   --transparent-purple-5: rgba(167,139,250,0.5);
   --transparent-purple-6: rgba(167,139,250,0.6);
   --transparent-purple-7: rgba(167,139,250,0.7);
+  --transparent-purple-dark-1: rgba(100,20,200,0.1);
 
   --transparent-teal-1: rgba(27,153,139,0.1);
   --transparent-teal-2: rgba(27,153,139,0.2);
@@ -199,6 +202,7 @@
   --transparent-teal-6: rgba(27,153,139,0.6);
   --transparent-teal-7: rgba(27,153,139,0.7);
   --transparent-teal-8: rgba(27,153,139,0.8);
+  --transparent-teallight-3: rgba(110,231,183,0.3);
 
   --transparent-gold-1: rgba(255,215,0,0.1);
   --transparent-gold-2: rgba(255,215,0,0.2);
@@ -211,6 +215,8 @@
   --transparent-amber-2: rgba(245,158,11,0.2);
 
   --transparent-dark-9: rgba(2,5,18,0.9);
+  --transparent-dark-2: rgba(2,5,18,0.2);
+  --transparent-dark-1: rgba(2,5,18,0.1);
 
   --transparent-gray-blue-1: rgba(148,163,184,0.1);
   --transparent-gray-blue-2: rgba(148,163,184,0.2);
