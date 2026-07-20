@@ -3,13 +3,14 @@
 #SBATCH --mail-user=javier.garcia@unibe.ch
 #SBATCH --job-name="pathodb_api"
 #SBATCH --output="/storage/research/igmp_dp_workspace/garciabaroja_javier/PW_reports/database/pathodb/logs/pathodb_api_%j.out"
-#SBATCH --time=6:00:00
-#SBATCH --mem=50G
+#SBATCH --time=8:00:00
+#SBATCH --mem=90G
 #SBATCH --nodes=1
-#SBATCH --account=gratis
-#SBATCH --partition=cpu-invest
+#SBATCH --account=invest
+#SBATCH --gres=gpu:rtx4090:1
+#SBATCH --partition=gpu-invest
 #SBATCH --cpus-per-task=16
-#SBATCH --qos=job_cpu_preemptable
+#SBATCH --qos=job_gpu_igmp-tru
 
 # SBATCH --time=8:00:00
 # SBATCH --mem=90G
