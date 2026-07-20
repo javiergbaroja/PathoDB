@@ -46,6 +46,24 @@ class User(Base):
     cohorts = relationship("Cohort", back_populates="user")
 
 
+class DataSource(Base):
+    """Provenance / cohort of origin for a patient (external cohorts).
+
+    NULL patients.source_id = internal (Bern) data. Controlled vocabulary:
+    the app reads it, the ETL/admin curates it.
+    """
+    __tablename__ = "data_sources"
+
+    id          = Column(Integer, primary_key=True)
+    code        = Column(Text, nullable=False, unique=True)   # 'TCGA' | 'RADBOUD'
+    name        = Column(Text, nullable=False)
+    institution = Column(Text)
+    governance  = Column(Text)
+    created_at  = Column(TIMESTAMP(timezone=True), server_default=func.now())
+
+    patients = relationship("Patient", back_populates="source")
+
+
 class Patient(Base):
     __tablename__ = "patients"
 
@@ -56,8 +74,10 @@ class Patient(Base):
     created_at    = Column(TIMESTAMP(timezone=True), server_default=func.now())
     summary_text = Column(Text, nullable=True)
     summary_updated_at = Column(TIMESTAMP(timezone=True), nullable=True)
+    source_id     = Column(Integer, ForeignKey("data_sources.id"), nullable=True)
 
     submissions = relationship("Submission", back_populates="patient")
+    source      = relationship("DataSource", back_populates="patients")
 
 
 class Submission(Base):

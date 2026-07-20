@@ -13,7 +13,7 @@ import { getModels, getAnalysisJobs, getAnalysisJob, submitAnalysis, submitBatch
 import { getSlideInfo, getThumbnailUrl, getRelatedScans, matchSlides } from './slides'
 import { getScansForBlock, registerScan, updateScan, deleteScan } from './scans'
 import { getStains, createStain, updateStain } from './stains'
-import { search, lookup, getStats, getDashboardStats } from './search'
+import { search, lookup, getStats, getDashboardStats, getDataSources } from './search'
 import { createChatSession, listChatSessions, getChatSession, getAssistantHealth, streamChat, confirmAction, exportToolResult } from './assistant'
 import { createTMA, uploadTMACoresCSV, uploadTMAScansCSV, getTMACores, getTMAs, getTMA, updateTMA, deleteTMA } from './tmas'
 import { getRegistration, autoRegister, saveRegistration, deleteRegistration } from './registration'
@@ -47,7 +47,7 @@ export const api = {
   // Stains
   getStains, createStain, updateStain,
   // Search & Stats
-  search, lookup, getStats, getDashboardStats,
+  search, lookup, getStats, getDashboardStats, getDataSources,
   // Assistant
   createChatSession, listChatSessions, getChatSession, getAssistantHealth, streamChat, confirmAction, exportToolResult,
   // Projects

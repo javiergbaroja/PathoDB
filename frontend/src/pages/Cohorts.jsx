@@ -320,6 +320,11 @@ function ActiveFilterChips({ filter, mode, listState, onRemove }) {
   const chips = []
   const f = mode === 'filter' ? filter : listState.listFilter
 
+  if (f.source_codes?.length > 0)
+    f.source_codes.forEach(v => chips.push({
+      key: 'source_codes', value: v,
+      label: `Source: ${v === 'INTERNAL' ? 'IGMP (internal)' : v}`,
+    }))
   if (f.topo_description_search?.length > 0)
     f.topo_description_search.forEach(v => chips.push({ key: 'topo_description_search', value: v, label: `Topography: ${v}` }))
   if (f.snomed_topo_codes?.length > 0)

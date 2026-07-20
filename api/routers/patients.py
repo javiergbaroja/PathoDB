@@ -307,12 +307,21 @@ def get_patient_hierarchy(
         reverse=True
     )
 
+    source = None
+    if patient.source_id:
+        ds = patient.source
+        source = {
+            "code": ds.code, "name": ds.name,
+            "institution": ds.institution, "governance": ds.governance,
+        }
+
     return {
         "id":            patient.id,
         "patient_code":  patient.patient_code,
         "date_of_birth": patient.date_of_birth,
         "sex":           patient.sex,
         "created_at":    patient.created_at,
+        "source":        source,
         "submissions":   submissions_out,
     }
 

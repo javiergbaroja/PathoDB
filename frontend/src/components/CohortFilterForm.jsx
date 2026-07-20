@@ -22,6 +22,7 @@
  */
 
 import { useRef } from 'react'
+import { useQuery } from '@tanstack/react-query'
 import {
   Btn, Panel,
   FormInput, FormSelect, FormField, FormTextarea,
@@ -33,6 +34,10 @@ import { api } from '../api'
 
 export const EMPTY_FILTER = {
   modality:                null,   // null → both, 'histology' → B, 'cytology' → Z
+  // Defaults to IGMP-only — a new cohort shouldn't silently pull in TCGA /
+  // Radboud / other collaborator or public cohorts unless the researcher
+  // opts them in via the Data source control. See CohortFilter.source_codes.
+  source_codes:             ['INTERNAL'],
   snomed_topo_codes:       [],
   topo_description_search: [],
   snomed_morph_codes:           [],
@@ -62,6 +67,10 @@ export const EMPTY_LIST_STATE = {
   idText:      '',
   listLevel:   'scan',
   listFilter: {
+    // Unrestricted by default — the pasted IDs already say exactly which
+    // patients are wanted, so a source filter here only narrows explicit
+    // intent further (opt-in, unlike the filter-mode default).
+    source_codes:             [],
     snomed_topo_codes:       [],
     topo_description_search: [],
     submission_types:        [],
@@ -91,6 +100,67 @@ const CONSENT_OPTS = [
   { value: 'refused',   label: 'Refused' },
   { value: 'unknown',   label: 'Unknown / empty' },
 ]
+
+// ─── Data source (provenance) toggle ──────────────────────────────────────────
+// Shared by filter mode (defaults to ['INTERNAL']) and list mode (defaults to
+// unrestricted) — see EMPTY_FILTER / EMPTY_LIST_STATE above.
+
+function useDataSources() {
+  return useQuery({
+    queryKey: ['data-sources'],
+    queryFn:  () => api.getDataSources(),
+    staleTime: 5 * 60_000,
+  })
+}
+
+function DataSourceField({ selected, onChange }) {
+  const { data: sources = [] } = useDataSources()
+  const sel = selected || []
+
+  function toggle(code) {
+    onChange(sel.includes(code) ? sel.filter(v => v !== code) : [...sel, code])
+  }
+
+  if (!sources.length) return null
+
+  return (
+    <FormField label="Data source">
+      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+        {sources.map(ds => {
+          const active = sel.includes(ds.code)
+          const isInternal = ds.code === 'INTERNAL'
+          return (
+            <button key={ds.code} type="button"
+              title={[ds.institution, ds.governance].filter(Boolean).join(' · ')}
+              onClick={() => toggle(ds.code)}
+              style={{
+                padding: '4px 12px', borderRadius: 20, fontSize: 12,
+                border: `1px solid ${active ? 'var(--navy)' : 'var(--border-l)'}`,
+                background: active ? 'var(--navy-05)' : 'transparent',
+                color: active ? 'var(--navy)' : 'var(--text-3)',
+                fontWeight: active ? 600 : 400,
+                cursor: 'pointer', transition: 'all 0.15s',
+                fontFamily: 'var(--font-sans)',
+              }}
+            >{isInternal ? 'IGMP (internal)' : ds.name}</button>
+          )
+        })}
+        {sel.length > 0 && (
+          <button type="button" onClick={() => onChange([])}
+            style={{ padding: '4px 8px', borderRadius: 20, fontSize: 11,
+                border: 'none', background: 'none', color: 'var(--text-3)',
+                cursor: 'pointer', fontFamily: 'var(--font-sans)' }}
+            >clear</button>
+        )}
+      </div>
+      <div style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 5 }}>
+        {sel.length === 0
+          ? 'No source restriction — includes every collaborator/public cohort.'
+          : 'Only the selected source(s) are included.'}
+      </div>
+    </FormField>
+  )
+}
 
 // ─── Utilities ────────────────────────────────────────────────────────────────
 
@@ -173,6 +243,12 @@ function FilterModeForm({ filter, onFilterChange, lockReturnLevel }) {
 
   return (
     <>
+      <SectionLabel>Data source</SectionLabel>
+      <DataSourceField
+        selected={filter.source_codes}
+        onChange={val => onFilterChange('source_codes', val)}
+      />
+
       <SectionLabel>Modality</SectionLabel>
       <SegmentedControl
         value={filter.modality || 'all'}
@@ -475,6 +551,12 @@ function ListModeForm({ listState, onListStateChange, lockReturnLevel }) {
           </label>
         </div>
       </FormField>
+
+      <SectionLabel>Data source</SectionLabel>
+      <DataSourceField
+        selected={listFilter.source_codes}
+        onChange={val => setLF('source_codes', val)}
+      />
 
       <SectionLabel>Anatomy &amp; Tissue</SectionLabel>
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>

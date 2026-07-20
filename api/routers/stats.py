@@ -8,13 +8,29 @@ from sqlalchemy.orm import Session
 from sqlalchemy import func, cast, Integer, exists
 
 from ..database import get_db
-from ..models import Patient, Submission, Probe, Block, Scan, Stain, SnomedCode, User
+from ..models import Patient, Submission, Probe, Block, Scan, Stain, SnomedCode, User, DataSource
 from ..auth import get_current_active_user
 
 router = APIRouter(prefix="/stats", tags=["stats"])
 
 # Re-import the B-number resolver from patients router
 from .patients import resolve_b_number
+
+
+def _submission_year_col():
+    """Diagnosis / accession year for a submission, as an Integer column expression.
+
+    Internal accession IDs encode the year as the 4-digit group *before a dot*
+    (e.g. 'B2019.14823', 'E.2019.14823' -> 2019). External cohorts (e.g. TCGA)
+    use a non-accession lis_submission_id like 'TCGA-A6-2671' whose first 4-digit
+    run is the case number, not a year — so fall back to the actual report_date
+    year instead of mis-parsing it. Verified to leave every internal submission's
+    year unchanged (0 rows differ from the old first-4-digit parse).
+    """
+    return func.coalesce(
+        cast(func.substring(Submission.lis_submission_id, r'(\d{4})\.'), Integer),
+        cast(func.extract('year', Submission.report_date), Integer),
+    )
 
 
 def _patient_id_set(
@@ -52,12 +68,8 @@ def get_stats(
         pq = pq.filter(Patient.id.in_(patient_ids))
     patient_count = pq.scalar() or 0
 
-    # ── Year range from lis_submission_id ─────────────────────────────────────
-    # submission IDs look like E.2019.14823 — extract first 4-digit run as year
-    year_col = cast(
-        func.substring(Submission.lis_submission_id, r'(\d{4})'),
-        Integer
-    )
+    # ── Year range (diagnosis/accession year — see _submission_year_col) ──────
+    year_col = _submission_year_col()
     yq = db.query(func.min(year_col), func.max(year_col))
     if patient_ids is not None:
         yq = yq.filter(Submission.patient_id.in_(patient_ids))
@@ -122,41 +134,114 @@ def get_dashboard_stats(
     db: Session = Depends(get_db),
     _: User    = Depends(get_current_active_user),
 ):
-    """Enriched stats for the dashboard: totals + chart data."""
-    patient_count    = db.query(func.count(Patient.id)).scalar() or 0
-    submission_count = db.query(func.count(Submission.id)).scalar() or 0
-    block_count      = db.query(func.count(Block.id)).scalar() or 0
-    scan_count       = db.query(func.count(Scan.id)).scalar() or 0
+    """Enriched stats for the dashboard: totals + chart data.
 
-    year_col = cast(func.substring(Submission.lis_submission_id, r'(\d{4})'), Integer)
-    year_min, year_max = db.query(func.min(year_col), func.max(year_col)).first() or (None, None)
+    Headline counts (patient/submission/block/scan_count) are INTERNAL
+    (IGMP/Bern — patients.source_id IS NULL) by default, with the matching
+    "_external"/"_total" figures alongside so the UI can show composition
+    rather than a single blended number that silently includes collaborator/
+    public cohorts (TCGA, Radboud, …) a Bern-only audience wouldn't expect.
+    See [[external-cohort-ingestion]] — external is a few thousand patients
+    against ~540k internal, so we get the external side (small) via a join
+    filtered to `source_id IS NOT NULL` and derive internal = total - external,
+    rather than scanning the large internal-majority side.
+    """
+    patient_count_total    = db.query(func.count(Patient.id)).scalar() or 0
+    submission_count_total = db.query(func.count(Submission.id)).scalar() or 0
+    block_count_total      = db.query(func.count(Block.id)).scalar() or 0
+    scan_count_total       = db.query(func.count(Scan.id)).scalar() or 0
 
-    malignant_count = (
+    patient_count_external = (
+        db.query(func.count(Patient.id))
+        .filter(Patient.source_id.isnot(None))
+        .scalar() or 0
+    )
+    submission_count_external = (
         db.query(func.count(Submission.id))
-        .filter(Submission.malignancy_flag == True)
+        .join(Patient, Submission.patient_id == Patient.id)
+        .filter(Patient.source_id.isnot(None))
         .scalar() or 0
     )
-    malignancy_rate = (
-        round(malignant_count / submission_count * 100, 1) if submission_count > 0 else 0.0
-    )
-
-    scanned_blocks = (
+    block_count_external = (
         db.query(func.count(Block.id))
-        .filter(exists().where(Scan.block_id == Block.id))
+        .join(Probe,      Block.probe_id      == Probe.id)
+        .join(Submission, Probe.submission_id == Submission.id)
+        .join(Patient,    Submission.patient_id == Patient.id)
+        .filter(Patient.source_id.isnot(None))
         .scalar() or 0
     )
-    scanned_pct = round(scanned_blocks / block_count * 100, 1) if block_count > 0 else 0.0
+    scan_count_external = (
+        db.query(func.count(Scan.id))
+        .join(Block,      Scan.block_id        == Block.id)
+        .join(Probe,      Block.probe_id       == Probe.id)
+        .join(Submission, Probe.submission_id  == Submission.id)
+        .join(Patient,    Submission.patient_id == Patient.id)
+        .filter(Patient.source_id.isnot(None))
+        .scalar() or 0
+    )
 
-    stain_type_count = (
-        db.query(func.count(func.distinct(Stain.stain_category))).scalar() or 0
+    patient_count    = patient_count_total    - patient_count_external
+    submission_count = submission_count_total - submission_count_external
+    block_count      = block_count_total      - block_count_external
+    scan_count       = scan_count_total       - scan_count_external
+
+    # ── Year range + submissions-by-year — internal accessions only ──────────
+    # Plotting other institutions' historical diagnosis years next to Bern's
+    # real accession cadence would misrepresent both; see the dashboard
+    # discussion in [[external-cohort-ingestion]].
+    year_col = _submission_year_col()
+    year_min, year_max = (
+        db.query(func.min(year_col), func.max(year_col))
+        .join(Patient, Submission.patient_id == Patient.id)
+        .filter(Patient.source_id.is_(None))
+        .first() or (None, None)
     )
 
     submissions_by_year_rows = (
         db.query(year_col.label("year"), func.count(Submission.id).label("count"))
-        .filter(year_col.isnot(None))
+        .join(Patient, Submission.patient_id == Patient.id)
+        .filter(year_col.isnot(None), Patient.source_id.is_(None))
         .group_by(year_col)
         .order_by(year_col)
         .all()
+    )
+
+    # ── Malignancy rate / scanned% — internal-only, derived from the counts above ─
+    malignant_count_total = (
+        db.query(func.count(Submission.id))
+        .filter(Submission.malignancy_flag == True)
+        .scalar() or 0
+    )
+    malignant_count_external = (
+        db.query(func.count(Submission.id))
+        .join(Patient, Submission.patient_id == Patient.id)
+        .filter(Submission.malignancy_flag == True, Patient.source_id.isnot(None))
+        .scalar() or 0
+    )
+    malignant_count = malignant_count_total - malignant_count_external
+    malignancy_rate = (
+        round(malignant_count / submission_count * 100, 1) if submission_count > 0 else 0.0
+    )
+
+    scanned_blocks_total = (
+        db.query(func.count(Block.id))
+        .filter(exists().where(Scan.block_id == Block.id))
+        .scalar() or 0
+    )
+    scanned_blocks_external = (
+        db.query(func.count(Block.id))
+        .join(Probe,      Block.probe_id      == Probe.id)
+        .join(Submission, Probe.submission_id == Submission.id)
+        .join(Patient,    Submission.patient_id == Patient.id)
+        .filter(exists().where(Scan.block_id == Block.id), Patient.source_id.isnot(None))
+        .scalar() or 0
+    )
+    scanned_blocks = scanned_blocks_total - scanned_blocks_external
+    scanned_pct = round(scanned_blocks / block_count * 100, 1) if block_count > 0 else 0.0
+
+    # Stain taxonomy is a methodology property, not a population one — left global.
+    stain_type_count = (
+        db.query(func.count(func.distinct(Stain.stain_category))).scalar() or 0
     )
 
     stain_dist_rows = (
@@ -168,18 +253,68 @@ def get_dashboard_stats(
     )
 
     return {
-        "patient_count":       patient_count,
+        "patient_count":          patient_count,
+        "patient_count_external": patient_count_external,
+        "patient_count_total":    patient_count_total,
+        "submission_count":          submission_count,
+        "submission_count_external": submission_count_external,
+        "submission_count_total":    submission_count_total,
+        "block_count":          block_count,
+        "block_count_external": block_count_external,
+        "block_count_total":    block_count_total,
+        "scan_count":          scan_count,
+        "scan_count_external": scan_count_external,
+        "scan_count_total":    scan_count_total,
         "year_min":            year_min,
         "year_max":            year_max,
-        "submission_count":    submission_count,
-        "block_count":         block_count,
-        "scan_count":          scan_count,
         "malignancy_rate":     malignancy_rate,
         "scanned_pct":         scanned_pct,
         "stain_type_count":    stain_type_count,
         "submissions_by_year": [{"year": r.year, "count": r.count} for r in submissions_by_year_rows],
         "stain_distribution":  [{"category": r.stain_category or "Unknown", "count": r.count} for r in stain_dist_rows],
     }
+
+
+@router.get("/data-sources")
+def get_data_sources(
+    db: Session = Depends(get_db),
+    _: User    = Depends(get_current_active_user),
+):
+    """Provenance breakdown: IGMP (internal) + every external cohort, with
+    patient counts and governance. Single source of truth for both the
+    dashboard's "Data Sources" panel and the cohort builder's source filter —
+    see [[external-cohort-ingestion]]."""
+    internal_count = (
+        db.query(func.count(Patient.id)).filter(Patient.source_id.is_(None)).scalar() or 0
+    )
+
+    rows = (
+        db.query(
+            DataSource.code, DataSource.name, DataSource.institution, DataSource.governance,
+            func.count(Patient.id).label("patient_count"),
+        )
+        .join(Patient, Patient.source_id == DataSource.id)
+        .group_by(DataSource.id, DataSource.code, DataSource.name, DataSource.institution, DataSource.governance)
+        .order_by(func.count(Patient.id).desc())
+        .all()
+    )
+
+    return [
+        {
+            "code": "INTERNAL",
+            "name": "IGMP (internal)",
+            "institution": "Institute of Tissue Medicine and Pathology, University of Bern",
+            "governance": None,
+            "patient_count": internal_count,
+        },
+        *[
+            {
+                "code": r.code, "name": r.name, "institution": r.institution,
+                "governance": r.governance, "patient_count": r.patient_count,
+            }
+            for r in rows
+        ],
+    ]
 
 
 @router.get("/lookup/{field}")

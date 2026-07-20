@@ -34,6 +34,26 @@ ADD COLUMN IF NOT EXISTS summary_updated_at TIMESTAMPTZ;
 CREATE INDEX IF NOT EXISTS idx_patients_code ON patients (patient_code);
 
 -- =============================================================================
+-- DATA SOURCES  (provenance / cohort of origin)
+-- One row per external cohort (TCGA, Radboud, …). patients.source_id points
+-- here; a NULL source_id means internal (Bern) data. A controlled vocabulary —
+-- like snomed_codes, the app reads it (SELECT) and the ETL / admin curates it.
+-- Provenance lives here, NOT overloaded onto submissions.consent.
+-- =============================================================================
+CREATE TABLE IF NOT EXISTS data_sources (
+    id           SERIAL      PRIMARY KEY,
+    code         TEXT        NOT NULL UNIQUE,   -- 'TCGA' | 'RADBOUD'
+    name         TEXT        NOT NULL,          -- 'TCGA COAD/READ'
+    institution  TEXT,                          -- provider / consortium
+    governance   TEXT,                          -- 'public / open-access', 'collaboration DTA'
+    created_at   TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+ALTER TABLE patients
+    ADD COLUMN IF NOT EXISTS source_id INTEGER REFERENCES data_sources (id);
+CREATE INDEX IF NOT EXISTS idx_patients_source ON patients (source_id);
+
+-- =============================================================================
 -- SUBMISSIONS
 -- =============================================================================
 CREATE TABLE IF NOT EXISTS submissions (
@@ -61,18 +81,10 @@ CREATE TABLE IF NOT EXISTS reports (
     report_text   TEXT,
     report_date   DATE,
     -- Backs the cohort report-text filters (report_micro_search / report_macro_search).
-    -- api/lib/text_query.py builds its tsquery with the same config; changing one
-    -- requires changing both, or the GIN index below is silently bypassed.
-    --
-    -- 'simple' (no stemming) is deliberate — do not "fix" this to 'english'.
-    -- English stemming cannot relate the Latin/Greek plurals this corpus runs on
-    -- (metastasis/metastases → 'metastasi'/'metastas', nucleus/nuclei,
-    -- carcinoma/carcinomata all stem apart), so it buys regular -s plurals and
-    -- loses the ones that matter. Worse, it breaks the prefix search that covers
-    -- them: 'invasive' stems to 'invas', so a search for 'invasi*' is LONGER than
-    -- the stored lexeme and matches nothing. Under 'simple' the lexeme is the
-    -- literal word, so 'metasta*' reaches metastasis, metastases and metastatic
-    -- alike — which is the idiom the filter UI teaches.
+    -- 'simple' does no stemming, so "tumor" will not find "tumors" — the query
+    -- parser exposes a 'tumo*' prefix form to cover that. api/lib/text_query.py
+    -- builds its tsquery with the same config; changing one requires changing
+    -- both, or the GIN index below is silently bypassed for a seq scan.
     report_tsv    TSVECTOR GENERATED ALWAYS AS
                       (to_tsvector('simple', coalesce(report_text, ''))) STORED,
     created_at    TIMESTAMPTZ NOT NULL DEFAULT now(),

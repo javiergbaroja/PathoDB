@@ -179,6 +179,32 @@ function ReportBlock({ label, text, onSave, saving }) {
   )
 }
 
+// ─── External source banner ────────────────────────────────────────────────────
+// Rendered only for patients whose data came from a collaborator/public cohort
+// (patients.source_id set) — internal (IGMP) patients, the overwhelming
+// majority, show nothing here. See db/schema.sql `data_sources`.
+
+function ExternalSourceBanner({ source }) {
+  if (!source) return null
+  const isPublic = (source.governance || '').toLowerCase().includes('public')
+  return (
+    <div style={{
+      display: 'flex', alignItems: 'center', gap: 10,
+      padding: '8px 16px',
+      background: isPublic ? 'var(--teal-10)' : 'var(--warning-bg)',
+      borderBottom: '1px solid var(--border-l)',
+      flexShrink: 0,
+    }}>
+      <Badge variant={isPublic ? 'teal' : 'warning'}>{source.code}</Badge>
+      <span style={{ fontSize: 12, color: 'var(--text-2)' }}>
+        External data &mdash; <strong>{source.name}</strong>
+        {source.institution && <> &middot; {source.institution}</>}
+        {source.governance && <> &middot; {source.governance}</>}
+      </span>
+    </div>
+  )
+}
+
 // ─── Patient summary bar ──────────────────────────────────────────────────────
 
 function PatientSummaryBar({ submissions }) {
@@ -762,7 +788,8 @@ export default function PatientDetail() {
           overflow: 'hidden',
         }}>
 
-          {/* Fixed header: summary bar + timeline */}
+          {/* Fixed header: source banner (external only) + summary bar + timeline */}
+          <ExternalSourceBanner source={data.source} />
           <PatientSummaryBar submissions={data.submissions} />
           <MiniTimeline submissions={data.submissions} onDotClick={handleDotClick} />
 

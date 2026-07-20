@@ -8,3 +8,4 @@ export const getStats = (params = {}) => {
   return request('GET', `/stats${q ? '?' + q : ''}`)
 }
 export const getDashboardStats = () => request('GET', '/stats/dashboard')
+export const getDataSources = () => request('GET', '/stats/data-sources')

@@ -41,12 +41,22 @@ class UserResponse(BaseModel):
 
 # ─── Patients ─────────────────────────────────────────────────────────────────
 
+class DataSourceOut(BaseModel):
+    """Provenance of a patient — omitted (null) for internal (IGMP/Bern) data."""
+    code: str
+    name: str
+    institution: Optional[str] = None
+    governance: Optional[str] = None
+
+    model_config = {"from_attributes": True}
+
 class PatientResponse(BaseModel):
     id: int
     patient_code: str
     date_of_birth: Optional[date]
     sex: Optional[str]
     created_at: datetime
+    source: Optional[DataSourceOut] = None
 
     model_config = {"from_attributes": True}
 
@@ -205,6 +215,14 @@ class CohortFilter(BaseModel):
     # Modality restriction by accession-number prefix on lis_submission_id:
     #   'histology' → B-numbers, 'cytology' → Z-numbers, None → both.
     modality: Optional[Literal["histology", "cytology"]] = None
+    # Provenance scope: 'INTERNAL' = IGMP/Bern (patients.source_id IS NULL),
+    # any other value = a data_sources.code (e.g. 'TCGA'). None/empty = no
+    # restriction (matches every source) — the frontend's cohort builder
+    # defaults this to ['INTERNAL'] so a new cohort is IGMP-only unless the
+    # researcher deliberately opts external cohorts in; the API itself stays
+    # unrestricted by default so existing saved cohorts and agent tool calls
+    # (which never set this field) are unaffected.
+    source_codes: Optional[List[str]] = None
     snomed_topo_codes: Optional[List[str]] = None
     topo_description_search: Optional[Union[str, List[str]]] = None
     snomed_morph_codes: Optional[List[str]] = None

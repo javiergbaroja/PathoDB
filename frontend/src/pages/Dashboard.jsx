@@ -44,6 +44,9 @@ function TimelineChart({ data }) {
   return (
     <Panel title="Submissions by Year">
       <div style={{ padding: '0 4px 4px' }}>
+        <div style={{ fontSize: 10, color: 'var(--text-3)', marginBottom: 6 }}>
+          Internal (IGMP) accessions only
+        </div>
         <div style={{ display: 'flex', alignItems: 'flex-end', gap: 3, height: 120 }}>
           {data.map(d => {
             const h = Math.max(4, (d.count / maxCount) * 110)
@@ -288,6 +291,54 @@ function ProjectsPanel({ projects, isLoading }) {
   )
 }
 
+// ── Data sources panel ─────────────────────────────────────────────────────────
+
+function DataSourcesPanel({ sources, isLoading }) {
+  if (isLoading || !sources?.length) return null
+  const total = sources.reduce((s, d) => s + d.patient_count, 0)
+
+  return (
+    <Panel title="Data Sources">
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, padding: '0 4px 4px' }}>
+        {sources.map(ds => {
+          const isInternal = ds.code === 'INTERNAL'
+          const isPublic   = (ds.governance || '').toLowerCase().includes('public')
+          const variant    = isInternal ? 'navy' : isPublic ? 'teal' : 'warning'
+          const pct        = total > 0 ? Math.round((ds.patient_count / total) * 1000) / 10 : 0
+          const tooltip    = [ds.institution, ds.governance].filter(Boolean).join(' · ')
+
+          return (
+            <div
+              key={ds.code}
+              title={tooltip || undefined}
+              style={{
+                display: 'flex', alignItems: 'center', gap: 10,
+                padding: '8px 12px', borderRadius: 'var(--radius-md)',
+                border: '1px solid var(--border-l)',
+                background: isInternal ? 'var(--navy-05)' : 'var(--white)',
+                minWidth: 180,
+              }}
+            >
+              <Badge variant={variant}>{isInternal ? 'IGMP' : ds.code}</Badge>
+              <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
+                <span style={{
+                  fontSize: 12, color: 'var(--text-1)', fontWeight: 500,
+                  overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+                }}>
+                  {ds.name}
+                </span>
+                <span style={{ fontSize: 10, color: 'var(--text-3)', fontFamily: 'var(--font-mono)' }}>
+                  {fmtNum(ds.patient_count)} patients · {pct}%
+                </span>
+              </div>
+            </div>
+          )
+        })}
+      </div>
+    </Panel>
+  )
+}
+
 // ── Saved cohorts ─────────────────────────────────────────────────────────────
 
 function CohortsRow({ cohorts, isLoading }) {
@@ -523,6 +574,12 @@ export default function Dashboard() {
     staleTime: 30_000,
   })
 
+  const { data: dataSources = [], isLoading: dataSourcesLoading } = useQuery({
+    queryKey: ['data-sources'],
+    queryFn:  () => api.getDataSources(),
+    staleTime: 5 * 60_000,
+  })
+
   const now = new Date()
   const dateStr = now.toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })
   const username = user?.username || ''
@@ -548,7 +605,12 @@ export default function Dashboard() {
             <StatCard
               label="Patients"
               value={statsLoading ? '…' : fmtNum(stats?.patient_count)}
-              sub={stats ? `Since ${stats.year_min ?? '?'}` : ''}
+              sub={
+                statsLoading ? '' :
+                stats?.patient_count_external > 0
+                  ? `+${fmtNum(stats.patient_count_external)} external`
+                  : 'All internal (IGMP)'
+              }
             />
             <StatCard
               label="Submissions"
@@ -594,6 +656,11 @@ export default function Dashboard() {
               <StainChart    data={stats?.stain_distribution} />
             </div>
           )}
+
+          {/* ── Data sources ──────────────────────────────────────── */}
+          <div style={{ marginBottom: 24 }}>
+            <DataSourcesPanel sources={dataSources} isLoading={dataSourcesLoading} />
+          </div>
 
           {/* ── Saved cohorts ────────────────────────────────────── */}
           <div style={{ marginBottom: 24 }}>

@@ -55,6 +55,11 @@ GRANT SELECT                         ON snomed_codes TO pathodb_researcher;
 -- Uncomment to allow admin API to manage the vocabulary via app user:
 -- GRANT INSERT, UPDATE, DELETE ON snomed_codes TO pathodb_researcher;
 
+-- data_sources : SELECT only (provenance vocabulary; ETL/admin curates rows).
+-- The app connects as jgbaroja (role is NOINHERIT) so grant it directly too.
+GRANT SELECT                         ON data_sources TO pathodb_researcher;
+GRANT SELECT                         ON data_sources TO jgbaroja;
+
 -- ── Slide / scan ──────────────────────────────────────────────────────────────
 -- scans              : full CRUD (register, reassign block, delete)
 -- stains             : INSERT included — scanner auto-create runs as app user

@@ -18,7 +18,7 @@ from typing import Literal, Optional
 
 from ..database import get_db
 from ..lib.text_query import TS_CONFIG, QueryParseError, to_tsquery_string
-from ..models import Patient, Submission, Probe, Block, Scan, Stain, Cohort, Report, SnomedCode, User
+from ..models import Patient, Submission, Probe, Block, Scan, Stain, Cohort, Report, SnomedCode, User, DataSource
 from ..schemas import CohortFilter, CohortSave, CohortResponse
 from ..auth import get_current_active_user
 
@@ -434,6 +434,20 @@ def _apply_filters(db: Session, f: CohortFilter):
         q = q.filter(Submission.lis_submission_id.ilike('B%'))
     elif modality == 'cytology':
         q = q.filter(Submission.lis_submission_id.ilike('Z%'))
+    # Provenance scope — 'INTERNAL' = patients.source_id IS NULL (IGMP/Bern),
+    # anything else is a data_sources.code (TCGA, RADBOUD, …). None/empty
+    # applies no restriction. See CohortFilter.source_codes.
+    if f.source_codes:
+        conds = []
+        real_codes = [c for c in f.source_codes if c != 'INTERNAL']
+        if 'INTERNAL' in f.source_codes:
+            conds.append(Patient.source_id.is_(None))
+        if real_codes:
+            conds.append(Patient.source_id.in_(
+                select(DataSource.id).where(DataSource.code.in_(real_codes))
+            ))
+        if conds:
+            q = q.filter(or_(*conds))
     # if f.topo_description_search:
     #     q = q.filter(Probe.topo_description.ilike(f.topo_description_search))
     if f.topo_description_search:
@@ -527,6 +541,7 @@ class ListQueryRequest(BaseModel):
     ids:          list[str]
     return_level: str = "scan"
     # Standard filters — same fields as CohortFilter, applied at SQL level
+    source_codes:            Optional[list[str]] = None
     snomed_topo_codes:       Optional[list[str]] = None
     topo_description_search: Optional[list[str]] = None
     snomed_morph_codes:      Optional[list[str]] = None
