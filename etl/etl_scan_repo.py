@@ -15,6 +15,7 @@ Environment:
 
 import argparse
 import csv
+import json
 import os
 import re
 import sys
@@ -36,6 +37,41 @@ ERA_2_END_YEAR = 2017          # exclusive upper bound for Era 2
 
 B_YEAR_RE = re.compile(r'[Bb](\d{4})\.')
 
+# Slide extensions we expect. A B-number filename like "B2017.69594_5_A" has a
+# dot in it, so Path.suffix alone would invent a format of ".69594_5_A".
+SLIDE_EXTENSIONS = {"mrxs", "ndpi", "svs", "tif", "tiff", "czi", "scn", "bif", "vms", "vmu"}
+
+# Folders that have moved since the sheet was written. Applied to the Folder
+# column before the path is built.
+PATH_REMAP = {
+    "/storage/research/pathology_tru/WSIs/bern_cohort_clean":
+        "/storage/research/igmp_dp_research_dataset_archive/bern_cohort_clean",
+}
+
+# The LIS sometimes stores a probe the sheet calls "I" as arabic "1" (and vice
+# versa). Only used as a fallback after an exact lis_probe_id match fails, and
+# only when it resolves to exactly one probe — see resolve_probe_in_submission.
+ROMAN_ARABIC = {
+    "I": "1", "II": "2", "III": "3", "IV": "4", "V": "5",
+    "VI": "6", "VII": "7", "VIII": "8", "IX": "9", "X": "10",
+}
+ARABIC_ROMAN = {v: k for k, v in ROMAN_ARABIC.items()}
+
+# Blocks this run had to create because the sheet references a block the LIS
+# import never produced. Written out by write_summary().
+BLOCKS_CREATED: list[dict] = []
+# block_id -> its BLOCKS_CREATED entry, so main() can both flag the scan that
+# triggered the creation and backfill the submission/probe labels that
+# get_or_create_block has no visibility into.
+BLOCKS_CREATED_BY_ID: dict[int, dict] = {}
+# Stains created on the fly (should normally stay empty — H&E already exists).
+STAINS_CREATED: list[dict] = []
+# Rows resolved only via the roman/arabic probe alias. Not a write, but it is a
+# judgement call the summary should expose for review.
+PROBE_FALLBACKS: list[dict] = []
+# Scan rows actually inserted.
+SCANS_REGISTERED: list[dict] = []
+
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -45,9 +81,31 @@ def parse_year(einsendung: str) -> int | None:
     return int(m.group(1)) if m else None
 
 
-def build_file_path(folder: str, filename: str) -> str:
-    """Combine folder + filename into a normalised full path."""
-    return str(Path(folder.rstrip("/")) / filename.strip())
+def build_file_path(folder: str, filename: str) -> str | None:
+    """
+    Combine folder + filename into a normalised full path.
+    Returns None if either side is missing — a blank Folder cell would
+    otherwise yield a bogus relative path like 'nan/slide.mrxs'.
+    """
+    folder, filename = str(folder).strip(), str(filename).strip()
+    if folder in ("", "nan", "None") or filename in ("", "nan", "None"):
+        return None
+    folder = folder.rstrip("/")
+    for old, new in PATH_REMAP.items():
+        if folder == old or folder.startswith(old + "/"):
+            folder = new + folder[len(old):]
+            break
+    return str(Path(folder) / filename)
+
+
+def slide_format(filename: str) -> str | None:
+    """
+    Return the upper-cased slide extension, or None when the filename carries no
+    recognised one — B-number filenames contain dots, so Path.suffix on its own
+    happily returns junk like '.69594_5_A'.
+    """
+    ext = Path(filename).suffix.lstrip(".").lower()
+    return ext.upper() if ext in SLIDE_EXTENSIONS else None
 
 
 def clean_probe(raw: str | float) -> str | None:
@@ -55,6 +113,35 @@ def clean_probe(raw: str | float) -> str | None:
     if pd.isna(raw) or str(raw).strip() == "":
         return None
     return str(raw).strip()
+
+
+def resolve_probe_in_submission(cur, sub_id: int, probe_raw: str) -> int | None:
+    """
+    Return the probe.id for probe_raw within sub_id, falling back to the
+    roman/arabic equivalent of the label when the exact match misses.
+    """
+    cur.execute(
+        "SELECT id FROM probes WHERE submission_id = %s AND lis_probe_id = %s",
+        (sub_id, probe_raw),
+    )
+    probe = cur.fetchone()
+    if probe:
+        return probe["id"]
+
+    alt = ROMAN_ARABIC.get(probe_raw.upper()) or ARABIC_ROMAN.get(probe_raw)
+    if not alt:
+        return None
+    cur.execute(
+        "SELECT id FROM probes WHERE submission_id = %s AND lis_probe_id = %s",
+        (sub_id, alt),
+    )
+    probe = cur.fetchone()
+    if not probe:
+        return None
+    PROBE_FALLBACKS.append(
+        {"submission_id": sub_id, "probe_id": probe["id"], "sheet_probe": probe_raw, "db_probe": alt}
+    )
+    return probe["id"]
 
 
 def get_or_create_stain(cur, stain_name: str) -> int:
@@ -83,7 +170,9 @@ def get_or_create_stain(cur, stain_name: str) -> int:
         """,
         (stain_name,),
     )
-    return cur.fetchone()["id"]
+    stain_id = cur.fetchone()["id"]
+    STAINS_CREATED.append({"stain_id": stain_id, "stain_name": stain_name})
+    return stain_id
 
 
 def get_or_create_block(cur, probe_id: int, block_label: str) -> int:
@@ -108,7 +197,12 @@ def get_or_create_block(cur, probe_id: int, block_label: str) -> int:
         """,
         (probe_id, block_label),
     )
-    return cur.fetchone()["id"]
+    block_id = cur.fetchone()["id"]
+    entry = {"block_id": block_id, "probe_id": probe_id, "block_label": block_label,
+             "einsendung": None, "sheet_probe": None}
+    BLOCKS_CREATED.append(entry)
+    BLOCKS_CREATED_BY_ID[block_id] = entry
+    return block_id
 
 
 # ── Era-aware block resolution ───────────────────────────────────────────────
@@ -126,14 +220,9 @@ def resolve_block_era1(cur, einsendung: str, probe_raw: str | None, block_label:
 
     if probe_raw:
         # Find probe within submission
-        cur.execute(
-            "SELECT id FROM probes WHERE submission_id = %s AND lis_probe_id = %s",
-            (sub_id, probe_raw),
-        )
-        probe = cur.fetchone()
-        if not probe:
+        probe_id = resolve_probe_in_submission(cur, sub_id, probe_raw)
+        if probe_id is None:
             return None, f"Probe '{probe_raw}' not found in submission '{einsendung}'"
-        probe_id = probe["id"]
     else:
         # Probe column is empty — try to find the single probe for this submission
         cur.execute("SELECT id FROM probes WHERE submission_id = %s", (sub_id,))
@@ -194,14 +283,9 @@ def resolve_block_era3(cur, einsendung: str, probe_raw: str | None, block_label:
     sub_id = sub["id"]
 
     # Find probe within submission
-    cur.execute(
-        "SELECT id FROM probes WHERE submission_id = %s AND lis_probe_id = %s",
-        (sub_id, probe_raw),
-    )
-    probe = cur.fetchone()
-    if not probe:
+    probe_id = resolve_probe_in_submission(cur, sub_id, probe_raw)
+    if probe_id is None:
         return None, f"Probe '{probe_raw}' not found in submission '{einsendung}'"
-    probe_id = probe["id"]
 
     # Find or create block
     return get_or_create_block(cur, probe_id, block_label), None
@@ -244,6 +328,9 @@ def main():
     parser.add_argument("--dry-run",  action="store_true", help="Parse and resolve everything but do not write to DB")
     parser.add_argument("--verbose",  action="store_true", help="Print every row's outcome")
     parser.add_argument("--env-file", default=".env",      help="Path to .env file (default: .env)")
+    parser.add_argument("--out-dir",  default=None,        help="Where to write the log + alterations summary (default: alongside the Excel)")
+    parser.add_argument("--check-files", action=argparse.BooleanOptionalAction, default=True,
+                        help="Skip rows whose slide file is not on disk (default: on)")
     args = parser.parse_args()
 
     load_dotenv(args.env_file)
@@ -294,6 +381,13 @@ def main():
         filename    = str(row["Filename"]).strip()
         folder      = str(row["Folder"]).strip()
 
+        if block_label in ("", "nan", "None"):
+            err = f"Blockbezeichnung is empty — refusing to create a block for '{filename}'"
+            if args.verbose: print(f"  ROW {idx+2} FAIL: {err}")
+            log_rows.append({"row": idx + 2, "einsendung": einsendung, "probe": probe_raw, "block": block_label, "file_path": "", "outcome": "FAIL", "detail": err})
+            failed += 1
+            continue
+
         magnification_raw = row.get("Magnification") or row.get("resolution_mpp")
         magnification = None
         if magnification_raw and str(magnification_raw).strip() not in ("", "nan", "None"):
@@ -303,14 +397,28 @@ def main():
             except ValueError:
                 pass
 
-        ext = Path(filename).suffix.lstrip(".").upper()
-        file_format = ext if ext else None
+        file_format = slide_format(filename)
         file_path = build_file_path(folder, filename)
+        if file_path is None:
+            err = f"Missing Folder/Filename (folder='{folder}', filename='{filename}')"
+            if args.verbose: print(f"  ROW {idx+2} FAIL: {err}")
+            log_rows.append({"row": idx + 2, "einsendung": einsendung, "probe": probe_raw, "block": block_label, "file_path": "", "outcome": "FAIL", "detail": err})
+            failed += 1
+            continue
 
         year = parse_year(einsendung)
         if year is None:
             err = f"Cannot parse year from Einsendung '{einsendung}'"
             if args.verbose: print(f"  ROW {idx+2} FAIL: {err}")
+            log_rows.append({"row": idx + 2, "einsendung": einsendung, "probe": probe_raw, "block": block_label, "file_path": file_path, "outcome": "FAIL", "detail": err})
+            failed += 1
+            continue
+
+        # is_file(), not exists(): an .mrxs slide sits next to a same-named data
+        # directory, and the sheet sometimes points at the directory instead.
+        if args.check_files and not Path(file_path).is_file():
+            err = "File does not exist on disk"
+            if args.verbose: print(f"  ROW {idx+2} FAIL: {err}: {file_path}")
             log_rows.append({"row": idx + 2, "einsendung": einsendung, "probe": probe_raw, "block": block_label, "file_path": file_path, "outcome": "FAIL", "detail": err})
             failed += 1
             continue
@@ -329,22 +437,55 @@ def main():
             failed += 1
             continue
 
+        # Did this row's block already exist, or did resolve_block have to make it?
+        block_entry = BLOCKS_CREATED_BY_ID.get(block_id)
+        block_created = block_entry is not None
+        if block_created and block_entry["einsendung"] is None:
+            block_entry["einsendung"] = einsendung
+            block_entry["sheet_probe"] = probe_raw
+
         stain_id = get_or_create_stain(cur, STAIN_NAME)
 
         if args.dry_run:
+            SCANS_REGISTERED.append({
+                "scan_id": None, "block_id": block_id, "stain_id": stain_id,
+                "file_path": file_path, "file_format": file_format,
+                "magnification": magnification, "einsendung": einsendung,
+                "probe": probe_raw, "block_label": block_label,
+                "block_created": block_created,
+            })
             if args.verbose: print(f"  ROW {idx+2} DRY OK: block_id={block_id}  {file_path}")
-            log_rows.append({"row": idx + 2, "einsendung": einsendung, "probe": probe_raw, "block": block_label, "file_path": file_path, "outcome": "DRY_OK", "detail": f"block_id={block_id}"})
+            log_rows.append({"row": idx + 2, "einsendung": einsendung, "probe": probe_raw, "block": block_label, "file_path": file_path, "outcome": "DRY_OK", "detail": f"block_id={block_id}" + (" (new block)" if block_created else "")})
             registered += 1
         else:
+            # ON CONFLICT rather than a plain INSERT: the pre-flight SELECT above
+            # can go stale if someone registers the same slide through the UI
+            # while this batch runs, and a unique violation would abort the whole
+            # transaction rather than just the one row.
             cur.execute(
                 """
                 INSERT INTO scans (block_id, stain_id, file_path, file_format, magnification)
                 VALUES (%s, %s, %s, %s, %s)
+                ON CONFLICT (file_path) DO NOTHING
+                RETURNING id
                 """,
                 (block_id, stain_id, file_path, file_format, magnification),
             )
+            inserted = cur.fetchone()
+            if inserted is None:
+                if args.verbose: print(f"  ROW {idx+2} SKIP (registered concurrently): {file_path}")
+                log_rows.append({"row": idx + 2, "einsendung": einsendung, "probe": probe_raw, "block": block_label, "file_path": file_path, "outcome": "SKIP", "detail": "registered concurrently by another writer"})
+                skipped_dup += 1
+                continue
+            SCANS_REGISTERED.append({
+                "scan_id": inserted["id"], "block_id": block_id, "stain_id": stain_id,
+                "file_path": file_path, "file_format": file_format,
+                "magnification": magnification, "einsendung": einsendung,
+                "probe": probe_raw, "block_label": block_label,
+                "block_created": block_created,
+            })
             if args.verbose: print(f"  ROW {idx+2} OK: block_id={block_id}  {file_path}")
-            log_rows.append({"row": idx + 2, "einsendung": einsendung, "probe": probe_raw, "block": block_label, "file_path": file_path, "outcome": "OK", "detail": f"block_id={block_id}"})
+            log_rows.append({"row": idx + 2, "einsendung": einsendung, "probe": probe_raw, "block": block_label, "file_path": file_path, "outcome": "OK", "detail": f"block_id={block_id}" + (" (new block)" if block_created else "")})
             registered += 1
 
     if args.dry_run:
@@ -361,15 +502,62 @@ def main():
     print(f"  Registered      : {registered}")
     print(f"  Skipped (dup)   : {skipped_dup}")
     print(f"  Failed          : {failed}")
+    print(f"  Blocks created  : {len(BLOCKS_CREATED)}")
     # Note: total will include skipped Un-scanned rows, so Registered + Dup + Failed will be <= Total
     print("=" * 60)
 
-    log_path = excel_path.parent / f"register_slides_log_{datetime.now():%Y%m%d_%H%M%S}.csv"
+    stamp = f"{datetime.now():%Y%m%d_%H%M%S}"
+    out_dir = Path(args.out_dir) if args.out_dir else excel_path.parent
+
+    log_path = out_dir / f"register_slides_log_{stamp}.csv"
     with open(log_path, "w", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(f, fieldnames=["row", "einsendung", "probe", "block", "file_path", "outcome", "detail"])
         writer.writeheader()
         writer.writerows(log_rows)
     print(f"\n  Log written to: {log_path}")
+
+    summary_path = write_summary(
+        out_dir, stamp, args, excel_path,
+        {"total_rows": total, "registered": registered, "skipped_dup": skipped_dup, "failed": failed},
+        [r for r in log_rows if r["outcome"] == "FAIL"],
+    )
+    print(f"  Alterations summary: {summary_path}")
+
+
+def write_summary(out_dir, stamp, args, excel_path, counts, failures) -> Path:
+    """
+    Write a machine-readable record of every row this run touched: the scans it
+    inserted, plus the blocks/stains it had to create as a side effect and the
+    probe labels it matched only via the roman/arabic alias.
+    """
+    summary = {
+        "run": {
+            "timestamp": datetime.now().isoformat(timespec="seconds"),
+            "excel": str(excel_path),
+            "dry_run": bool(args.dry_run),
+            "stain": STAIN_NAME,
+        },
+        "counts": {
+            **counts,
+            "blocks_created": len(BLOCKS_CREATED),
+            "stains_created": len(STAINS_CREATED),
+            "probe_alias_fallbacks": len(PROBE_FALLBACKS),
+        },
+        "alterations": {
+            "scans_registered": SCANS_REGISTERED,
+            "blocks_created": BLOCKS_CREATED,
+            "stains_created": STAINS_CREATED,
+        },
+        "review": {
+            "probe_alias_fallbacks": PROBE_FALLBACKS,
+            "failures": failures,
+        },
+    }
+    path = out_dir / f"register_slides_summary_{stamp}.json"
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(summary, f, indent=2, ensure_ascii=False, default=str)
+    return path
+
 
 if __name__ == "__main__":
     main()
