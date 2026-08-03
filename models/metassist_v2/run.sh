@@ -20,7 +20,7 @@
 #SBATCH --nodes=1
 #SBATCH --cpus-per-task=7
 #SBATCH --partition=gpu-invest
-#SBATCH --gres=gpu:a100:1
+#SBATCH --gres=gpu:rtx4090:1
 #SBATCH --job-name=metassist2
 #SBATCH --qos=job_gpu_preemptable
 #SBATCH --output=/storage/research/igmp_dp_workspace/garciabaroja_javier/PW_reports/database/pathodb/logs/metassist_v2_%j.out

@@ -3,14 +3,16 @@
 #SBATCH --mail-user=javier.garcia@unibe.ch
 #SBATCH --job-name="pathodb_api"
 #SBATCH --output="/storage/research/igmp_dp_workspace/garciabaroja_javier/PW_reports/database/pathodb/logs/pathodb_api_%j.out"
-#SBATCH --time=8:00:00
-#SBATCH --mem=90G
+#SBATCH --time=2:00:00
+#SBATCH --mem=50G
 #SBATCH --nodes=1
-#SBATCH --account=invest
-#SBATCH --gres=gpu:rtx4090:1
-#SBATCH --partition=gpu-invest
+#SBATCH --account=gratis
+#SBATCH --partition=cpu-invest
 #SBATCH --cpus-per-task=16
-#SBATCH --qos=job_gpu_igmp-tru
+#SBATCH --qos=job_cpu_preemptable
+# Send SIGTERM to the batch shell 120s before preemption/walltime kill, so
+# PostgreSQL gets a clean shutdown instead of a SIGKILL mid-write (see _term_handler).
+#SBATCH --signal=B:TERM@120
 
 # SBATCH --time=8:00:00
 # SBATCH --mem=90G
@@ -67,7 +69,11 @@ _shutdown() {
     rm -f "$ADDR_FILE"
 
     kill "${OLLAMA_PID:-}" 2>/dev/null || true
-    "$PG_BIN/pg_ctl" -D "$PGDATA" stop 2>/dev/null || true
+
+    # -m fast + -w: roll back open transactions, write a shutdown checkpoint, and
+    # WAIT for it to land. Without -w this returns before the checkpoint is durable,
+    # which is how the control file can end up ahead of the WAL (corruption on 2026-07-30).
+    "$PG_BIN/pg_ctl" -D "$PGDATA" stop -m fast -w -t 90 2>/dev/null || true
 
     # Self-resubmit unless explicitly suppressed (e.g. by start_api.sh)
     if [ -f "$SUPPRESS_FILE" ]; then
@@ -84,6 +90,24 @@ _shutdown() {
     fi
 }
 trap '_shutdown' EXIT
+
+# ── Graceful handler for SLURM preemption / walltime (see --signal=B:TERM@120) ─
+# Stops the API first, then falls through to _shutdown (via EXIT) which stops
+# PostgreSQL cleanly. Without this, SLURM's SIGKILL leaves the WAL half-written.
+_term_handler() {
+    echo ""
+    echo "=== SIGTERM received at $(date) — graceful shutdown ==="
+    if [ -n "${API_PID:-}" ]; then
+        kill -TERM "$API_PID" 2>/dev/null || true
+        for _ in $(seq 1 30); do
+            kill -0 "$API_PID" 2>/dev/null || break
+            sleep 1
+        done
+        kill -KILL "$API_PID" 2>/dev/null || true
+    fi
+    exit 0
+}
+trap '_term_handler' TERM INT
 
 # ── Load modules ──────────────────────────────────────────────────────────────
 module load Anaconda3
@@ -183,10 +207,19 @@ echo ""
 # ── Start API server ──────────────────────────────────────────────────────────
 echo "Starting FastAPI server..."
 # python3 -m uvicorn api.main:app \
+# Run in the background and `wait` on it: bash defers trap handlers until the
+# current foreground command returns, so a foreground uvicorn would swallow the
+# SIGTERM warning and leave no time for a clean PostgreSQL stop.
 "/storage/research/igmp_slide_workspace/GRP Zlobec/Javier/conda_envs/langchain/bin/python3" -m uvicorn api.main:app \
     --host 0.0.0.0 \
     --port "$API_PORT" \
-    --log-level info
+    --log-level info &
+API_PID=$!
+
+# `wait` returns as soon as a trapped signal arrives, so loop until it's really gone.
+while kill -0 "$API_PID" 2>/dev/null; do
+    wait "$API_PID" || true
+done
 
 echo ""
 echo "=== API server exited at $(date) ==="
