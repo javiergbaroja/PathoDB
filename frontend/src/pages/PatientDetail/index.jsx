@@ -12,6 +12,64 @@ import RegisterScanModal from './RegisterScanModal'
 import ScansDrawer from './ScansDrawer'
 import SummaryPanel, { usePatientSummaryExists } from './SummaryPanel'
 import { ConsentIcon } from '../../components/ui/ConsentIcons'
+import { compareBlockLabels } from '../../lib/slideNaming'
+import { getModality, MODALITIES, MODALITY_ORDER } from '../../lib/modality'
+
+// ─── Modality monogram ────────────────────────────────────────────────────────
+// A one-letter tinted chip (B/Z/S) identifying histology / cytology / autopsy —
+// replaces the old undifferentiated navy dot on each submission row. External /
+// unknown accessions have no modality, so they fall back to the neutral dot.
+function ModalityTag({ lisId, size = 18 }) {
+  const m = getModality(lisId)
+  if (!m) return <div style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--navy)', flexShrink: 0 }} />
+  return (
+    <span
+      title={m.label}
+      aria-label={m.label}
+      style={{
+        flexShrink: 0, width: size, height: size, borderRadius: 4,
+        display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+        fontFamily: 'var(--font-mono)', fontWeight: 700, fontSize: Math.round(size * 0.6),
+        color: m.fg, background: m.bg,
+      }}
+    >
+      {m.letter}
+    </span>
+  )
+}
+
+// Compact per-modality tally ("B 12 · Z 5") for the summary bar. Only the
+// modalities actually present for this patient are shown, in histology-first
+// order.
+function ModalityTally({ submissions }) {
+  const counts = {}
+  for (const sub of submissions) {
+    const m = getModality(sub.lis_submission_id)
+    if (m) counts[m.key] = (counts[m.key] ?? 0) + 1
+  }
+  const present = MODALITY_ORDER.filter(k => counts[k])
+  if (!present.length) return null
+  return (
+    <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+      {present.map(k => {
+        const m = MODALITIES[k]
+        return (
+          <span key={k} title={m.label} style={{ display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+            <span style={{
+              width: 14, height: 14, borderRadius: 3,
+              display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+              fontFamily: 'var(--font-mono)', fontWeight: 700, fontSize: 9,
+              color: m.fg, background: m.bg,
+            }}>
+              {m.letter}
+            </span>
+            <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-2)' }}>{counts[k]}</span>
+          </span>
+        )
+      })}
+    </div>
+  )
+}
 
 // replace
 function romanToInt(str) {
@@ -30,8 +88,7 @@ function romanToInt(str) {
 // Era 1 (pre-2011) probe labels are roman numerals, with a "1" sentinel used
 // when a submission has exactly one probe and no numeral was assigned.
 // Era 2/3 probe labels are B-number-derived strings (e.g. "B2014.321",
-// "B2014.321/001") that sort correctly with a numeric-aware string compare —
-// same idiom already used for block labels in SlideViewer/Filmstrip.jsx.
+// "B2014.321/001") that sort correctly with a numeric-aware string compare.
 function probeSortKey(probe) {
   const label = probe.lis_probe_id || ''
   if (label === '1') return { roman: 1, label }
@@ -49,7 +106,7 @@ function compareProbes(a, b) {
 }
 
 function compareBlocks(a, b) {
-  return (a.block_label || '').localeCompare(b.block_label || '', undefined, { numeric: true, sensitivity: 'base' })
+  return compareBlockLabels(a.block_label, b.block_label)
 }
 
 function extractYearFromId(lisId) {
@@ -231,7 +288,7 @@ function PatientSummaryBar({ submissions }) {
       borderBottom: '1px solid var(--border-l)',
       flexShrink: 0,
     }}>
-      <StatCard label="Submissions" value={submissions.length} />
+      <StatCard label="Submissions" value={submissions.length} sub={<ModalityTally submissions={submissions} />} />
       <StatCard label="Active years" value={yearLabel} />
       <StatCard
         label="Malignant"
@@ -600,6 +657,7 @@ export default function PatientDetail() {
   const [drawerOpen,      setDrawerOpen]      = useState(false)
   const [registerOpen,    setRegisterOpen]    = useState(false)
   const [editScan,        setEditScan]        = useState(null)   // scan object being edited
+  const [deleteScanTarget, setDeleteScanTarget] = useState(null) // scan object being deleted
   const [addProbeForSub,  setAddProbeForSub]  = useState(null)   // sub object
   const [editProbeTarget, setEditProbeTarget] = useState(null)   // { probe, sub }
   const [deleteProbeTarget, setDeleteProbeTarget] = useState(null) // { probe, sub }
@@ -607,12 +665,17 @@ export default function PatientDetail() {
   const [editBlockTarget,   setEditBlockTarget]   = useState(null) // { block, probe, sub }
   const [deleteBlockTarget, setDeleteBlockTarget] = useState(null) // { block, probe, sub }
   const [filterTab,       setFilterTab]       = useState('all')  // 'all' | 'malignant' | 'scanned'
+  const [modalityTab,     setModalityTab]     = useState('all')  // 'all' | 'B' | 'Z' | 'S'
   const summaryExists = usePatientSummaryExists(id)
   const [panelOpenedByUser, setPanelOpenedByUser] = useState(false)
   const panelOpen = summaryExists || !!selected || panelOpenedByUser
 
   // Ref map: sub.id → DOM element (for scroll-to from timeline)
   const subRefs = useRef({})
+  // Ref map: block.id → DOM element (for scroll-to from filename search)
+  const blockRefs = useRef({})
+  // Ref map: probe.id → DOM element (for scroll-to from probe search)
+  const probeRefs = useRef({})
 
   // ── Scans for selected block ───────────────────────────────────────────────
   const {
@@ -647,7 +710,11 @@ export default function PatientDetail() {
   const patchBlock  = useMutation({ mutationFn: ({ subId, probeId, blockId, data }) => api.updateBlock(id, subId, probeId, blockId, data), onSuccess: invalidate })
   const removeBlock = useMutation({ mutationFn: ({ subId, probeId, blockId })       => api.deleteBlock(id, subId, probeId, blockId),   onSuccess: () => { invalidate(); setSelected(null) } })
 
+  const removeScan  = useMutation({ mutationFn: scanId => api.deleteScan(scanId), onSuccess: () => { refreshScans(); invalidate() } })
+
   // ── Filtered submissions ───────────────────────────────────────────────────
+  // The API already returns submissions newest-first by true chronology
+  // (see get_patient_hierarchy), so we only sort the probes/blocks within each.
   const sortedSubmissions = useMemo(() => {
     if (!data) return []
     return data.submissions.map(sub => ({
@@ -661,19 +728,35 @@ export default function PatientDetail() {
     }))
   }, [data])
 
+  // Modalities present for this patient, in histology→cytology→autopsy order,
+  // with counts — drives the (conditionally rendered) modality filter.
+  const modalityCounts = useMemo(() => {
+    const counts = {}
+    for (const sub of sortedSubmissions) {
+      const m = getModality(sub.lis_submission_id)
+      if (m) counts[m.key] = (counts[m.key] ?? 0) + 1
+    }
+    return counts
+  }, [sortedSubmissions])
+  const presentModalities = MODALITY_ORDER.filter(k => modalityCounts[k])
+
   const filteredSubmissions = useMemo(() => {
     if (!data) return []
+    let subs = sortedSubmissions
+    if (modalityTab !== 'all') {
+      subs = subs.filter(s => getModality(s.lis_submission_id)?.key === modalityTab)
+    }
     switch (filterTab) {
       case 'malignant':
-        return sortedSubmissions.filter(s => s.malignancy_flag === true)
+        return subs.filter(s => s.malignancy_flag === true)
       case 'scanned':
-        return sortedSubmissions.filter(s =>
+        return subs.filter(s =>
           s.probes?.some(p => p.blocks?.some(b => (b.scans?.length ?? 0) > 0))
         )
       default:
-        return sortedSubmissions
+        return subs
     }
-  }, [data, sortedSubmissions, filterTab])
+  }, [data, sortedSubmissions, filterTab, modalityTab])
 
   // ── Timeline dot click → expand + scroll ─────────────────────────────────
   function handleDotClick(subIds) {
@@ -687,8 +770,9 @@ export default function PatientDetail() {
     setTimeout(() => {
       subRefs.current[ids[0]]?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
     }, 60)
-    // If a clustered submission is filtered out, reset to 'all'
+    // If the target submission is filtered out, reset filters so it's visible
     if (filterTab !== 'all') setFilterTab('all')
+    if (modalityTab !== 'all') setModalityTab('all')
   }
 
   // ── URL search highlighting (unchanged logic) ─────────────────────────────
@@ -697,6 +781,52 @@ export default function PatientDetail() {
 
     const searchParams   = new URLSearchParams(location.search)
     const highlightQuery = searchParams.get('q')?.toLowerCase()
+    const blockParam     = searchParams.get('block')
+    const probeParam     = searchParams.get('probe')
+
+    // ── Deep-link to a specific block (from a filename search hit) ─────────────
+    // Expand the owning submission + probe, select the block so its scan panel
+    // opens, and scroll it into view.
+    if (blockParam) {
+      const targetId = parseInt(blockParam, 10)
+      for (const sub of data.submissions) {
+        for (const probe of sub.probes ?? []) {
+          const block = (probe.blocks ?? []).find(b => b.id === targetId)
+          if (!block) continue
+          if (filterTab !== 'all')   setFilterTab('all')
+          if (modalityTab !== 'all') setModalityTab('all')
+          setExpandedSubs({ [sub.id]: true })
+          setExpandedProbes({ [probe.id]: true })
+          selectBlock(block, probe, sub)
+          setTimeout(() => {
+            blockRefs.current[block.id]?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+          }, 120)
+          return
+        }
+      }
+      return
+    }
+
+    // ── Deep-link to a specific probe (from a probe search hit) ───────────────
+    // Expand the owning submission + probe and scroll it into view; if the probe
+    // has a single block, select it so its scan panel opens (mirrors a click).
+    if (probeParam) {
+      const targetId = parseInt(probeParam, 10)
+      for (const sub of data.submissions) {
+        const probe = (sub.probes ?? []).find(p => p.id === targetId)
+        if (!probe) continue
+        if (filterTab !== 'all')   setFilterTab('all')
+        if (modalityTab !== 'all') setModalityTab('all')
+        setExpandedSubs({ [sub.id]: true })
+        setExpandedProbes({ [probe.id]: true })
+        if (probe.blocks?.length === 1) selectBlock(probe.blocks[0], probe, sub)
+        setTimeout(() => {
+          probeRefs.current[probe.id]?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+        }, 120)
+        return
+      }
+      return
+    }
 
     let newExpandedSubs   = {}
     let newExpandedProbes = {}
@@ -834,16 +964,31 @@ export default function PatientDetail() {
                   {filteredSubmissions.every(s => expandedSubs[s.id]) ? 'Collapse all' : 'Expand all'}
                 </button>
               </div>
-              <SegmentedControl
-                small
-                value={filterTab}
-                onChange={setFilterTab}
-                options={[
-                  ['all',       `All (${data.submissions.length})`],
-                  ['malignant', `Malignant (${malignantCount})`],
-                  ['scanned',   `Has scans (${scannedCount})`],
-                ]}
-              />
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                {/* Modality filter — only shown when the patient actually has
+                    more than one modality (otherwise it's just noise). */}
+                {presentModalities.length > 1 && (
+                  <SegmentedControl
+                    small
+                    value={modalityTab}
+                    onChange={setModalityTab}
+                    options={[
+                      ['all', `All types (${sortedSubmissions.length})`],
+                      ...presentModalities.map(k => [k, `${MODALITIES[k].label} (${modalityCounts[k]})`]),
+                    ]}
+                  />
+                )}
+                <SegmentedControl
+                  small
+                  value={filterTab}
+                  onChange={setFilterTab}
+                  options={[
+                    ['all',       `All (${data.submissions.length})`],
+                    ['malignant', `Malignant (${malignantCount})`],
+                    ['scanned',   `Has scans (${scannedCount})`],
+                  ]}
+                />
+              </div>
             </div>
 
             {/* Empty state for filtered view */}
@@ -852,7 +997,7 @@ export default function PatientDetail() {
                 padding: '24px', textAlign: 'center',
                 color: 'var(--text-3)', fontSize: 13,
               }}>
-                No {filterTab === 'malignant' ? 'malignant' : 'scanned'} submissions found.
+                No submissions match the current filters.
               </div>
             )}
 
@@ -902,7 +1047,7 @@ export default function PatientDetail() {
                       <span style={{ color: 'var(--text-3)', fontSize: 11, width: 12, flexShrink: 0 }}>
                         {subOpen ? '▾' : '▸'}
                       </span>
-                      <div style={{ width: 8, height: 8, borderRadius: '50%', background: 'var(--navy)', flexShrink: 0 }} />
+                      <ModalityTag lisId={sub.lis_submission_id} />
                       <span style={{
                         flex: 1, fontFamily: 'var(--font-mono)', fontSize: 12,
                         fontWeight: 500, color: 'var(--navy)',
@@ -985,7 +1130,7 @@ export default function PatientDetail() {
 
                       {/* Probes */}
                       {sub.probes?.map(probe => (
-                        <div key={probe.id}>
+                        <div key={probe.id} ref={el => { probeRefs.current[probe.id] = el }}>
                           <div
                             role="button"
                             tabIndex={0}
@@ -1062,6 +1207,7 @@ export default function PatientDetail() {
                                 return (
                                   <div
                                     key={block.id}
+                                    ref={el => { blockRefs.current[block.id] = el }}
                                     role="button"
                                     tabIndex={0}
                                     aria-pressed={isSelected}
@@ -1269,19 +1415,34 @@ export default function PatientDetail() {
                           Open viewer ↗
                         </button>
                         {isAdmin && (
-                          <button
-                            onClick={e => { e.stopPropagation(); setEditScan(sc) }}
-                            style={{
-                              marginTop: 4, padding: '3px 0', fontSize: 11,
-                              background: 'none', border: '1px solid var(--navy-20)',
-                              borderRadius: 4, cursor: 'pointer', color: 'var(--navy)',
-                              fontFamily: 'var(--font-sans)', fontWeight: 500, width: '100%',
-                            }}
-                            onMouseEnter={e => { e.currentTarget.style.background = 'var(--navy-05)' }}
-                            onMouseLeave={e => { e.currentTarget.style.background = 'none' }}
-                          >
-                            Edit scan
-                          </button>
+                          <div style={{ display: 'flex', gap: 4, marginTop: 4 }}>
+                            <button
+                              onClick={e => { e.stopPropagation(); setEditScan(sc) }}
+                              style={{
+                                padding: '3px 0', fontSize: 11,
+                                background: 'none', border: '1px solid var(--navy-20)',
+                                borderRadius: 4, cursor: 'pointer', color: 'var(--navy)',
+                                fontFamily: 'var(--font-sans)', fontWeight: 500, flex: 1,
+                              }}
+                              onMouseEnter={e => { e.currentTarget.style.background = 'var(--navy-05)' }}
+                              onMouseLeave={e => { e.currentTarget.style.background = 'none' }}
+                            >
+                              Edit scan
+                            </button>
+                            <button
+                              onClick={e => { e.stopPropagation(); setDeleteScanTarget(sc) }}
+                              style={{
+                                padding: '3px 0', fontSize: 11,
+                                background: 'none', border: '1px solid var(--crimson)',
+                                borderRadius: 4, cursor: 'pointer', color: 'var(--crimson)',
+                                fontFamily: 'var(--font-sans)', fontWeight: 500, flex: 1,
+                              }}
+                              onMouseEnter={e => { e.currentTarget.style.background = 'var(--crimson-10)' }}
+                              onMouseLeave={e => { e.currentTarget.style.background = 'none' }}
+                            >
+                              Delete
+                            </button>
+                          </div>
                         )}
                       </div>
                     </div>
@@ -1336,6 +1497,16 @@ export default function PatientDetail() {
           submissionProbes={sortedSubmissions.find(s => s.id === selected.sub.id)?.probes ?? []}
           onClose={() => setEditScan(null)}
           onSuccess={() => { setEditScan(null); refreshScans(); invalidate() }}
+        />
+      )}
+
+      {deleteScanTarget && (
+        <ConfirmDeleteModal
+          title="Delete scan"
+          message={`Delete the ${deleteScanTarget.stain_name || 'selected'} scan record? This does not delete the file on disk. This cannot be undone.`}
+          onClose={() => setDeleteScanTarget(null)}
+          onConfirm={() => removeScan.mutateAsync(deleteScanTarget.id).then(() => setDeleteScanTarget(null))}
+          saving={removeScan.isPending}
         />
       )}
 

@@ -8,10 +8,46 @@ import {
 } from '../components/ui'
 import { useAuth } from '../context/AuthContext'
 import { api } from '../api'
+import { MODALITIES, MODALITY_ORDER } from '../lib/modality'
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
 function fmtNum(n) { return n?.toLocaleString('en-CH') ?? '—' }
+
+// Compact count for tight spaces (stat-card subs): 978799 → "979k", 1.3M → "1.3M".
+function fmtCompact(n) {
+  if (n == null) return '—'
+  if (n >= 1e6) return (n / 1e6).toFixed(1).replace(/\.0$/, '') + 'M'
+  if (n >= 1e3) return Math.round(n / 1e3) + 'k'
+  return String(n)
+}
+
+// Inline B/Z/S tally (colored monogram + compact count) reusing the shared
+// modality identity — matches the Patient Detail summary bar and Patients list.
+function ModalityMiniTally({ counts }) {
+  const present = MODALITY_ORDER.filter(k => (counts?.[k] ?? 0) > 0)
+  if (!present.length) return null
+  return (
+    <span style={{ display: 'inline-flex', gap: 8, flexWrap: 'wrap' }}>
+      {present.map(k => {
+        const m = MODALITIES[k]
+        return (
+          <span key={k} title={m.label} style={{ display: 'inline-flex', alignItems: 'center', gap: 3 }}>
+            <span style={{
+              width: 13, height: 13, borderRadius: 3,
+              display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+              fontFamily: 'var(--font-mono)', fontWeight: 700, fontSize: 9,
+              color: m.fg, background: m.bg,
+            }}>
+              {m.letter}
+            </span>
+            <span style={{ fontFamily: 'var(--font-mono)' }}>{fmtCompact(counts[k])}</span>
+          </span>
+        )
+      })}
+    </span>
+  )
+}
 
 function relTime(iso) {
   if (!iso) return ''
@@ -36,41 +72,79 @@ function prettifyModelId(id) {
 
 // ── Submissions by Year chart ─────────────────────────────────────────────────
 
+// Bars are stacked by modality (histology / cytology / autopsy), using the same
+// navy / purple / amber identity as the rest of the app, so the composition
+// shift over the years is legible at a glance. Segments render top-to-bottom as
+// autopsy → cytology → histology, so histology anchors the base of each bar.
+const TL_STACK = ['S', 'Z', 'B']
+
 function TimelineChart({ data }) {
   const [hovered, setHovered] = useState(null)
   if (!data?.length) return null
   const maxCount = Math.max(...data.map(d => d.count))
+  const legendKeys = MODALITY_ORDER.filter(k => data.some(d => (d[k] ?? 0) > 0))
+  const hoveredDatum = data.find(d => d.year === hovered)
 
   return (
     <Panel title="Submissions by Year">
       <div style={{ padding: '0 4px 4px' }}>
-        <div style={{ fontSize: 10, color: 'var(--text-3)', marginBottom: 6 }}>
-          Internal (IGMP) accessions only
+        <div style={{
+          display: 'flex', justifyContent: 'space-between', alignItems: 'baseline',
+          fontSize: 10, color: 'var(--text-3)', marginBottom: 6, minHeight: 14,
+        }}>
+          <span>Internal (IGMP) accessions only</span>
+          {hoveredDatum && (
+            <span style={{ fontFamily: 'var(--font-mono)', color: 'var(--navy)' }}>
+              {hoveredDatum.year}: {fmtNum(hoveredDatum.count)}
+              {legendKeys.map(k => (hoveredDatum[k] ?? 0) > 0
+                ? <span key={k} style={{ color: MODALITIES[k].solid }}> · {MODALITIES[k].letter} {fmtNum(hoveredDatum[k])}</span>
+                : null)}
+            </span>
+          )}
         </div>
         <div style={{ display: 'flex', alignItems: 'flex-end', gap: 3, height: 120 }}>
           {data.map(d => {
-            const h = Math.max(4, (d.count / maxCount) * 110)
+            const totalH = Math.max(4, (d.count / maxCount) * 110)
             const isHov = hovered === d.year
             return (
               <div
                 key={d.year}
-                style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3, cursor: 'default' }}
+                style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', cursor: 'default' }}
                 onMouseEnter={() => setHovered(d.year)}
                 onMouseLeave={() => setHovered(null)}
               >
-                {isHov && (
-                  <div style={{ fontSize: 9, fontFamily: 'var(--font-mono)', color: 'var(--navy)', fontWeight: 600, whiteSpace: 'nowrap' }}>
-                    {fmtNum(d.count)}
-                  </div>
-                )}
                 <div style={{
-                  width: '100%', maxWidth: 44, height: h,
-                  background: isHov ? 'var(--navy-80)' : 'var(--navy)',
-                  borderRadius: '3px 3px 0 0',
-                  opacity: isHov ? 1 : 0.75,
-                  transition: 'opacity 0.15s, background 0.15s',
-                  marginTop: 'auto',
-                }} />
+                  width: '100%', maxWidth: 44, height: totalH, marginTop: 'auto',
+                  display: 'flex', flexDirection: 'column',
+                  borderRadius: '3px 3px 0 0', overflow: 'hidden',
+                  opacity: isHov ? 1 : 0.85, transition: 'opacity 0.15s',
+                }}>
+                  {TL_STACK.map(k => {
+                    const v = d[k] ?? 0
+                    if (!v) return null
+                    return (
+                      <div
+                        key={k}
+                        title={`${d.year} · ${MODALITIES[k].label}: ${fmtNum(v)}`}
+                        style={{ height: `${(v / d.count) * 100}%`, background: MODALITIES[k].solid }}
+                      />
+                    )
+                  })}
+                  {(() => {
+                    // Remainder = count not attributed to a modality: unknown-prefix
+                    // accessions, or the whole bar before the API exposes the B/Z/S
+                    // breakdown. Render it neutral so the bar is never invisible.
+                    const known = TL_STACK.reduce((s, k) => s + (d[k] ?? 0), 0)
+                    const rest  = d.count - known
+                    if (rest <= 0) return null
+                    return (
+                      <div
+                        title={`${d.year}: ${fmtNum(rest)}`}
+                        style={{ height: `${(rest / d.count) * 100}%`, background: 'var(--navy-40)' }}
+                      />
+                    )
+                  })()}
+                </div>
               </div>
             )
           })}
@@ -82,6 +156,14 @@ function TimelineChart({ data }) {
             </div>
           ))}
         </div>
+        <div style={{ display: 'flex', gap: 14, marginTop: 10 }}>
+          {legendKeys.map(k => (
+            <div key={k} style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
+              <span style={{ width: 9, height: 9, borderRadius: 2, background: MODALITIES[k].solid, flexShrink: 0 }} />
+              <span style={{ fontSize: 10, color: 'var(--text-3)' }}>{MODALITIES[k].label}</span>
+            </div>
+          ))}
+        </div>
       </div>
     </Panel>
   )
@@ -89,46 +171,57 @@ function TimelineChart({ data }) {
 
 // ── Stain distribution chart ──────────────────────────────────────────────────
 
-const STAIN_COLORS = {
-  'H&E':                'var(--blue)',
-  'IHC':                'var(--purple)',
-  'Special stains':     'var(--teal)',
-  'ISH':                'var(--pink)',
-  'Immunofluorescence': 'var(--amber)',
-  'Unstained':          'var(--text-3)',
+// Keyed on the actual stain_category enum values the API returns
+// (schema: HE | IHC | special_stain | FISH | other), with display labels — the
+// raw enum values would otherwise show verbatim ("special_stain") and miss their
+// intended colour.
+const STAIN_META = {
+  HE:            { label: 'H&E',            color: 'var(--blue)'    },
+  IHC:           { label: 'IHC',            color: 'var(--purple)'  },
+  special_stain: { label: 'Special stains', color: 'var(--teal)'    },
+  FISH:          { label: 'FISH',           color: 'var(--pink)'    },
+  other:         { label: 'Other',          color: 'var(--navy-40)' },
+  Unknown:       { label: 'Unknown',        color: 'var(--text-3)'  },
 }
 
 function StainChart({ data }) {
   if (!data?.length) return null
   const maxCount = Math.max(...data.map(d => d.count))
+  const total    = data.reduce((s, d) => s + d.count, 0)
   const topStains = data.slice(0, 7)
 
   return (
     <Panel title="Scans by Stain Category">
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 8, padding: '0 4px 4px' }}>
-        {topStains.map(d => {
-          const color = STAIN_COLORS[d.category] || 'var(--navy-40)'
-          return (
-            <div key={d.category} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-              <span style={{ width: 100, fontSize: 'var(--text-sm)', color: 'var(--text-2)', textAlign: 'right', flexShrink: 0 }}>
-                {d.category}
-              </span>
-              <div style={{ flex: 1, background: 'var(--navy-05)', borderRadius: 'var(--radius-full)', overflow: 'hidden', height: 16 }}>
-                <div style={{
-                  width: `${(d.count / maxCount) * 100}%`,
-                  height: '100%',
-                  borderRadius: 'var(--radius-full)',
-                  background: color,
-                  opacity: 0.8,
-                  transition: 'width 0.5s ease',
-                }} />
+      <div style={{ padding: '0 4px 4px' }}>
+        <div style={{ fontSize: 10, color: 'var(--text-3)', marginBottom: 8 }}>
+          {fmtNum(total)} scans across {data.length} categor{data.length === 1 ? 'y' : 'ies'}
+        </div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          {topStains.map(d => {
+            const meta = STAIN_META[d.category] || { label: d.category, color: 'var(--navy-40)' }
+            const pct  = total > 0 ? Math.round((d.count / total) * 100) : 0
+            return (
+              <div key={d.category} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <span style={{ width: 100, fontSize: 'var(--text-sm)', color: 'var(--text-2)', textAlign: 'right', flexShrink: 0 }}>
+                  {meta.label}
+                </span>
+                <div style={{ flex: 1, background: 'var(--navy-05)', borderRadius: 'var(--radius-full)', overflow: 'hidden', height: 16 }}>
+                  <div style={{
+                    width: `${(d.count / maxCount) * 100}%`,
+                    height: '100%',
+                    borderRadius: 'var(--radius-full)',
+                    background: meta.color,
+                    opacity: 0.8,
+                    transition: 'width 0.5s ease',
+                  }} />
+                </div>
+                <span style={{ width: 82, fontSize: 11, color: 'var(--text-3)', fontFamily: 'var(--font-mono)', textAlign: 'right', flexShrink: 0 }}>
+                  {fmtNum(d.count)} · {pct}%
+                </span>
               </div>
-              <span style={{ width: 50, fontSize: 11, color: 'var(--text-3)', fontFamily: 'var(--font-mono)', textAlign: 'right', flexShrink: 0 }}>
-                {fmtNum(d.count)}
-              </span>
-            </div>
-          )
-        })}
+            )
+          })}
+        </div>
       </div>
     </Panel>
   )
@@ -510,8 +603,8 @@ function QuickActions() {
         <div style={{
           flexShrink: 0, width: 34, height: 34,
           borderRadius: 'var(--radius-md)',
-          background: 'var(--transparent-padding-2)',
-          border: '1px solid var(--transparent-white-1)',
+          background: 'var(--transparent-white-1)',
+          border: '1px solid var(--transparent-white-2)',
           display: 'flex', alignItems: 'center', justifyContent: 'center',
           color: 'var(--teal-light)',
         }}>
@@ -615,7 +708,12 @@ export default function Dashboard() {
             <StatCard
               label="Submissions"
               value={statsLoading ? '…' : fmtNum(stats?.submission_count)}
-              sub={stats ? `${stats.malignancy_rate ?? 0}% malignant` : ''}
+              sub={stats ? (
+                <span style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                  <ModalityMiniTally counts={stats.submission_by_modality} />
+                  <span>{stats.malignancy_rate ?? 0}% malignant</span>
+                </span>
+              ) : ''}
             />
             <StatCard
               label="Scans"

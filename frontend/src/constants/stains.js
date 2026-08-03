@@ -11,10 +11,11 @@ export const TYPE_COLORS = {
   submission: { bg: 'var(--crimson-10)', text: 'var(--crimson)' },
   probe:      { bg: '#e6f4ec',           text: '#0a6e3a' },
   block:      { bg: '#fef6e4',           text: '#7a4f00' },
+  scan:       { bg: 'var(--teal-10)',    text: 'var(--teal-h)' },
 }
 
 export const TYPE_LABELS = {
-  patient: 'Patient', submission: 'Submission', probe: 'Probe', block: 'Block'
+  patient: 'Patient', submission: 'Submission', probe: 'Probe', block: 'Block', scan: 'Slide'
 }
 
 export const PATHOLOGY_PALETTE = [

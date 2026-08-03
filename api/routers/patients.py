@@ -5,7 +5,7 @@ Accession-number matching (B = histology, Z = cytology) reverted to substring
 """
 import re
 from collections import defaultdict
-from natsort import natsorted
+from natsort import natsort_keygen
 from datetime import date
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session, selectinload
@@ -131,6 +131,25 @@ def _probe_response(db: Session, probe: Probe) -> dict:
         "blocks": probe.blocks,
     }
 
+_natkey = natsort_keygen()
+
+
+def _submission_chrono_key(lis_submission_id, report_date):
+    """Newest-first chronological sort key, shared by the patient-list and
+    hierarchy endpoints so both order submissions identically. Uses the true
+    report_date, falling back to the year embedded in the accession
+    (B/Z/S 20YY.nnnn) for NULL-date rows, then the natural-sorted accession id as
+    tie-break. Sorting by the accession string alone would segregate the list by
+    prefix letter (all Z's, then all B's) instead of interleaving by date. Use
+    with reverse=True."""
+    if report_date:
+        d = report_date
+    else:
+        m = re.search(r"[A-Za-z](\d{4})\.", lis_submission_id or "")
+        d = date(int(m.group(1)), 1, 1) if m else date.min
+    return (d, _natkey(lis_submission_id or ""))
+
+
 def _enrich_patients(patient_list: list, db: Session) -> list[dict]:
     if not patient_list:
         return []
@@ -145,8 +164,14 @@ def _enrich_patients(patient_list: list, db: Session) -> list[dict]:
             Submission.malignancy_flag,
         )
         .filter(Submission.patient_id.in_(patient_ids))
-        .order_by(Submission.report_date.desc().nullslast())
         .all()
+    )
+    # Order per the shared chronological key (newest first) so the accession
+    # chips match the Patient Detail submission order exactly.
+    subs = sorted(
+        subs,
+        key=lambda r: _submission_chrono_key(r.lis_submission_id, r.report_date),
+        reverse=True,
     )
 
     sub_ids_by_patient      = defaultdict(list)
@@ -301,10 +326,12 @@ def get_patient_hierarchy(
             )
         )
 
-    submissions_out = natsorted(
-        submissions_out, 
-        key=lambda s: s.lis_submission_id or "", 
-        reverse=True
+    # Chronological order (newest first), via the shared key. This is the single
+    # source of truth for submission order — the frontend renders the API order
+    # as-is.
+    submissions_out.sort(
+        key=lambda s: _submission_chrono_key(s.lis_submission_id, s.report_date),
+        reverse=True,
     )
 
     source = None

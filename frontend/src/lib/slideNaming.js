@@ -20,3 +20,21 @@ export function formatHierarchy(scan) {
 
   return parts.join(' › ') || '—';
 }
+
+// Block labels use spreadsheet-column-style lettering (A, B, ..., Z, AA, AB, ...
+// or the era-1 variant A..Y, ZA..ZY, ZZA...). Plain alphabetical compare puts
+// "AA" before "B", which is wrong: more letters always means a later block.
+// For pure-letter labels, sort by length first, then alphabetically — this
+// orders both eras correctly. Anything else (accession-style ids, etc.) falls
+// back to the previous numeric-aware locale compare.
+export function compareBlockLabels(a, b) {
+  const la = a || '';
+  const lb = b || '';
+  const isAlphaA = /^[A-Za-z]+$/.test(la);
+  const isAlphaB = /^[A-Za-z]+$/.test(lb);
+  if (isAlphaA && isAlphaB) {
+    if (la.length !== lb.length) return la.length - lb.length;
+    return la.localeCompare(lb, undefined, { sensitivity: 'base' });
+  }
+  return la.localeCompare(lb, undefined, { numeric: true, sensitivity: 'base' });
+}

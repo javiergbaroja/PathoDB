@@ -84,7 +84,16 @@ export default function Layout({ children, title, actions }) {
 
   function handleSelect(result) {
     clearSearch()
-    navigate(`${result.url}?q=${encodeURIComponent(result.label)}`)
+    // Deep-link to the exact node when we have its id: filename → owning block
+    // (opens its scan panel), probe → that probe. Otherwise fall back to the
+    // ?q= text-highlight match in PatientDetail.
+    if (result.type === 'scan' && result.block_id != null) {
+      navigate(`${result.url}?block=${result.block_id}`)
+    } else if (result.type === 'probe' && result.probe_id != null) {
+      navigate(`${result.url}?probe=${result.probe_id}`)
+    } else {
+      navigate(`${result.url}?q=${encodeURIComponent(result.label)}`)
+    }
   }
 
   async function runSearch(term) {
@@ -231,7 +240,7 @@ export default function Layout({ children, title, actions }) {
               <input
                 ref={inputRef}
                 type="text"
-                placeholder="Patient code, submission or probe ID  (/)"
+                placeholder="Patient code, submission, probe ID or filename  (/)"
                 value={query}
                 onChange={handleChange}
                 onKeyDown={handleKey}
@@ -248,7 +257,7 @@ export default function Layout({ children, title, actions }) {
               <div className={cx(s.searchDrop, notFound && s.searchDropError)}>
                 {notFound ? (
                   <div className={s.searchEmpty}>
-                    No patient, submission or probe matches "{query}"
+                    No patient, submission, probe or filename matches "{query}"
                   </div>
                 ) : (
                   <>

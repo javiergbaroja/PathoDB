@@ -1,6 +1,7 @@
 // frontend/src/pages/SlideViewer/Filmstrip.jsx
 import { useMemo, useRef, useEffect } from 'react'
 import { STAIN_COLORS } from '../../constants/stains'
+import { compareBlockLabels } from '../../lib/slideNaming'
 
 export default function Filmstrip({ scans, leftScanId, rightScanId, token, navigate, setIsDragging, scrollRef, activeChipRef, levelPopover, setLevelPopover, submissionId }) {
   const groupedData = useMemo(() => {
@@ -28,7 +29,7 @@ export default function Filmstrip({ scans, leftScanId, rightScanId, token, navig
       .map(probe => ({
         ...probe,
         blocks: Object.values(probe.blocks)
-          .sort((a, b) => a.block_label.localeCompare(b.block_label, undefined, { numeric: true }))
+          .sort((a, b) => compareBlockLabels(a.block_label, b.block_label))
           .map(block => ({
             ...block,
             stainGroups: Object.entries(block.stains)

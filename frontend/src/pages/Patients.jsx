@@ -4,10 +4,15 @@ import { useQuery } from '@tanstack/react-query'
 import Layout from '../components/Layout'
 import { Btn, StatCard, Table, Th, Td, Tr, IdCell, Badge, ErrorMsg, SpinnerPage } from '../components/ui'
 import { api } from '../api'
+import { getModality } from '../lib/modality'
 
-// ── Collapsed accession-number (B/Z) list with expand ────────────────────────
+// ── Collapsed accession list with expand ─────────────────────────────────────
+// Each accession is tinted by its modality (histology / cytology / autopsy),
+// using the same navy / purple / amber identity as the Patient Detail page, so
+// the modality mix of a patient is legible at a glance from the list. External /
+// unknown prefixes fall back to the neutral grey chip.
 
-function BNumberList({ submissionIds }) {
+function AccessionList({ submissionIds }) {
   const [expanded, setExpanded] = useState(false)
   const LIMIT = 3
 
@@ -19,17 +24,21 @@ function BNumberList({ submissionIds }) {
 
   return (
     <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, alignItems: 'center' }}>
-      {shown.map((sid, i) => (
-        <span key={i} style={{
-          fontFamily: 'var(--font-mono)',
-          fontSize: 'var(--text-sm)',
-          padding: '2px 6px',
-          borderRadius: 'var(--radius-sm)',
-          color: 'var(--text-3)',
-        }}>
-          {sid}
-        </span>
-      ))}
+      {shown.map((sid, i) => {
+        const m = getModality(sid)
+        return (
+          <span key={i} title={m?.label} style={{
+            fontFamily: 'var(--font-mono)',
+            fontSize: 'var(--text-sm)',
+            padding: '2px 6px',
+            borderRadius: 'var(--radius-sm)',
+            color: m ? m.fg : 'var(--text-3)',
+            background: m ? m.bg : 'transparent',
+          }}>
+            {sid}
+          </span>
+        )
+      })}
       {!expanded && submissionIds.length > LIMIT && (
         <button
           onClick={e => { e.stopPropagation(); setExpanded(true) }}
@@ -163,7 +172,7 @@ export default function Patients() {
                     <Td>{p.date_of_birth || '—'}</Td>
                     <Td>{p.sex || '—'}</Td>
                     <Td style={{ maxWidth: 280 }}>
-                      <BNumberList submissionIds={p.submission_ids} />
+                      <AccessionList submissionIds={p.submission_ids} />
                     </Td>
                     <Td>
                       {p.last_report_date

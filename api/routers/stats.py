@@ -5,7 +5,7 @@ Aggregate statistics, optionally filtered by the same search params as /patients
 from typing import Literal
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
-from sqlalchemy import func, cast, Integer, exists
+from sqlalchemy import func, cast, Integer, exists, case
 
 from ..database import get_db
 from ..models import Patient, Submission, Probe, Block, Scan, Stain, SnomedCode, User, DataSource
@@ -30,6 +30,21 @@ def _submission_year_col():
     return func.coalesce(
         cast(func.substring(Submission.lis_submission_id, r'(\d{4})\.'), Integer),
         cast(func.extract('year', Submission.report_date), Integer),
+    )
+
+
+def _submission_modality_col():
+    """Modality letter (B=histology, Z=cytology, S=autopsy) from the internal
+    accession prefix, or NULL for external / non-conforming ids. Mirrors the
+    frontend getModality(): the letter must be immediately followed by a digit
+    (the Bern 'B/Z/S20YY.nnnn' format), so external SP-/SR/T/TCGA ids never
+    match. See frontend/src/lib/modality.js."""
+    return case(
+        (
+            Submission.lis_submission_id.op("~")(r"^[BZSbzs][0-9]"),
+            func.upper(func.substring(Submission.lis_submission_id, 1, 1)),
+        ),
+        else_=None,
     )
 
 
@@ -197,14 +212,33 @@ def get_dashboard_stats(
         .first() or (None, None)
     )
 
+    modality_col = _submission_modality_col()
     submissions_by_year_rows = (
-        db.query(year_col.label("year"), func.count(Submission.id).label("count"))
+        db.query(
+            year_col.label("year"),
+            modality_col.label("modality"),
+            func.count(Submission.id).label("count"),
+        )
         .join(Patient, Submission.patient_id == Patient.id)
         .filter(year_col.isnot(None), Patient.source_id.is_(None))
-        .group_by(year_col)
+        .group_by(year_col, modality_col)
         .order_by(year_col)
         .all()
     )
+
+    # Reshape (year, modality, count) rows into one object per year carrying the
+    # per-modality split plus the total, and derive the internal modality totals
+    # for the Submissions stat card — all internal accessions are B/Z/S, so this
+    # sums to submission_count (bar the vanishingly rare null-year row).
+    _year_map: dict[int, dict] = {}
+    submission_by_modality = {"B": 0, "Z": 0, "S": 0}
+    for r in submissions_by_year_rows:
+        y = _year_map.setdefault(r.year, {"year": r.year, "B": 0, "Z": 0, "S": 0, "count": 0})
+        y["count"] += r.count
+        if r.modality in submission_by_modality:
+            y[r.modality] += r.count
+            submission_by_modality[r.modality] += r.count
+    submissions_by_year = [_year_map[y] for y in sorted(_year_map)]
 
     # ── Malignancy rate / scanned% — internal-only, derived from the counts above ─
     malignant_count_total = (
@@ -270,7 +304,8 @@ def get_dashboard_stats(
         "malignancy_rate":     malignancy_rate,
         "scanned_pct":         scanned_pct,
         "stain_type_count":    stain_type_count,
-        "submissions_by_year": [{"year": r.year, "count": r.count} for r in submissions_by_year_rows],
+        "submissions_by_year":    submissions_by_year,
+        "submission_by_modality": submission_by_modality,
         "stain_distribution":  [{"category": r.stain_category or "Unknown", "count": r.count} for r in stain_dist_rows],
     }
 
