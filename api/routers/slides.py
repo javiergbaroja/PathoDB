@@ -87,6 +87,14 @@ def _get_dimensions(slide: openslide.OpenSlide):
         w, h = slide.dimensions
     return w, h
 
+def _has_label(slide: openslide.OpenSlide) -> bool:
+    """True when the scanner stored a photo of the slide label (MRXS, some SVS).
+
+    Iterates the image *names*: ``"label" in slide.associated_images`` would go
+    through Mapping.__contains__ -> __getitem__ and decode the whole image.
+    """
+    return "label" in list(slide.associated_images)
+
 
 # ─── Slide info ───────────────────────────────────────────────────────────────
 
@@ -142,6 +150,7 @@ def _slide_info(scan_id: int, db: Session, include_technical: bool = True) -> di
                 "vendor":          props.get("openslide.vendor"),
                 "bounds_x":        int(props.get("openslide.bounds-x", 0) or 0),
                 "bounds_y":        int(props.get("openslide.bounds-y", 0) or 0),
+                "has_label":       _has_label(slide),
             }
         finally:
             slide.close()
@@ -155,6 +164,7 @@ def _slide_info(scan_id: int, db: Session, include_technical: bool = True) -> di
         **tech,
 
         # Clinical — block
+        "block_id":        scan.block_id,
         "block_label":     block.block_label  if block else None,
         "block_info":      block.block_info   if block else None,
         "tissue_count":    block.tissue_count if block else None,
@@ -174,6 +184,7 @@ def _slide_info(scan_id: int, db: Session, include_technical: bool = True) -> di
         "malignancy_flag":   sub.malignancy_flag   if sub else None,
 
         # Clinical — patient
+        "patient_id":    patient.id            if patient else None,
         "patient_code":  patient.patient_code  if patient else None,
         "patient_sex":   patient.sex           if patient else None,
         "date_of_birth": str(patient.date_of_birth) if patient and patient.date_of_birth else None,
@@ -319,6 +330,35 @@ def get_thumbnail(
         thumb  = thumb.convert("RGB")
         buf    = io.BytesIO()
         thumb.save(buf, format="JPEG", quality=85)
+    finally:
+        slide.close()
+
+    return Response(content=buf.getvalue(), media_type="image/jpeg",
+                    headers={"Cache-Control": "public, max-age=86400"})
+
+
+# ─── Slide label ──────────────────────────────────────────────────────────────
+
+@router.get("/{scan_id}/label")
+def get_label(
+    scan_id: int,
+    token:   str = Query(...),
+    db:      Session = Depends(get_db),
+    _payload          = Depends(_auth_token),
+):
+    """Photo of the slide label (case number, stain, barcode, handwriting).
+
+    Only the dedicated ``label`` associated image is served — never the
+    ``macro`` overview — so formats without one (NDPI, TIF, …) return 404.
+    """
+    scan  = _get_scan_or_404(scan_id, db)
+    slide = _open_slide(scan.file_path)
+    try:
+        if not _has_label(slide):
+            raise HTTPException(status_code=404, detail="No label image in this slide")
+        label = slide.associated_images["label"].convert("RGB")
+        buf   = io.BytesIO()
+        label.save(buf, format="JPEG", quality=90)
     finally:
         slide.close()
 

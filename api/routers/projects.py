@@ -20,6 +20,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import func
 
 from ..database import get_db
+from ..lib.stain_filter import stains_including
 from ..models import (
     User, Project, ProjectScan, ProjectShare, Annotation,
     Scan, Block, Probe, Submission, Cohort, Stain, Patient,
@@ -52,6 +53,14 @@ class ProjectUpdate(BaseModel):
     name:        Optional[str] = None
     description: Optional[str] = None
     classes:     Optional[List[ClassDef]] = None
+
+class ProjectScansAdd(BaseModel):
+    scan_ids: List[int]
+
+class ProjectCohortSave(BaseModel):
+    name:         str
+    description:  Optional[str] = None
+    return_level: Literal["patient", "submission", "probe", "block", "scan"] = "scan"
 
 class ShareCreate(BaseModel):
     username_or_email: str
@@ -215,7 +224,7 @@ def _serialize(project: Project, user_id: int, db: Session) -> dict:
 
 def _resolve_cohort_scans(cohort_id: int, db: Session) -> List[int]:
     from ..schemas import CohortFilter
-    from .cohorts import _apply_filters, _resolve_b_number_exact
+    from .cohorts import _apply_filters, _resolve_b_number_exact, _scan_ids_for_paths
     
     cohort = db.get(Cohort, cohort_id)
     if not cohort:
@@ -224,9 +233,17 @@ def _resolve_cohort_scans(cohort_id: int, db: Session) -> List[int]:
     try:
         f = CohortFilter(**cohort.filter_json)
         valid_block_ids = set()
+        listed_scan_ids = None   # set for id_type 'scan_id' (project snapshot) / 'slide_path'
 
         # 1. Gather all valid Block IDs (Handles both List-mode and Filter-mode)
-        if getattr(f, 'is_list_query', False) and getattr(f, 'ids', None):
+        if getattr(f, 'is_list_query', False) and getattr(f, 'ids', None) and f.id_type in ("scan_id", "slide_path"):
+            if f.id_type == "scan_id":
+                listed_scan_ids = {int(i) for i in f.ids if i.strip().isdigit()}
+            else:
+                listed_scan_ids, _ = _scan_ids_for_paths(f.ids, db)
+            valid_block_ids = {row[0] for row in db.query(Scan.block_id)
+                               .filter(Scan.id.in_(listed_scan_ids), Scan.block_id.isnot(None)).all()}
+        elif getattr(f, 'is_list_query', False) and getattr(f, 'ids', None):
             ids = list(set(i.strip() for i in f.ids if i.strip()))
             for id_str in ids:
                 if f.id_type == "patient_code":
@@ -271,7 +288,7 @@ def _resolve_cohort_scans(cohort_id: int, db: Session) -> List[int]:
         if f.stain_names or f.stain_categories:
             scan_query = scan_query.join(Stain, Scan.stain_id == Stain.id)
             if f.stain_names:
-                scan_query = scan_query.filter(Stain.stain_name.in_(f.stain_names))
+                scan_query = scan_query.filter(Stain.stain_name.in_(stains_including(db, f.stain_names)))
             if f.stain_categories:
                 scan_query = scan_query.filter(Stain.stain_category.in_(f.stain_categories))
         if getattr(f, 'file_formats', None):
@@ -280,6 +297,9 @@ def _resolve_cohort_scans(cohort_id: int, db: Session) -> List[int]:
             scan_query = scan_query.filter(Scan.magnification >= f.magnification_min)
         if getattr(f, 'magnification_max', None):
             scan_query = scan_query.filter(Scan.magnification <= f.magnification_max)
+        if listed_scan_ids is not None:
+            # Sibling scans of the same block are not part of the snapshot
+            scan_query = scan_query.filter(Scan.id.in_(listed_scan_ids))
             
         return list(set(row[0] for row in scan_query.all()))
 
@@ -326,6 +346,47 @@ def _resolve_file_import(lines: List[str], db: Session) -> List[int]:
             final_ids.append(sid)
             
     return final_ids
+
+
+def _append_scans(project_id: int, scan_ids: List[int], db: Session) -> int:
+    """Append scans to a project after its current last slide.
+
+    Skips ids already in the project (project_scans has UNIQUE (project_id,
+    scan_id)), duplicates within the request, and ids that don't exist in
+    `scans`. Preserves the incoming order. Does not commit. Returns the number
+    of rows inserted.
+    """
+    if not scan_ids:
+        return 0
+
+    existing = {row[0] for row in db.query(ProjectScan.scan_id)
+                .filter(ProjectScan.project_id == project_id).all()}
+    candidates, seen = [], set()
+    for sid in scan_ids:
+        if sid in existing or sid in seen:
+            continue
+        seen.add(sid)
+        candidates.append(sid)
+    if not candidates:
+        return 0
+
+    # Validate against the scans table in chunks (same bound as _resolve_file_import)
+    valid, chunk_size = set(), 2000
+    for i in range(0, len(candidates), chunk_size):
+        chunk = candidates[i:i + chunk_size]
+        valid.update(row[0] for row in db.query(Scan.id).filter(Scan.id.in_(chunk)).all())
+    new_ids = [sid for sid in candidates if sid in valid]
+    if not new_ids:
+        return 0
+
+    cur_max = db.query(func.max(ProjectScan.sort_order)).filter(
+        ProjectScan.project_id == project_id).scalar()
+    start = (cur_max if cur_max is not None else -1) + 1
+    db.bulk_insert_mappings(ProjectScan, [
+        {"project_id": project_id, "scan_id": sid, "sort_order": start + i}
+        for i, sid in enumerate(new_ids)
+    ])
+    return len(new_ids)
 
 
 # ─── Project CRUD ─────────────────────────────────────────────────────────────
@@ -460,20 +521,114 @@ def sync_project_scans(project_id: int, db: Session = Depends(get_db),
     if proj.source_type != "cohort" or not proj.cohort_id:
         return {"message": "Sync only applicable to cohort-based projects", "added": 0}
 
-    existing = {ps.scan_id for ps in proj.scans}
-    new_ids  = _resolve_cohort_scans(proj.cohort_id, db)
-    cur_max  = max((ps.sort_order for ps in proj.scans), default=-1)
-    added    = 0
-
-    for sid in new_ids:
-        if sid not in existing:
-            cur_max += 1
-            db.add(ProjectScan(project_id=proj.id, scan_id=sid, sort_order=cur_max))
-            added += 1
-
+    added = _append_scans(proj.id, _resolve_cohort_scans(proj.cohort_id, db), db)
     proj.updated_at = datetime.now(timezone.utc)
     db.commit()
     return {"message": "Sync complete", "added": added}
+
+
+@router.post("/{project_id}/scans", status_code=201)
+def add_project_scans(project_id: int, req: ProjectScansAdd,
+                      db: Session = Depends(get_db), user: User = Depends(get_current_active_user)):
+    """Append slides to an existing project (any source: cohort query, saved
+    cohort or manual list — the frontend resolves them to scan ids). Slides
+    already in the project are skipped, so the call is idempotent."""
+    proj = db.get(Project, project_id)
+    if not proj: raise HTTPException(404, "Project not found")
+    _check_access(proj, user, require_edit=True)
+    if proj.project_type == PROJECT_TYPE_TMA:
+        raise HTTPException(422, "Slides cannot be added to a TMA project; use the TMA API")
+
+    added = _append_scans(proj.id, req.scan_ids, db)
+    proj.updated_at = datetime.now(timezone.utc)
+    db.commit()
+
+    scan_count = db.query(func.count(ProjectScan.id)).filter(
+        ProjectScan.project_id == proj.id).scalar() or 0
+    return {
+        "message":    f"Added {added} slide{'s' if added != 1 else ''}",
+        "added":      added,
+        "skipped":    len(req.scan_ids) - added,
+        "scan_count": scan_count,
+    }
+
+
+# ─── Save as cohort ───────────────────────────────────────────────────────────
+
+@router.get("/{project_id}/cohort_preview")
+def project_cohort_preview(project_id: int, db: Session = Depends(get_db),
+                           user: User = Depends(get_current_active_user)):
+    """How many distinct entities the project's slides roll up to at each cohort
+    level, so the save dialog can show what each return_level would contain.
+    `unlinked_scans` have no block and are dropped at every level (scan included,
+    since the cohort engine walks scan → block → … → patient)."""
+    proj = db.get(Project, project_id)
+    if not proj: raise HTTPException(404, "Project not found")
+    _check_access(proj, user)
+
+    row = (
+        db.query(
+            func.count(func.distinct(Scan.id)).filter(Scan.block_id.isnot(None)),
+            func.count(func.distinct(Block.id)),
+            func.count(func.distinct(Probe.id)),
+            func.count(func.distinct(Submission.id)),
+            func.count(func.distinct(Patient.id)),
+            func.count(Scan.id).filter(Scan.block_id.is_(None)),
+        )
+        .select_from(ProjectScan)
+        .join(Scan,           ProjectScan.scan_id   == Scan.id)
+        .outerjoin(Block,     Scan.block_id         == Block.id)
+        .outerjoin(Probe,     Block.probe_id        == Probe.id)
+        .outerjoin(Submission, Probe.submission_id  == Submission.id)
+        .outerjoin(Patient,   Submission.patient_id == Patient.id)
+        .filter(ProjectScan.project_id == project_id)
+        .one()
+    )
+    return {
+        "scan": row[0], "block": row[1], "probe": row[2],
+        "submission": row[3], "patient": row[4],
+        "unlinked_scans": row[5],
+    }
+
+
+@router.post("/{project_id}/save_as_cohort", status_code=201)
+def save_project_as_cohort(project_id: int, req: ProjectCohortSave,
+                           db: Session = Depends(get_db), user: User = Depends(get_current_active_user)):
+    """Snapshot the project's slides as a saved cohort of the calling user.
+
+    Stored as a list-mode CohortFilter with id_type 'scan_id', so the cohort is
+    self-contained (survives project changes/deletion) and the cohort engine
+    rolls the scans up to the requested return_level exactly like any other
+    saved cohort — it can then be opened, exported, used for batch analysis or
+    as the source of a new project."""
+    from ..schemas import CohortFilter
+    from .cohorts import _create_cohort
+
+    proj = db.get(Project, project_id)
+    if not proj: raise HTTPException(404, "Project not found")
+    _check_access(proj, user)
+    if not req.name.strip():
+        raise HTTPException(422, "Cohort name is required")
+
+    scan_ids = [row[0] for row in db.query(ProjectScan.scan_id)
+                .filter(ProjectScan.project_id == project_id)
+                .order_by(ProjectScan.sort_order).all()]
+    if not scan_ids:
+        raise HTTPException(422, "Project has no slides")
+
+    f = CohortFilter(
+        is_list_query=True, id_type="scan_id",
+        ids=[str(sid) for sid in scan_ids],
+        return_level=req.return_level,
+    )
+    cohort = _create_cohort(db, user.id, req.name.strip(),
+                            (req.description or "").strip() or None, f)
+    return {
+        "id":           cohort.id,
+        "name":         cohort.name,
+        "return_level": req.return_level,
+        "result_count": cohort.result_count,
+    }
 
 
 # ─── Scans list ───────────────────────────────────────────────────────────────

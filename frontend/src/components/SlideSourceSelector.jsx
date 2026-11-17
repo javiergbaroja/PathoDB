@@ -4,6 +4,7 @@
  * Shared "where do the slides come from?" UI used in:
  *   - BatchAnalysis (panel 2 — Target Slides)
  *   - CreateProjectModal (step 3 — Source)
+ *   - AddSlidesModal (append slides to an existing project)
  *
  * Renders three option cards identical to the Project creation flow.
  * Each card reveals its own inline content when selected.
@@ -15,7 +16,7 @@
  * cohorts             Cohort[]     — list of saved cohorts from GET /cohorts
  * filteredTargets     ScanTarget[] — resolved scan list (for saved/manual modes)
  * onTargetsResolved   (ScanTarget[]) => void
- * cohortResult        { scanCount, queryPayload } | null  — inline builder result
+ * cohortResult        { scanCount, queryPayload, queryType, scanIds } | null  — inline builder result
  * onCohortResult      (result | null) => void
  *
  * ScanTarget shape: { scan_id, block_id, file_path, stain, stain_category }
@@ -111,6 +112,16 @@ export function SourceOptionCard({ selected, onClick, iconComponent, title, desc
       </div>
     </button>
   )
+}
+
+// ─── Selection helper ─────────────────────────────────────────────────────────
+// The authoritative state differs per option: the inline builder reports its
+// result object, the other two resolve to `filteredTargets`. Callers that only
+// need the concrete scan ids (AddSlidesModal) use this instead of branching.
+
+export function selectedScanIds(sourceOption, filteredTargets = [], cohortResult = null) {
+  if (sourceOption === 'cohort_inline') return cohortResult?.scanIds ?? []
+  return filteredTargets.map(t => t.scan_id)
 }
 
 // ─── Option definitions ───────────────────────────────────────────────────────

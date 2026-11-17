@@ -15,6 +15,9 @@ export const useViewerStore = create((set) => ({
   showBrightness: false,
   setShowBrightness: (updater) => set((state) => ({ showBrightness: typeof updater === 'function' ? updater(state.showBrightness) : updater })),
 
+  showLabel: false,
+  setShowLabel: (updater) => set((state) => ({ showLabel: typeof updater === 'function' ? updater(state.showLabel) : updater })),
+
   // ── Tools ──
   isRulerActive: false,
   setIsRulerActive: (updater) => set((state) => ({ isRulerActive: typeof updater === 'function' ? updater(state.isRulerActive) : updater })),

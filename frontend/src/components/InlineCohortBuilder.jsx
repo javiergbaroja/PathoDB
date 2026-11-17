@@ -1,8 +1,8 @@
 /**
  * InlineCohortBuilder
  * ===================
- * Used exclusively in step 3 of CreateProjectModal when the user chooses
- * "Build cohort" as the slide source.
+ * Rendered by SlideSourceSelector when the user chooses "Build a cohort" as
+ * the slide source (CreateProjectModal, AddSlidesModal, BatchAnalysis).
  *
  * Responsibilities:
  *  - Renders CohortFilterForm (scan-level locked, compact)
@@ -12,7 +12,9 @@
  *
  * Props
  * -----
- * onResult   ({ scanCount: number, queryPayload: object } | null) => void
+ * onResult   ({ scanCount, queryPayload, queryType, scanIds } | null) => void
+ *            scanIds: the resolved scan ids of the last run, so callers that
+ *            only need the concrete list (e.g. AddSlidesModal) don't re-query.
  */
 
 import { useState, useCallback } from 'react'
@@ -181,6 +183,7 @@ export default function InlineCohortBuilder({ onResult }) {
           scanCount:    count,
           queryPayload: scanPayload,
           queryType:    type,
+          scanIds:      res.results.map(r => r.scan_id),
         })
       } else {
         onResult(null)

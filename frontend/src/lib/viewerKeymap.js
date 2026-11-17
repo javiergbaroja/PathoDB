@@ -40,6 +40,7 @@ export const PANEL_KEYS = {
   a: 'models',     // Analysis / AI models (was `M` in SlideViewer)
   d: 'adjust',     // Image aDjust: brightness/contrast/gamma
                    //   (was `B` in SlideViewer, `A` in ProjectDetail)
+  n: 'label',      // Slide label photo (case Number) — SlideViewer only
 }
 
 // ── Display toggles (Project Detail only — not a tool, not a panel) ────────
@@ -107,6 +108,7 @@ export const SHORTCUT_GROUPS = [
       { action: 'clinical', keys: ['I'],     label: 'Clinical info' },
       { action: 'models',   keys: ['A'],     label: 'Analysis models' },
       { action: 'adjust',   keys: ['D'],     label: 'Image adjust' },
+      { action: 'label',    keys: ['N'],     label: 'Slide label' },
       { action: 'home',     keys: ['Space'], label: 'Reset view' },
       { action: 'help',     keys: ['?'],     label: 'This help' },
       { action: 'cancel',   keys: ['Esc'],   label: 'Cancel / close / deselect' },
@@ -145,7 +147,7 @@ export function shortcutGroupsFor(availableActions) {
 
 // Action sets each shell advertises (use with shortcutGroupsFor).
 export const SLIDE_VIEWER_ACTIONS = [
-  'polygon', 'ruler', 'clinical', 'models', 'adjust', 'home', 'help', 'cancel',
+  'polygon', 'ruler', 'clinical', 'models', 'adjust', 'label', 'home', 'help', 'cancel',
 ]
 export const PROJECT_DETAIL_ACTIONS = [
   'select', 'point', 'polygon', 'rectangle', 'ellipse', 'brush', 'ruler',

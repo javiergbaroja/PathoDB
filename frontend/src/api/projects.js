@@ -62,6 +62,11 @@ export async function exportProject(id) {
 
 // ─── Project scans ────────────────────────────────────────────────────────────
 export const getProjectScans = (id) => request('GET', `/projects/${id}/scans`)
+export const addProjectScans = (id, scanIds) => request('POST', `/projects/${id}/scans`, { scan_ids: scanIds })
+
+// ─── Save as cohort ───────────────────────────────────────────────────────────
+export const getProjectCohortPreview = (id)       => request('GET',  `/projects/${id}/cohort_preview`)
+export const saveProjectAsCohort     = (id, data) => request('POST', `/projects/${id}/save_as_cohort`, data)
 
 // ─── Shares ───────────────────────────────────────────────────────────────────
 export const shareProject   = (id, data)          => request('POST',   `/projects/${id}/shares`, data)

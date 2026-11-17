@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { useParams, useNavigate } from 'react-router-dom'
+import { useParams, useNavigate, useLocation } from 'react-router-dom'
 import { api } from '../../api'
 import { fetchAndRenderOverlay, clearOverlay, clearAllOverlays } from '../../lib/overlayRenderer'
 import ClinicalPanel  from './ClinicalPanel'
@@ -41,11 +41,17 @@ if (!document.getElementById('sv-styles')) {
 export default function SlideViewer() {
   const { scanId } = useParams()
   const navigate   = useNavigate()
+  const location   = useLocation()
+  // Was the viewer entered from another in-app page, or from a fresh tab /
+  // pasted URL (key 'default')? Captured once: in-viewer slide switches
+  // replace the history entry, so -1 always leads back out of the viewer.
+  const enteredInApp = useRef(location.key !== 'default')
   const {
     isRulerActive,   setIsRulerActive,
     isPolygonActive, setIsPolygonActive,
     polygons,        setPolygons,
     showBrightness,  setShowBrightness,
+    showLabel,       setShowLabel,
     showModels,      setShowModels,
     panelOpen,       setPanelOpen,
     showShortcuts,   setShowShortcuts,
@@ -333,7 +339,8 @@ export default function SlideViewer() {
       const panel = panelForEvent(e)            // 'clinical' | 'models' | 'adjust'
       if (panel === 'clinical') { setPanelOpen(o => !o);       return }  // `I`
       if (panel === 'models')   { setShowModels(o => !o);      return }  // was `M`, now `A`
-      if (panel === 'adjust')   { setShowBrightness(o => !o);  return }  // was `B`, now `D`
+      if (panel === 'adjust')   { setShowLabel(false); setShowBrightness(o => !o); return }  // was `B`, now `D`
+      if (panel === 'label')    { setShowBrightness(false); setShowLabel(o => !o); return }  // `N`
 
       const view = viewForEvent(e)
       if (view === 'help') { setShowShortcuts(o => !o); return }
@@ -348,6 +355,7 @@ export default function SlideViewer() {
         if (isPolygonActive) { setIsPolygonActive(false); return }
         if (isRulerActive)   { setIsRulerActive(false);   return }
         if (showBrightness)  { setShowBrightness(false);  return }
+        if (showLabel)       { setShowLabel(false);       return }
         if (showShortcuts)   { setShowShortcuts(false);   return }
         if (showModels)      { setShowModels(false);      return }
         if (rightScanId)     { setRightScanId(null); setCompareMode(false); setIsSynced(false) }
@@ -355,7 +363,7 @@ export default function SlideViewer() {
     }
     document.addEventListener('keydown', handler)
     return () => document.removeEventListener('keydown', handler)
-  }, [isPolygonActive, isRulerActive, rightScanId, showBrightness, showShortcuts, showModels, alignMode])
+  }, [isPolygonActive, isRulerActive, rightScanId, showBrightness, showLabel, showShortcuts, showModels, alignMode])
 
   // ── Auto-scroll filmstrip ──────────────────────────────────────────────────
   useEffect(() => {
@@ -383,15 +391,16 @@ export default function SlideViewer() {
 
   // ── Handlers ───────────────────────────────────────────────────────────────
   function handleBack() {
-    if (window.history.length > 1) navigate(-1)
-    else navigate('/patients')
+    if (enteredInApp.current) navigate(-1)
+    else if (leftInfo?.patient_id) navigate(`/patients/${leftInfo.patient_id}?block=${leftInfo.block_id}`)
+    else navigate('/dashboard')
   }
 
   function handleDrop(e, side) {
     e.preventDefault(); setIsDragging(false)
     const id = parseInt(e.dataTransfer.getData('scanId'))
     if (!id) return
-    if (side === 'left') navigate(`/viewer/${id}`)
+    if (side === 'left') navigate(`/viewer/${id}`, { replace: true })
     else { setRightScanId(id); setCompareMode(true); setIsSynced(false) }
   }
 
@@ -499,6 +508,7 @@ export default function SlideViewer() {
         leftZoom={leftZoom}
         rightZoom={rightZoom}
         handleCompareToggle={handleCompareToggle}
+        token={token}
       />
 
       {/* Main area */}

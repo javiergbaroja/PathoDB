@@ -276,6 +276,7 @@ def get_patient_hierarchy(
                         stain_id=sc.stain_id,
                         stain_name=sc.stain.stain_name if sc.stain else None,
                         stain_category=sc.stain.stain_category if sc.stain else None,
+                        stain_source=sc.stain_source,
                         file_path=sc.file_path,
                         file_format=sc.file_format,
                         magnification=sc.magnification,

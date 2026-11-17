@@ -164,6 +164,7 @@ class ScanSummary(BaseModel):
     stain_id: int
     stain_name: Optional[str] = None
     stain_category: Optional[str] = None
+    stain_source: Optional[str] = None
     file_path: str
     file_format: Optional[str]
     magnification: Optional[Decimal]

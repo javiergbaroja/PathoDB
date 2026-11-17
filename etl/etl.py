@@ -118,6 +118,8 @@ KNOWN_STAINS = [
     ("COX2",             "IHC",           ["COX2"]),
     # add empty string as special stain
     ("unmatched",        "special_stain", [""]),
+    ("Granzyme B", "IHC", ["GrB"]),
+    ("GATA6", "IHC", []),
 ]
 
 SEX_MAP = {

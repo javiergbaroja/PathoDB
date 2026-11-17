@@ -17,6 +17,7 @@ from datetime import date as DateType
 from typing import Literal, Optional
 
 from ..database import get_db
+from ..lib.stain_filter import stains_including
 from ..lib.text_query import TS_CONFIG, QueryParseError, to_tsquery_string
 from ..models import Patient, Submission, Probe, Block, Scan, Stain, Cohort, Report, SnomedCode, User, DataSource
 from ..schemas import CohortFilter, CohortSave, CohortResponse
@@ -189,7 +190,7 @@ def _format_results(rows, return_level: str, db: Session, f=None) -> list[dict]:
             if getattr(f, 'stain_names', None) or getattr(f, 'stain_categories', None):
                 scan_query = scan_query.join(Stain, Scan.stain_id == Stain.id)
                 if getattr(f, 'stain_names', None):
-                    scan_query = scan_query.filter(Stain.stain_name.in_(f.stain_names))
+                    scan_query = scan_query.filter(Stain.stain_name.in_(stains_including(db, f.stain_names)))
                 if getattr(f, 'stain_categories', None):
                     scan_query = scan_query.filter(Stain.stain_category.in_(f.stain_categories))
             if getattr(f, 'file_formats', None):
@@ -519,7 +520,7 @@ def _apply_filters(db: Session, f: CohortFilter):
         if f.stain_names or f.stain_categories:
             scan_q = scan_q.join(Stain, Scan.stain_id == Stain.id)
             if f.stain_names:
-                scan_q = scan_q.filter(Stain.stain_name.in_(f.stain_names))
+                scan_q = scan_q.filter(Stain.stain_name.in_(stains_including(db, f.stain_names)))
             if f.stain_categories:
                 scan_q = scan_q.filter(Stain.stain_category.in_(f.stain_categories))
         if f.file_formats:
@@ -536,7 +537,7 @@ def _apply_filters(db: Session, f: CohortFilter):
 
 class ListQueryRequest(BaseModel):
     # ID resolution
-    id_type:      Literal["patient_code", "b_number"]
+    id_type:      Literal["patient_code", "b_number", "scan_id", "slide_path"]
     b_scope:      Literal["all", "matched"] = "all"
     ids:          list[str]
     return_level: str = "scan"
@@ -609,7 +610,7 @@ def _scan_results_from_block_ids(db: Session, block_ids: set, f=None) -> list[di
 
         if f:
             if getattr(f, 'stain_names', None):
-                q = q.filter(Stain.stain_name.in_(f.stain_names))
+                q = q.filter(Stain.stain_name.in_(stains_including(db, f.stain_names)))
             if getattr(f, 'stain_categories', None):
                 q = q.filter(Stain.stain_category.in_(f.stain_categories))
             if getattr(f, 'file_formats', None):
@@ -643,6 +644,26 @@ def _scan_results_from_block_ids(db: Session, block_ids: set, f=None) -> list[di
     return results
 
 
+# ─── Slide-path resolution ────────────────────────────────────────────────────
+
+def _scan_ids_for_paths(paths: list[str], db: Session) -> tuple[set[int], list[str]]:
+    """
+    Resolve pasted slide file paths to the scan ids registered at exactly that
+    path. Surrounding quotes (as copied from a file manager / shell) are
+    stripped. Returns (scan_ids, paths_not_found).
+    """
+    wanted = {p.strip().strip('"\'') for p in paths if p.strip()}
+    found_paths: set[str] = set()
+    scan_ids:    set[int] = set()
+    wanted_list = list(wanted)
+    for i in range(0, len(wanted_list), 2000):
+        chunk = wanted_list[i:i + 2000]
+        for sid, fp in db.query(Scan.id, Scan.file_path).filter(Scan.file_path.in_(chunk)).all():
+            scan_ids.add(sid)
+            found_paths.add(fp)
+    return scan_ids, sorted(wanted - found_paths)
+
+
 # ─── SQL-level list query helper ──────────────────────────────────────────────
 
 def _run_list_query(
@@ -653,9 +674,14 @@ def _run_list_query(
     b_scope:  str,
 ) -> tuple[list[dict], list[str]]:
     """
-    Resolve a list of patient codes or B-numbers to a patient/submission ID set,
-    then apply all standard CohortFilter filters at the SQL level.
+    Resolve a list of patient codes, B-numbers, scan ids or slide paths to an ID set, then
+    apply all standard CohortFilter filters at the SQL level.
     Returns (results, not_found).
+
+    id_type 'scan_id' is the snapshot form used by "save project as cohort":
+    the ids pin concrete scans, and return_level rolls them up to the block /
+    probe / submission / patient they belong to. 'slide_path' resolves pasted
+    file paths to scan ids and then behaves exactly like 'scan_id'.
     """
     ids = list(set(i.strip() for i in ids if i.strip()))
     if not ids:
@@ -665,7 +691,26 @@ def _run_list_query(
     valid_ids:  set[int]  = set()
     id_scope = "patient"  # default
 
-    if id_type == "patient_code":
+    if id_type == "scan_id":
+        wanted = set()
+        for id_str in ids:
+            if id_str.isdigit():
+                wanted.add(int(id_str))
+            else:
+                not_found.append(id_str)
+        wanted_list = list(wanted)
+        for i in range(0, len(wanted_list), 2000):
+            chunk = wanted_list[i:i + 2000]
+            valid_ids.update(row[0] for row in db.query(Scan.id).filter(Scan.id.in_(chunk)).all())
+        not_found.extend(str(i) for i in sorted(wanted - valid_ids))
+        id_scope = "scan"
+
+    elif id_type == "slide_path":
+        valid_ids, missing = _scan_ids_for_paths(ids, db)
+        not_found.extend(missing)
+        id_scope = "scan"
+
+    elif id_type == "patient_code":
         for id_str in ids:
             patient = db.query(Patient).filter(Patient.patient_code == id_str).first()
             if not patient:
@@ -693,14 +738,20 @@ def _run_list_query(
     q = _apply_filters(db, f)
     if id_scope == "patient":
         q = q.filter(Patient.id.in_(valid_ids))
-    else:
+    elif id_scope == "submission":
         q = q.filter(Submission.id.in_(valid_ids))
+    else:  # scan — restrict the hierarchy to the blocks those scans sit on
+        q = q.filter(Block.id.in_(select(Scan.block_id).where(Scan.id.in_(valid_ids))))
 
     if f.return_level == "scan":
         block_ids = {row[0] for row in q.with_entities(Block.id).all()}
         if not block_ids:
             return [], not_found
-        return _scan_results_from_block_ids(db, block_ids, f), not_found
+        results = _scan_results_from_block_ids(db, block_ids, f)
+        if id_scope == "scan":
+            # Sibling scans of the same block are not part of the snapshot
+            results = [r for r in results if r["scan_id"] in valid_ids]
+        return results, not_found
 
     rows = q.all()
     return _format_results(rows, f.return_level, db, f), not_found
@@ -781,7 +832,7 @@ def count_for_cohort(f: "CohortFilter", db: Session) -> int:
         .filter(Scan.block_id.in_(select(block_ids.c.id)))
     )
     if getattr(f, "stain_names", None):
-        sq = sq.filter(Stain.stain_name.in_(f.stain_names))
+        sq = sq.filter(Stain.stain_name.in_(stains_including(db, f.stain_names)))
     if getattr(f, "stain_categories", None):
         sq = sq.filter(Stain.stain_category.in_(f.stain_categories))
     return sq.scalar() or 0
@@ -872,18 +923,16 @@ def list_cohorts(
     )
 
 
-@router.post("", response_model=CohortResponse, status_code=201)
-def save_cohort(
-    req: CohortSave,
-    db: Session  = Depends(get_db),
-    current_user: User = Depends(get_current_active_user),
-):
-    results, _ = _get_results_for_cohort(req.filter_json, db)
-    cohort  = Cohort(
-        user_id=current_user.id,
-        name=req.name,
-        description=req.description,
-        filter_json=req.filter_json.model_dump(),
+def _create_cohort(db: Session, user_id: int, name: str,
+                   description: Optional[str], f: CohortFilter) -> Cohort:
+    """Persist a cohort for `user_id`, running it once to cache result_count.
+    Shared by POST /cohorts and by the projects router (save project as cohort)."""
+    results, _ = _get_results_for_cohort(f, db)
+    cohort = Cohort(
+        user_id=user_id,
+        name=name,
+        description=description,
+        filter_json=f.model_dump(),
         result_count=len(results),
         last_run_at=datetime.now(timezone.utc),
     )
@@ -891,6 +940,15 @@ def save_cohort(
     db.commit()
     db.refresh(cohort)
     return cohort
+
+
+@router.post("", response_model=CohortResponse, status_code=201)
+def save_cohort(
+    req: CohortSave,
+    db: Session  = Depends(get_db),
+    current_user: User = Depends(get_current_active_user),
+):
+    return _create_cohort(db, current_user.id, req.name, req.description, req.filter_json)
 
 
 @router.get("/{cohort_id}/export")

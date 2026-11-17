@@ -116,7 +116,7 @@ function StainChip({ stainName, stainScans, blockId, leftScanId, rightScanId, to
     if (hasMultiple) {
       setLevelPopover(popoverOpen ? null : { blockId, stainName })
     } else if (!isLeftActive) {
-      navigate(`/viewer/${stainScans[0].scan_id}`)
+      navigate(`/viewer/${stainScans[0].scan_id}`, { replace: true })
     }
   }
 
@@ -166,7 +166,7 @@ function LevelPopover({ scans, stainName, leftScanId, rightScanId, token, naviga
         return (
           <div
             key={scan.scan_id} draggable onDragStart={e => { e.dataTransfer.setData('scanId', String(scan.scan_id)); setIsDragging(true) }}
-            onDragEnd={() => setIsDragging(false)} onClick={() => { if (!isLeft) { navigate(`/viewer/${scan.scan_id}`); onClose() } }}
+            onDragEnd={() => setIsDragging(false)} onClick={() => { if (!isLeft) { navigate(`/viewer/${scan.scan_id}`, { replace: true }); onClose() } }}
             style={{ width: 72, cursor: isLeft ? 'default' : 'pointer', border: `1.5px solid ${isLeft ? 'var(--viewer-teal)' : isRight ? 'var(--amber-h)' : 'var(--transparent-white-1)'}`, borderRadius: 5, overflow: 'hidden', background: isLeft ? 'var(--transparent-teal-1)' : 'var(--transparent-white-0)', flexShrink: 0 }}
           >
             <div style={{ height: 56, background: 'var(--surface-dark)', position: 'relative' }}>

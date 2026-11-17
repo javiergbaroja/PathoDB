@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react'
+import { Fragment, useState, useEffect, useRef } from 'react'
 import { NavLink, useNavigate } from 'react-router-dom'
 import { useAuth } from '../context/AuthContext'
 import { api } from '../api'
@@ -132,7 +132,9 @@ export default function Layout({ children, title, actions }) {
       setActiveIdx(i => Math.max(i - 1, 0))
     } else if (e.key === 'Enter') {
       e.preventDefault()
-      const target = activeIdx >= 0 ? results[activeIdx] : results[0]
+      // A short-year accession (B10.123) matching in two centuries has no
+      // obvious default — only open what the user has explicitly highlighted.
+      const target = activeIdx >= 0 ? results[activeIdx] : (ambiguous ? null : results[0])
       if (target) handleSelect(target)
     } else if (e.key === 'Escape') {
       clearSearch()
@@ -161,6 +163,7 @@ export default function Layout({ children, title, actions }) {
 
   const initials = (user?.username || 'U').slice(0, 2).toUpperCase()
   const dropOpen = open && (results.length > 0 || notFound)
+  const ambiguous = results.some(r => r.ambiguous)
 
   return (
     <div className={s.root}>
@@ -264,31 +267,36 @@ export default function Layout({ children, title, actions }) {
                     {results.map((r, i) => {
                       const colours = TYPE_COLORS[r.type] || TYPE_COLORS.patient
                       const label   = TYPE_LABELS[r.type]  || r.type
+                      // Results arrive grouped by category; head each group.
+                      const newGroup = i === 0 || results[i - 1].type !== r.type
                       return (
-                        <div
-                          key={i}
-                          onClick={() => handleSelect(r)}
-                          onMouseEnter={() => setActiveIdx(i)}
-                          className={cx(s.searchResult, i === activeIdx && s.searchResultActive)}
-                          style={{ borderBottom: i < results.length - 1 ? '1px solid var(--border-l)' : 'none' }}
-                        >
-                          <span
-                            className={s.searchResultType}
-                            style={{ background: colours.bg, color: colours.text }}
+                        <Fragment key={i}>
+                          {newGroup && <div className={s.searchHint}>{label}s</div>}
+                          <div
+                            onClick={() => handleSelect(r)}
+                            onMouseEnter={() => setActiveIdx(i)}
+                            className={cx(s.searchResult, i === activeIdx && s.searchResultActive)}
+                            style={{ borderBottom: i < results.length - 1 ? '1px solid var(--border-l)' : 'none' }}
                           >
-                            {label}
-                          </span>
-                          <div className={s.searchResultBody}>
-                            <div className={s.searchResultLabel}>{r.label}</div>
-                            {r.sub_label && <div className={s.searchResultSub}>{r.sub_label}</div>}
+                            <span
+                              className={s.searchResultType}
+                              style={{ background: colours.bg, color: colours.text }}
+                            >
+                              {label}
+                            </span>
+                            <div className={s.searchResultBody}>
+                              <div className={s.searchResultLabel}>{r.label}</div>
+                              {r.sub_label && <div className={s.searchResultSub}>{r.sub_label}</div>}
+                            </div>
+                            <svg width="12" height="12" viewBox="0 0 16 16" fill="var(--text-3)" style={{ flexShrink: 0 }}>
+                              <path d="M4 8a.5.5 0 01.5-.5h5.793L8.146 5.354a.5.5 0 11.708-.708l3 3a.5.5 0 010 .708l-3 3a.5.5 0 01-.708-.708L10.293 8.5H4.5A.5.5 0 014 8z" />
+                            </svg>
                           </div>
-                          <svg width="12" height="12" viewBox="0 0 16 16" fill="var(--text-3)" style={{ flexShrink: 0 }}>
-                            <path d="M4 8a.5.5 0 01.5-.5h5.793L8.146 5.354a.5.5 0 11.708-.708l3 3a.5.5 0 010 .708l-3 3a.5.5 0 01-.708-.708L10.293 8.5H4.5A.5.5 0 014 8z" />
-                          </svg>
-                        </div>
+                        </Fragment>
                       )
                     })}
                     <div className={s.searchHint}>
+                      {ambiguous && <>Year matches more than one century — pick a result &nbsp;·&nbsp; </>}
                       ↑↓ navigate &nbsp;·&nbsp; ↵ open &nbsp;·&nbsp; Esc clear
                     </div>
                   </>

@@ -14,6 +14,8 @@ import SlideTray from './SlideTray'
 import ImportModal from './ImportModal'
 import { AI_ROI_CLASS } from './ProjectModelsPanel'
 import ManageClassesModal from '../../components/ManageClassesModal'
+import AddSlidesModal from '../../components/AddSlidesModal'
+import SaveProjectAsCohortModal from '../../components/SaveProjectAsCohortModal'
 import BatchAIModal from './BatchAIModal'
 import RBush from 'rbush'
 import { getAnnotationBBox } from '../../lib/annotationMath'
@@ -191,6 +193,8 @@ export default function ProjectDetail() {
   const [gamma,           setGamma]           = useState(1.0)
   const [zoom,            setZoom]            = useState(null)
   const [showImportModal, setShowImportModal] = useState(false)
+  const [showAddSlides,   setShowAddSlides]   = useState(false)
+  const [showSaveCohort,  setShowSaveCohort]  = useState(false)
 
   const containerRef = useRef(null)
   const osdRef       = useRef(null)
@@ -771,6 +775,19 @@ export default function ProjectDetail() {
         )}
 
         {!readOnly && (
+          <button onClick={() => setShowAddSlides(true)} title='Add slides to this project'
+            style={{ display:'flex', alignItems:'center', gap:5, padding:'5px 12px',
+              borderRadius:6, background:'var(--transparent-white-0)',
+              border:'1px solid var(--transparent-white-2)', color:'var(--transparent-white-8)',
+              cursor:'pointer', fontSize:11, fontFamily:'sans-serif' }}>
+            <svg width='12' height='12' viewBox='0 0 16 16' fill='currentColor'>
+              <path d='M8 2a.5.5 0 01.5.5v5h5a.5.5 0 010 1h-5v5a.5.5 0 01-1 0v-5h-5a.5.5 0 010-1h5v-5A.5.5 0 018 2z'/>
+            </svg>
+            Add slides
+          </button>
+        )}
+
+        {!readOnly && (
           <button onClick={() => setShowImportModal(true)}
             style={{ display:'flex', alignItems:'center', gap:5, padding:'5px 12px',
               borderRadius:6, background:'var(--transparent-white-0)',
@@ -783,6 +800,17 @@ export default function ProjectDetail() {
             Import
           </button>
         )}        
+
+        <button onClick={() => setShowSaveCohort(true)} title='Save the project slides as a cohort'
+          style={{ display:'flex', alignItems:'center', gap:5, padding:'5px 12px',
+            borderRadius:6, background:'var(--transparent-white-0)',
+            border:'1px solid var(--transparent-white-2)', color:'var(--transparent-white-8)',
+            cursor:'pointer', fontSize:11, fontFamily:'sans-serif' }}>
+          <svg width='11' height='11' viewBox='0 0 16 16' fill='currentColor'>
+            <path d='M1 2.5A1.5 1.5 0 012.5 1h3A1.5 1.5 0 017 2.5v3A1.5 1.5 0 015.5 7h-3A1.5 1.5 0 011 5.5v-3zm8 0A1.5 1.5 0 0110.5 1h3A1.5 1.5 0 0115 2.5v3A1.5 1.5 0 0113.5 7h-3A1.5 1.5 0 019 5.5v-3zm-8 8A1.5 1.5 0 012.5 9h3A1.5 1.5 0 017 10.5v3A1.5 1.5 0 015.5 15h-3A1.5 1.5 0 011 13.5v-3zm8 0A1.5 1.5 0 0110.5 9h3a1.5 1.5 0 011.5 1.5v3a1.5 1.5 0 01-1.5 1.5h-3A1.5 1.5 0 019 13.5v-3z'/>
+          </svg>
+          Save as cohort
+        </button>
 
         <button onClick={() => api.exportProject(projectId)}
           style={{ display:'flex', alignItems:'center', gap:5, padding:'5px 12px',
@@ -976,6 +1004,16 @@ export default function ProjectDetail() {
         isOpen={showManageClasses} 
         onClose={() => setShowManageClasses(false)} 
         project={project} 
+      />
+      <AddSlidesModal
+        isOpen={showAddSlides}
+        onClose={() => setShowAddSlides(false)}
+        project={project}
+      />
+      <SaveProjectAsCohortModal
+        isOpen={showSaveCohort}
+        onClose={() => setShowSaveCohort(false)}
+        project={project}
       />
     </div>
   )

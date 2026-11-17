@@ -2,6 +2,9 @@
 -- Run with: psql $DATABASE_URL -f db/schema.sql
 -- All CREATE statements use IF NOT EXISTS — safe to re-run on existing databases.
 
+-- Trigram matching for the search bar's slide-filename lookup (idx_scans_basename_trgm).
+CREATE EXTENSION IF NOT EXISTS pg_trgm;
+
 -- =============================================================================
 -- USERS
 -- =============================================================================
@@ -32,6 +35,8 @@ ADD COLUMN IF NOT EXISTS summary_text TEXT,
 ADD COLUMN IF NOT EXISTS summary_updated_at TIMESTAMPTZ;
 
 CREATE INDEX IF NOT EXISTS idx_patients_code ON patients (patient_code);
+-- Search-as-you-type prefix match (LIKE 'x%'); the en_US collation needs text_pattern_ops.
+CREATE INDEX IF NOT EXISTS idx_patients_code_prefix ON patients (patient_code text_pattern_ops);
 
 -- =============================================================================
 -- DATA SOURCES  (provenance / cohort of origin)
@@ -70,6 +75,8 @@ CREATE INDEX IF NOT EXISTS idx_submissions_patient_id
     ON submissions (patient_id);
 CREATE INDEX IF NOT EXISTS idx_submissions_lis_id
     ON submissions (lis_submission_id);
+CREATE INDEX IF NOT EXISTS idx_submissions_lis_id_prefix
+    ON submissions (lis_submission_id text_pattern_ops);
 
 -- =============================================================================
 -- REPORTS
@@ -139,6 +146,8 @@ $$;
 
 CREATE INDEX IF NOT EXISTS idx_probes_submission_id ON probes (submission_id);
 CREATE INDEX IF NOT EXISTS idx_probes_snomed ON probes (snomed_topo_code);
+-- Search: exact and prefix lookup by probe ID.
+CREATE INDEX IF NOT EXISTS idx_probes_lis_probe_id_prefix ON probes (lis_probe_id text_pattern_ops);
 
 -- =============================================================================
 -- BLOCKS
@@ -172,10 +181,24 @@ CREATE TABLE IF NOT EXISTS stains (
 -- =============================================================================
 -- SCANS
 -- =============================================================================
+-- The markers of a multi-stain row: "AE1/AE3 + CD8" has two. A scan still points
+-- at one stain, so everything that shows a stain name keeps working; only stain
+-- filters look here (api/lib/stain_filter.py).
+CREATE TABLE IF NOT EXISTS stain_components (
+    stain_id           INTEGER NOT NULL REFERENCES stains (id) ON DELETE CASCADE,
+    component_stain_id INTEGER NOT NULL REFERENCES stains (id),
+    position           INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (stain_id, component_stain_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_stain_components_component ON stain_components (component_stain_id);
+
 CREATE TABLE IF NOT EXISTS scans (
     id            SERIAL        PRIMARY KEY,
     block_id      INTEGER       NOT NULL REFERENCES blocks (id),
     stain_id      INTEGER       NOT NULL REFERENCES stains (id),
+    stain_source  TEXT          NOT NULL DEFAULT 'filename'
+                                CHECK (stain_source IN ('filename', 'colour', 'manual')),
     file_path     TEXT          NOT NULL UNIQUE,
     file_format   TEXT,
     magnification NUMERIC(4,1),
@@ -186,6 +209,13 @@ CREATE TABLE IF NOT EXISTS scans (
 CREATE INDEX IF NOT EXISTS idx_scans_block_id  ON scans (block_id);
 CREATE INDEX IF NOT EXISTS idx_scans_stain_id  ON scans (stain_id);
 CREATE INDEX IF NOT EXISTS idx_scans_format    ON scans (file_format);
+-- Search: filename prefix (btree, C collation) and substring (trigram) on the
+-- basename. The expressions must match api/routers/search.py::_resolve_filenames
+-- exactly to be used.
+CREATE INDEX IF NOT EXISTS idx_scans_basename_trgm
+    ON scans USING gin (regexp_replace(file_path, '^.*/', '') gin_trgm_ops);
+CREATE INDEX IF NOT EXISTS idx_scans_basename_prefix
+    ON scans ((lower(regexp_replace(file_path, '^.*/', '')) COLLATE "C"));
 
 -- =============================================================================
 -- COHORTS

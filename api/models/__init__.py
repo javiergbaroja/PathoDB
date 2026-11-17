@@ -177,12 +177,22 @@ class Stain(Base):
     scans = relationship("Scan", back_populates="stain")
 
 
+class StainComponent(Base):
+    """The markers of a multi-stain row: "AE1/AE3 + CD8" has two."""
+    __tablename__ = "stain_components"
+
+    stain_id           = Column(Integer, ForeignKey("stains.id", ondelete="CASCADE"), primary_key=True)
+    component_stain_id = Column(Integer, ForeignKey("stains.id"), primary_key=True)
+    position           = Column(Integer, nullable=False, default=0)
+
+
 class Scan(Base):
     __tablename__ = "scans"
 
     id              = Column(Integer, primary_key=True)
     block_id        = Column(Integer, ForeignKey("blocks.id"), nullable=False)
     stain_id        = Column(Integer, ForeignKey("stains.id"), nullable=False)
+    stain_source    = Column(Text, nullable=False, server_default="filename")
     file_path       = Column(Text, nullable=False, unique=True)
     file_format     = Column(Text)
     magnification   = Column(Numeric(4, 1))

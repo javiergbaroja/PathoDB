@@ -10,11 +10,13 @@ import CreateProjectModal from './CreateProjectModal'
 import ShareModal from './ShareModal'
 import BatchAIModal from '../ProjectDetail/BatchAIModal'
 import ManageClassesModal from '../../components/ManageClassesModal'
+import AddSlidesModal from '../../components/AddSlidesModal'
+import SaveProjectAsCohortModal from '../../components/SaveProjectAsCohortModal'
 
 const token = () => localStorage.getItem('pathodb_token')
 
 // ─── Project card ─────────────────────────────────────────────────────────────
-function ProjectCard({ project, onOpen, onShare, onDelete, isOwner, onBatchAI, onManageClasses }) {
+function ProjectCard({ project, onOpen, onShare, onDelete, isOwner, onBatchAI, onManageClasses, onAddSlides, onSaveCohort }) {
   const pct = project.scan_count > 0
     ? Math.round((project.annotated_scans / project.scan_count) * 100)
     : 0
@@ -70,6 +72,15 @@ function ProjectCard({ project, onOpen, onShare, onDelete, isOwner, onBatchAI, o
             </Btn>
           )}
 
+          {(isOwner || project.access === 'edit') && (
+            <Btn variant="ghost" small onClick={(e) => { e.stopPropagation(); onAddSlides(project); }}>
+              <svg width="11" height="11" viewBox="0 0 16 16" fill="currentColor">
+                <path d="M8 2a.5.5 0 01.5.5v5h5a.5.5 0 010 1h-5v5a.5.5 0 01-1 0v-5h-5a.5.5 0 010-1h5v-5A.5.5 0 018 2z"/>
+              </svg>
+              Add slides
+            </Btn>
+          )}
+
           <Btn variant="ghost" small onClick={(e) => { e.stopPropagation(); onBatchAI(); }}>
             🪄 Batch AI
           </Btn>
@@ -78,6 +89,13 @@ function ProjectCard({ project, onOpen, onShare, onDelete, isOwner, onBatchAI, o
             <Btn variant="ghost" small onClick={() => api.exportProject(project.id)}>
               <svg width="11" height="11" viewBox="0 0 16 16" fill="currentColor"><path d="M.5 9.9a.5.5 0 01.5.5v2.5a1 1 0 001 1h12a1 1 0 001-1v-2.5a.5.5 0 011 0v2.5a2 2 0 01-2 2H2a2 2 0 01-2-2v-2.5a.5.5 0 01.5-.5z"/><path d="M7.646 11.854a.5.5 0 00.708 0l3-3a.5.5 0 00-.708-.708L8.5 10.293V1.5a.5.5 0 00-1 0v8.793L5.354 8.146a.5.5 0 10-.708.708l3 3z"/></svg>
               Export
+            </Btn>
+          )}
+
+          {project.scan_count > 0 && (
+            <Btn variant="ghost" small onClick={(e) => { e.stopPropagation(); onSaveCohort(project); }}>
+              <svg width="11" height="11" viewBox="0 0 16 16" fill="currentColor"><path d="M1 2.5A1.5 1.5 0 012.5 1h3A1.5 1.5 0 017 2.5v3A1.5 1.5 0 015.5 7h-3A1.5 1.5 0 011 5.5v-3zm8 0A1.5 1.5 0 0110.5 1h3A1.5 1.5 0 0115 2.5v3A1.5 1.5 0 0113.5 7h-3A1.5 1.5 0 019 5.5v-3zm-8 8A1.5 1.5 0 012.5 9h3A1.5 1.5 0 017 10.5v3A1.5 1.5 0 015.5 15h-3A1.5 1.5 0 011 13.5v-3zm8 0A1.5 1.5 0 0110.5 9h3a1.5 1.5 0 011.5 1.5v3a1.5 1.5 0 01-1.5 1.5h-3A1.5 1.5 0 019 13.5v-3z"/></svg>
+              Save as cohort
             </Btn>
           )}
 
@@ -132,6 +150,8 @@ function ProjectCard({ project, onOpen, onShare, onDelete, isOwner, onBatchAI, o
 export default function Projects() {
   const [aiTargetProjectId, setAiTargetProjectId] = useState(null)
   const [manageClassesTarget, setManageClassesTarget] = useState(null)
+  const [addSlidesTarget, setAddSlidesTarget] = useState(null)
+  const [saveCohortTarget, setSaveCohortTarget] = useState(null)
   const navigate     = useNavigate()
   const queryClient  = useQueryClient()
   const [showCreate, setShowCreate]   = useState(false)
@@ -223,6 +243,18 @@ export default function Projects() {
         onClose={() => setManageClassesTarget(null)}
         project={manageClassesTarget}
       />
+
+      <AddSlidesModal
+        isOpen={!!addSlidesTarget}
+        onClose={() => setAddSlidesTarget(null)}
+        project={addSlidesTarget}
+      />
+
+      <SaveProjectAsCohortModal
+        isOpen={!!saveCohortTarget}
+        onClose={() => setSaveCohortTarget(null)}
+        project={saveCohortTarget}
+      />
     </>
   )
 
@@ -256,6 +288,8 @@ export default function Projects() {
                   onDelete={setDeleteTarget}
                   onBatchAI={() => setAiTargetProjectId(p.id)}
                   onManageClasses={setManageClassesTarget}
+                  onAddSlides={setAddSlidesTarget}
+                  onSaveCohort={setSaveCohortTarget}
                 />
               ))}
             </Section>
@@ -271,6 +305,8 @@ export default function Projects() {
                   onDelete={() => {}}
                   onBatchAI={() => setAiTargetProjectId(p.id)}
                   onManageClasses={setManageClassesTarget}
+                  onAddSlides={setAddSlidesTarget}
+                  onSaveCohort={setSaveCohortTarget}
                 />
               ))}
             </Section>

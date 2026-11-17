@@ -1,20 +1,29 @@
 // frontend/src/pages/SlideViewer/Toolbar.jsx
+import { useState } from 'react'
 import { useViewerStore } from '../../store/viewerStore'
 import { STAIN_COLORS } from '../../constants/stains'
 import { ImageAdjustPopover, ToolBtn } from '../../components/ui'
 import { shortcutGroupsFor, SLIDE_VIEWER_ACTIONS } from '../../lib/viewerKeymap'
 import { formatHierarchy } from '../../lib/slideNaming'
 
-export default function Toolbar({ handleBack, leftInfo, rightInfo, compareMode, leftZoom, rightZoom, handleCompareToggle }) {
+export default function Toolbar({ handleBack, leftInfo, rightInfo, compareMode, leftZoom, rightZoom, handleCompareToggle, token }) {
   const {
     isRulerActive,    setIsRulerActive,
     isPolygonActive,  setIsPolygonActive,
     polygons,         clearPolygons,
     showBrightness,   setShowBrightness, brightness, contrast, gamma, setBrightness, setContrast, setGamma, resetAdjustments,
+    showLabel,        setShowLabel,
     showModels,       setShowModels,
     panelOpen,        setPanelOpen,
     showShortcuts,    setShowShortcuts,
   } = useViewerStore()
+
+  // Label popover shows the left slide, plus the right one in compare mode.
+  const labelEntries = (compareMode && rightInfo
+    ? [{ info: leftInfo, side: 'L' }, { info: rightInfo, side: 'R' }]
+    : [{ info: leftInfo, side: null }]
+  ).filter(e => e.info)
+  const labelAvailable = labelEntries.some(e => e.info.has_label)
 
   function handleRulerClick() {
     if (isPolygonActive) setIsPolygonActive(false)
@@ -100,7 +109,7 @@ export default function Toolbar({ handleBack, leftInfo, rightInfo, compareMode, 
 
           {/* Brightness / Contrast */}
           <div style={{ position: 'relative' }}>
-            <ToolBtn active={showBrightness} onClick={() => setShowBrightness(o => !o)} title="Brightness / contrast (D)">
+            <ToolBtn active={showBrightness} onClick={() => { setShowLabel(false); setShowBrightness(o => !o) }} title="Brightness / contrast (D)">
               <svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor"><path d="M8 11a3 3 0 110-6 3 3 0 010 6zm0 1a4 4 0 100-8 4 4 0 000 8zM8 0a.5.5 0 01.5.5v2a.5.5 0 01-1 0v-2A.5.5 0 018 0zm0 13a.5.5 0 01.5.5v2a.5.5 0 01-1 0v-2A.5.5 0 018 13zm8-5a.5.5 0 01-.5.5h-2a.5.5 0 010-1h2a.5.5 0 01.5.5zM3 8a.5.5 0 01-.5.5h-2a.5.5 0 010-1h2A.5.5 0 013 8zm10.657-5.657a.5.5 0 010 .707l-1.414 1.415a.5.5 0 11-.707-.708l1.414-1.414a.5.5 0 01.707 0zm-9.193 9.193a.5.5 0 010 .707L3.05 13.657a.5.5 0 01-.707-.707l1.414-1.414a.5.5 0 01.707 0zm9.193 2.121a.5.5 0 01-.707 0l-1.414-1.414a.5.5 0 00.707-.707l1.414 1.414a.5.5 0 010 .707zM4.464 4.465a.5.5 0 01-.707 0L2.343 3.05a.5.5 0 11.707-.707l1.414 1.414a.5.5 0 010 .708z"/></svg>
             </ToolBtn>
             {showBrightness && (
@@ -126,6 +135,19 @@ export default function Toolbar({ handleBack, leftInfo, rightInfo, compareMode, 
           </ToolBtn>
 
           <div style={{ width: 1, height: 18, background: 'var(--border-dark)' }} />
+
+          {/* Slide label — stays enabled while open so it can always be closed */}
+          <div style={{ position: 'relative' }}>
+            <ToolBtn
+              active={showLabel}
+              disabled={!labelAvailable && !showLabel}
+              onClick={() => { setShowBrightness(false); setShowLabel(o => !o) }}
+              title={labelAvailable ? 'Slide label (N)' : 'No label image stored in this file'}
+            >
+              <svg width="13" height="13" viewBox="0 0 16 16" fill="currentColor"><path d="M6 4.5a1.5 1.5 0 11-3 0 1.5 1.5 0 013 0zm-1 0a.5.5 0 10-1 0 .5.5 0 001 0z"/><path d="M2 1h4.586a1 1 0 01.707.293l7 7a1 1 0 010 1.414l-4.586 4.586a1 1 0 01-1.414 0l-7-7A1 1 0 011 6.586V2a1 1 0 011-1zm0 5.586l7 7L13.586 9l-7-7H2v4.586z"/></svg>
+            </ToolBtn>
+            {showLabel && <LabelPopover entries={labelEntries} token={token} />}
+          </div>
 
           {/* Clinical info */}
           <ToolBtn active={panelOpen} onClick={() => setPanelOpen(o => !o)} title="Clinical info panel (I)">
@@ -153,6 +175,68 @@ function StainBadge({ name, category, side, zoom }) {
       <div style={{ width: 6, height: 6, borderRadius: '50%', background: color, flexShrink: 0 }} />
       <span style={{ fontFamily: 'var(--font-mono)', fontSize: 12, fontWeight: 600, color }}>{name}{side ? ` (${side})` : ''}</span>
       {zoom && <span style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--text-dark-3)', background: 'rgba(255,255,255,0.05)', padding: '1px 5px', borderRadius: 3 }}>{zoom}×</span>}
+    </div>
+  )
+}
+
+// Same surface tokens as ImageAdjustPopover; click a label to enlarge it in place.
+function LabelPopover({ entries, token }) {
+  const [enlarged, setEnlarged] = useState(false)
+  return (
+    <div style={{
+      position: 'absolute', zIndex: 'var(--z-overlay)', top: 'calc(100% + 6px)', right: 0,
+      width: enlarged ? 640 : 300, maxWidth: 'calc(100vw - 32px)', maxHeight: 'calc(100vh - 70px)', overflowY: 'auto',
+      background: 'var(--surface-dark-card)', border: '1px solid var(--border-dark)',
+      borderRadius: 'var(--radius-lg)', padding: '12px 14px',
+      display: 'flex', flexDirection: 'column', gap: 12,
+    }}>
+      {entries.map(({ info, side }) => (
+        <div key={side || 'single'}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, marginBottom: 8 }}>
+            <span style={{ fontSize: 10, fontWeight: 600, color: 'var(--text-dark-2)', textTransform: 'uppercase', letterSpacing: '0.1em' }}>Slide label</span>
+            {side && <StainBadge name={info.stain_name} category={info.stain_category} side={side} />}
+          </div>
+          {info.has_label
+            ? <LabelImage key={info.scan_id} scanId={info.scan_id} token={token} enlarged={enlarged} onToggle={() => setEnlarged(o => !o)} />
+            : <LabelNotice>No label image stored in this file</LabelNotice>}
+        </div>
+      ))}
+    </div>
+  )
+}
+
+function LabelImage({ scanId, token, enlarged, onToggle }) {
+  const [status, setStatus] = useState('loading')   // 'loading' | 'ok' | 'error'
+  if (status === 'error') return <LabelNotice>Label image could not be loaded</LabelNotice>
+  return (
+    <button
+      onClick={onToggle}
+      title={enlarged ? 'Click to shrink' : 'Click to enlarge'}
+      style={{
+        position: 'relative', display: 'block', width: '100%', padding: 0, border: 'none',
+        background: 'var(--surface-dark-2)', borderRadius: 'var(--radius-sm)', overflow: 'hidden',
+        cursor: enlarged ? 'zoom-out' : 'zoom-in',
+        aspectRatio: status === 'loading' ? '5 / 4' : undefined,
+      }}
+    >
+      {status === 'loading' && (
+        <span style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, color: 'var(--text-dark-3)' }}>Loading…</span>
+      )}
+      <img
+        src={`/api/slides/${scanId}/label?token=${token}`}
+        alt="Slide label"
+        onLoad={() => setStatus('ok')}
+        onError={() => setStatus('error')}
+        style={{ display: 'block', width: '100%', height: 'auto' }}
+      />
+    </button>
+  )
+}
+
+function LabelNotice({ children }) {
+  return (
+    <div style={{ padding: '18px 10px', textAlign: 'center', fontSize: 11, color: 'var(--text-dark-3)', background: 'var(--transparent-white-0)', border: '1px dashed var(--border-dark)', borderRadius: 'var(--radius-sm)' }}>
+      {children}
     </div>
   )
 }

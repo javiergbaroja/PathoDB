@@ -174,6 +174,18 @@ export function cleanFilter(f) {
   )
 }
 
+export const ID_TYPE_NOUNS = {
+  patient_code: 'patient codes',
+  b_number:     'B/Z-numbers',
+  slide_path:   'slide paths',
+}
+
+const ID_TYPE_PLACEHOLDERS = {
+  patient_code: '581561\n795492',
+  b_number:     'B2019.14823\nZ2021.4837\nB2015.00392',
+  slide_path:   '/storage/research/…/B2019.14823_A1_HE.svs\n/storage/research/…/B2021.4837_B2_CD8.ndpi',
+}
+
 export function buildQueryPayload(mode, filter, listState) {
   if (mode === 'filter') {
     return { type: 'filter', payload: cleanFilter(filter) }
@@ -497,7 +509,7 @@ function ListModeForm({ listState, onListStateChange, lockReturnLevel }) {
     <>
       <FormField label="ID type">
         <SegmentedControl
-          options={[['patient_code', 'Patient code'], ['b_number', 'B/Z-number']]}
+          options={[['patient_code', 'Patient code'], ['b_number', 'B/Z-number'], ['slide_path', 'Slide path']]}
           value={idType}
           onChange={val => onListStateChange('idType', val)}
         />
@@ -526,11 +538,11 @@ function ListModeForm({ listState, onListStateChange, lockReturnLevel }) {
         </FormField>
       )}
 
-      <FormField label={`Paste ${idType === 'b_number' ? 'B/Z-numbers' : 'patient codes'} (one per line)`}>
+      <FormField label={`Paste ${ID_TYPE_NOUNS[idType]} (one per line)`}>
         <FormTextarea
           value={idText}
           onChange={e => onListStateChange('idText', e.target.value)}
-          placeholder={idType === 'b_number' ? 'B2019.14823\nZ2021.4837\nB2015.00392' : '581561\n795492'}
+          placeholder={ID_TYPE_PLACEHOLDERS[idType]}
           rows={7}
           style={{ fontFamily: 'var(--font-mono)' }}
         />

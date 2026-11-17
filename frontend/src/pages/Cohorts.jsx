@@ -12,6 +12,7 @@ import {
 import CohortFilterForm, {
   EMPTY_FILTER,
   EMPTY_LIST_STATE,
+  ID_TYPE_NOUNS,
   buildQueryPayload,
   cleanFilter,
 } from '../components/CohortFilterForm'
@@ -361,7 +362,7 @@ function ActiveFilterChips({ filter, mode, listState, onRemove }) {
 
   if (mode === 'list' && listState.idText.trim()) {
     const count = listState.idText.split('\n').filter(s => s.trim()).length
-    chips.push({ key: '_ids', label: `${count} ${listState.idType === 'b_number' ? 'accession numbers' : 'patient codes'}` })
+    chips.push({ key: '_ids', label: `${count} ${ID_TYPE_NOUNS[listState.idType]}` })
   }
 
   if (chips.length === 0) return null

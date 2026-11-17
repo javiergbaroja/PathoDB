@@ -15,6 +15,7 @@ venv/
 .idea/
 to_delete.json
 logs/*
+data/*
 */__pycache__/*
 frontend/node_modules
 .gitignore

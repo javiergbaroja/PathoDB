@@ -15,14 +15,14 @@
 #SBATCH --mail-type=fail
 #SBATCH --mail-user=javier.garcia@unibe.ch
 #SBATCH --time=1:00:00
-#SBATCH --account=gratis
+#SBATCH --account=invest
 #SBATCH --mem=80G
 #SBATCH --nodes=1
 #SBATCH --cpus-per-task=7
 #SBATCH --partition=gpu-invest
 #SBATCH --gres=gpu:rtx4090:1
 #SBATCH --job-name=crc_tis_seg
-#SBATCH --qos=job_gpu_preemptable
+#SBATCH --qos=job_gpu_igmp-tru
 
 set -euo pipefail
 
